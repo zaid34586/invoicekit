@@ -253,7 +253,7 @@ export default function NewInvoice() {
         exchange_rate: isForeignCurrency ? exchangeRate : 1,
         base_total: calc.total,  // always in base currency
 
-        // ── Self-contained snapshot fields (NEW) ──────────────────────────
+        // ── Self-contained snapshot fields ──────────────────────────
         // Everything an invoice needs so Preview/PDF/Reports never have to
         // look back at Clients or Profile again. Business side is hardcoded
         // "India" to stay consistent with the decideTax() call above — this
@@ -472,7 +472,7 @@ export default function NewInvoice() {
                   className="input"
                 >
                   <option value="">Select state</option>
-                  {statesForSelectedCountry.map((s) => (
+                  {statesForSelectedCountry.map((s: string) => (
                     <option key={s} value={s}>
                       {s}
                     </option>

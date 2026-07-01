@@ -88,6 +88,14 @@ export const COUNTRY_SETTINGS = {
   },
 };
 
+// Shape used by the COUNTRIES array below. Restored so TypeScript can
+// resolve `CountryData` (was referenced but never declared).
+export interface CountryData {
+  name: string;
+  code: string;
+  states: string[];
+}
+
 export const COUNTRIES: CountryData[] = [
   {
     name: "India",

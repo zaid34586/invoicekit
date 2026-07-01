@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useRegion } from "../context/RegionContext";
 import { INDIA_PLANS, GLOBAL_PLANS } from "../lib/pricing";
 import { useAuth } from "../context/AuthContext";

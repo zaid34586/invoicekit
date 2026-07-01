@@ -291,7 +291,7 @@ export default function Settings() {
               <option value="">
                 {statesForCountry.length === 0 ? "Not applicable" : "Select"}
               </option>
-              {statesForCountry.map((s) => (
+              {statesForCountry.map((s: string) => (
                 <option key={s} value={s}>{s}</option>
               ))}
             </select>

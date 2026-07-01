@@ -139,7 +139,6 @@ export interface TaxDecisionInput {
 export function decideTax(input: TaxDecisionInput): TaxDecision {
   const {
     businessState,
-    isB2B = false,
     defaultGstRate = 18,
   } = input;
 
