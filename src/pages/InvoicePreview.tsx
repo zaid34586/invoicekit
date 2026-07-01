@@ -3,11 +3,13 @@ import { useParams, useNavigate, Link } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../context/AuthContext";
 import type { Invoice, InvoiceStatus } from "../lib/types";
-import { formatINR, formatDate } from "../lib/constants";
+import { formatDate } from "../lib/constants";
 import { lineAmount } from "../lib/gst";
-import { generateInvoicePDF } from "../lib/pdf";
+import { generateInvoicePDF, type InvoicePDFExtras } from "../lib/pdf";
 import { buildWhatsAppLink } from "../lib/whatsapp";
 import StatusBadge from "../components/StatusBadge";
+import { decideTax, type TaxDecision } from "../lib/tax";
+import { formatMoney, convertCurrency } from "../lib/currency";
 
 const STATUS_OPTIONS: { value: InvoiceStatus; label: string }[] = [
   { value: "draft", label: "Draft" },
@@ -46,34 +48,68 @@ export default function InvoicePreview() {
 
   async function updateStatus(newStatus: InvoiceStatus) {
     if (!invoice || !user) return;
+
     setUpdating(true);
+
     const { data, error } = await supabase
       .from("invoices")
       .update({ status: newStatus })
       .eq("id", invoice.id)
+      .eq("user_id", user.id)
       .select("*")
       .single();
+
     setUpdating(false);
-    if (!error && data) {
+
+    if (error) {
+      alert(error.message);
+      return;
+    }
+
+    if (data) {
       setInvoice(data as Invoice);
     }
   }
 
-  async function toggleShareLink() {
-    if (!invoice || !user) return;
-    setUpdating(true);
-    const newToken = invoice.share_token
-      ? null
-      : crypto.randomUUID();
-    const { data, error } = await supabase
-      .from("invoices")
-      .update({ share_token: newToken })
-      .eq("id", invoice.id)
-      .select("*")
-      .single();
-    setUpdating(false);
-    if (!error && data) {
+  async function handleShare() {
+    if (!invoice) return;
+
+    let token = invoice.share_token;
+
+    if (!token) {
+      if (!user) return;
+
+      setUpdating(true);
+
+      const newToken = crypto.randomUUID();
+
+      const { data, error } = await supabase
+        .from("invoices")
+        .update({ share_token: newToken })
+        .eq("id", invoice.id)
+        .select("*")
+        .single();
+
+      setUpdating(false);
+
+      if (error || !data) return;
+
       setInvoice(data as Invoice);
+
+      token = newToken;
+    }
+
+    const url = `${window.location.origin}/share/${token}`;
+
+    if (navigator.share) {
+      await navigator.share({
+        title: invoice.invoice_number,
+        text: `Invoice ${invoice.invoice_number}`,
+        url,
+      });
+    } else {
+      await navigator.clipboard.writeText(url);
+      alert("Share link copied.");
     }
   }
 
@@ -101,7 +137,27 @@ export default function InvoicePreview() {
 
   function handleDownloadPDF() {
     if (!invoice || !profile) return;
-    generateInvoicePDF(invoice, profile);
+    const extras: InvoicePDFExtras = {
+      businessCountry,
+      businessState,
+      businessCurrency,
+      clientCountry,
+      invoiceCurrency,
+      baseCurrency,
+      exchangeRate,
+      isForeignCurrency,
+      displaySubtotal,
+      displayCgst,
+      displaySgst,
+      displayIgst,
+      displayTotal,
+      baseTotal: baseTotalDisplay,
+      taxLabel: effectiveTaxLabel,
+      taxNote: effectiveTaxNote,
+      isInterState,
+      isZeroRated: effectiveIsZeroRated,
+    };
+    generateInvoicePDF(invoice, profile, extras);
   }
 
   function handleWhatsApp() {
@@ -118,14 +174,19 @@ export default function InvoicePreview() {
       `Invoice Number: ${invoice.invoice_number}\n` +
       `Invoice Date: ${formatDate(invoice.invoice_date)}\n` +
       `Due Date: ${formatDate(invoice.due_date)}\n` +
-      `Amount: ${formatINR(Number(invoice.total))}\n\n` +
+      `Amount: ${formatMoney(displayTotal, invoiceCurrency)}\n\n` +
       (invoice.share_token
         ? `View invoice online: ${window.location.origin}/share/${invoice.share_token}\n\n`
         : "") +
       `Thank you for your business!\n\n` +
       `${profile.business_name || ""}\n${profile.phone || ""} ${profile.email || ""}`.trim();
-    const mailto = `mailto:${invoice.client_email || ""}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
-    window.location.href = mailto;
+    const gmailUrl =
+      `https://mail.google.com/mail/?view=cm&fs=1` +
+      `&to=${encodeURIComponent(invoice.client_email || "")}` +
+      `&su=${encodeURIComponent(subject)}` +
+      `&body=${encodeURIComponent(body)}`;
+
+    window.open(gmailUrl, "_blank");
     setEmailSent(true);
     setTimeout(() => setEmailSent(false), 2000);
   }
@@ -150,6 +211,83 @@ export default function InvoicePreview() {
   }
 
   const isInterState = invoice.igst > 0;
+
+  // ── Business legal data: LOCKED invoice fields only. Profile is used ONLY
+  // as a fallback for invoices created before the data-model upgrade (where
+  // business_country/business_state/business_currency are null). Never used
+  // for invoices that already have this snapshot. ───────────────────────────
+  const isLegacyBusinessInfo = invoice.business_country == null;
+  const businessCountry = invoice.business_country ?? profile?.country ?? "India";
+  const businessState = invoice.business_state ?? profile?.state ?? null;
+  const businessCurrency =
+    invoice.business_currency ?? invoice.base_currency ?? profile?.currency ?? "INR";
+
+  // ── Client legal data: LOCKED invoice field only. NO Clients table lookup.
+  // Old invoices (pre-upgrade) simply have no reliable client country — we do
+  // not guess it, since falling back to Profile or a table lookup could show
+  // a country the client did not actually have at invoice time. ────────────
+  const isLegacyClientCountry = invoice.client_country == null;
+  const clientCountry = invoice.client_country ?? "Not recorded (legacy invoice)";
+
+  // ── Currency: base/invoice currency come from the LOCKED invoice snapshot.
+  // Profile is only a fallback for legacy invoices missing base_currency. ───
+  const baseCurrency = invoice.base_currency ?? profile?.currency ?? "INR";
+  const invoiceCurrency = invoice.invoice_currency ?? baseCurrency;
+  const isForeignCurrency = invoiceCurrency !== baseCurrency;
+  const exchangeRate = invoice.exchange_rate ?? 1;
+
+  // Prefer the pre-converted, locked invoice-currency amounts (new fields).
+  // Fall back to computing them from the locked base amounts for invoices
+  // saved before these snapshot fields existed.
+  const baseSubtotal = invoice.base_subtotal ?? Number(invoice.subtotal);
+  const baseTotalRaw = invoice.base_total ?? Number(invoice.total);
+
+  const displaySubtotal =
+    invoice.invoice_subtotal ??
+    (isForeignCurrency ? convertCurrency(baseSubtotal, exchangeRate) : baseSubtotal);
+  const displayTotal =
+    invoice.invoice_total ??
+    (isForeignCurrency ? convertCurrency(baseTotalRaw, exchangeRate) : baseTotalRaw);
+
+  // No locked per-tax-line (CGST/SGST/IGST) invoice-currency fields exist in
+  // the current model, so these are still derived from the locked base
+  // amounts on the invoice row itself (never from Profile/Clients).
+  const displayCgst = isForeignCurrency
+    ? convertCurrency(Number(invoice.cgst), exchangeRate)
+    : Number(invoice.cgst);
+  const displaySgst = isForeignCurrency
+    ? convertCurrency(Number(invoice.sgst), exchangeRate)
+    : Number(invoice.sgst);
+  const displayIgst = isForeignCurrency
+    ? convertCurrency(Number(invoice.igst), exchangeRate)
+    : Number(invoice.igst);
+  const baseTotalDisplay = baseTotalRaw;
+
+  // ── Tax: use the LOCKED tax_label/tax_note/tax_type from the invoice row.
+  // decideTax() is invoked ONLY as a fallback for legacy invoices that were
+  // created before tax data was snapshotted onto the invoice. Even in that
+  // fallback path, business_country/business_state prefer the invoice's own
+  // (possibly null) fields before touching Profile. ────────────────────────
+  const isLegacyTaxInfo = invoice.tax_label == null || invoice.tax_note == null;
+
+  let legacyTaxDecision: TaxDecision | null = null;
+  if (isLegacyTaxInfo) {
+    legacyTaxDecision = decideTax({
+      businessCountry: invoice.business_country ?? profile?.country ?? "India",
+      businessState: invoice.business_state ?? profile?.state ?? null,
+      clientCountry: invoice.client_country ?? "India",
+      clientState: invoice.client_state,
+      defaultGstRate: invoice.items[0]?.gstRate ?? 18,
+    });
+  }
+
+  const effectiveTaxLabel = invoice.tax_label ?? legacyTaxDecision!.taxLabel;
+  const effectiveTaxNote = invoice.tax_note ?? legacyTaxDecision!.taxNote;
+  const effectiveIsZeroRated = invoice.tax_type
+    ? invoice.tax_type === "export_zero_rated" || invoice.tax_type === "international_exempt"
+    : legacyTaxDecision!.isZeroRated;
+
+  const isLegacyInvoice = isLegacyBusinessInfo || isLegacyClientCountry || isLegacyTaxInfo;
 
   return (
     <div className="max-w-4xl mx-auto space-y-6 animate-fade-in">
@@ -180,7 +318,7 @@ export default function InvoicePreview() {
           {emailSent ? "Opening..." : "Email"}
         </button>
         <button
-          onClick={toggleShareLink}
+          onClick={handleShare}
           disabled={updating}
           className="btn-secondary"
         >
@@ -234,6 +372,59 @@ export default function InvoicePreview() {
         </div>
       </div>
 
+      {isLegacyInvoice && (
+        <div className="card p-3 bg-amber-50 border-amber-200 text-xs text-amber-700">
+          This invoice was created before legal-data snapshots were saved on
+          invoices. Some fields below (business/client country, state, or tax
+          basis) are shown from current account settings and may not exactly
+          match what was in effect on the invoice date.
+        </div>
+      )}
+
+      {/* ── Locked invoice legal & currency details ───────────────────────── */}
+      <div className="card p-4 grid grid-cols-2 sm:grid-cols-3 gap-x-6 gap-y-3 text-sm">
+        <div>
+          <span className="text-slate-500 block text-xs uppercase tracking-wide">Business Country</span>
+          <span className="font-medium text-slate-900">{businessCountry}</span>
+        </div>
+        <div>
+          <span className="text-slate-500 block text-xs uppercase tracking-wide">Business State</span>
+          <span className="font-medium text-slate-900">{businessState || "—"}</span>
+        </div>
+        <div>
+          <span className="text-slate-500 block text-xs uppercase tracking-wide">Business Currency</span>
+          <span className="font-medium text-slate-900">{businessCurrency}</span>
+        </div>
+        <div>
+          <span className="text-slate-500 block text-xs uppercase tracking-wide">Client Country</span>
+          <span className="font-medium text-slate-900">{clientCountry}</span>
+        </div>
+        <div>
+          <span className="text-slate-500 block text-xs uppercase tracking-wide">Client State</span>
+          <span className="font-medium text-slate-900">{invoice.client_state || "—"}</span>
+        </div>
+        <div>
+          <span className="text-slate-500 block text-xs uppercase tracking-wide">Tax Basis</span>
+          <span className="font-medium text-slate-900">{effectiveTaxLabel}</span>
+        </div>
+        <div>
+          <span className="text-slate-500 block text-xs uppercase tracking-wide">Invoice Currency</span>
+          <span className="font-medium text-slate-900">{invoiceCurrency}</span>
+        </div>
+        <div>
+          <span className="text-slate-500 block text-xs uppercase tracking-wide">Base Currency</span>
+          <span className="font-medium text-slate-900">{baseCurrency}</span>
+        </div>
+        {isForeignCurrency && (
+          <div>
+            <span className="text-slate-500 block text-xs uppercase tracking-wide">Exchange Rate</span>
+            <span className="font-medium text-slate-900">
+              1 {invoiceCurrency} = {formatMoney(1 / exchangeRate, baseCurrency)}
+            </span>
+          </div>
+        )}
+      </div>
+
       <div className="card p-6 sm:p-10">
         <div className="flex flex-col sm:flex-row sm:justify-between gap-6 pb-6 border-b border-slate-200">
           <div className="flex items-start gap-4">
@@ -257,6 +448,10 @@ export default function InvoicePreview() {
                   {profile.address}
                 </p>
               )}
+              <p className="text-sm text-slate-500 mt-1">
+                {businessState ? `${businessState}, ` : ""}
+                {businessCountry}
+              </p>
               {profile?.gstin && (
                 <p className="text-sm text-slate-500 mt-1">
                   GSTIN: {profile.gstin}
@@ -310,6 +505,7 @@ export default function InvoicePreview() {
           {invoice.client_state && (
             <p className="text-sm text-slate-500">{invoice.client_state}</p>
           )}
+          <p className="text-sm text-slate-500">{clientCountry}</p>
           {invoice.client_phone && (
             <p className="text-sm text-slate-500">Phone: {invoice.client_phone}</p>
           )}
@@ -359,13 +555,18 @@ export default function InvoicePreview() {
                       {item.qty}
                     </td>
                     <td className="px-4 py-3 text-sm text-slate-700 text-right">
-                      {formatINR(item.rate)}
+                      {formatMoney(item.rate, invoiceCurrency)}
                     </td>
                     <td className="px-4 py-3 text-sm text-slate-700 text-center">
                       {item.gstRate}%
                     </td>
                     <td className="px-4 py-3 text-sm font-medium text-slate-900 text-right">
-                      {formatINR(lineAmount(item))}
+                      {formatMoney(
+                        isForeignCurrency
+                          ? convertCurrency(lineAmount(item), exchangeRate)
+                          : lineAmount(item),
+                        invoiceCurrency
+                      )}
                     </td>
                   </tr>
                 ))}
@@ -376,55 +577,71 @@ export default function InvoicePreview() {
 
         <div className="flex flex-col sm:flex-row gap-6 pb-6">
           <div className="flex-1">
-            {isInterState ? (
-              <GSTBreakupTable
-                title="IGST Breakup"
-                rows={invoice.items.map((it) => ({
-                  rate: it.gstRate,
-                  taxable: lineAmount(it),
-                  tax: (lineAmount(it) * it.gstRate) / 100,
-                }))}
-                type="igst"
-              />
-            ) : invoice.cgst > 0 || invoice.sgst > 0 ? (
-              <GSTBreakupTable
-                title="CGST + SGST Breakup"
-                rows={invoice.items.map((it) => ({
-                  rate: it.gstRate,
-                  taxable: lineAmount(it),
-                  tax: (lineAmount(it) * it.gstRate) / 100,
-                }))}
-                type="cgstsgst"
-              />
-            ) : null}
+            {(isInterState || invoice.cgst > 0 || invoice.sgst > 0) &&
+              (isInterState ? (
+                <GSTBreakupTable
+                  title={`${effectiveTaxLabel} Breakup`}
+                  currency={invoiceCurrency}
+                  rows={invoice.items.map((it) => {
+                    const rawTaxable = lineAmount(it);
+                    const rawTax = (rawTaxable * it.gstRate) / 100;
+                    return {
+                      rate: it.gstRate,
+                      taxable: isForeignCurrency ? convertCurrency(rawTaxable, exchangeRate) : rawTaxable,
+                      tax: isForeignCurrency ? convertCurrency(rawTax, exchangeRate) : rawTax,
+                    };
+                  })}
+                  type="igst"
+                />
+              ) : (
+                <GSTBreakupTable
+                  title={`${effectiveTaxLabel} Breakup`}
+                  currency={invoiceCurrency}
+                  rows={invoice.items.map((it) => {
+                    const rawTaxable = lineAmount(it);
+                    const rawTax = (rawTaxable * it.gstRate) / 100;
+                    return {
+                      rate: it.gstRate,
+                      taxable: isForeignCurrency ? convertCurrency(rawTaxable, exchangeRate) : rawTaxable,
+                      tax: isForeignCurrency ? convertCurrency(rawTax, exchangeRate) : rawTax,
+                    };
+                  })}
+                  type="cgstsgst"
+                />
+              ))}
           </div>
 
           <div className="sm:w-64 space-y-2 text-sm">
             <div className="flex justify-between">
               <span className="text-slate-500">Subtotal</span>
               <span className="font-medium text-slate-900">
-                {formatINR(Number(invoice.subtotal))}
+                {formatMoney(displaySubtotal, invoiceCurrency)}
               </span>
             </div>
             {isInterState ? (
               <div className="flex justify-between">
-                <span className="text-slate-500">IGST</span>
+                <span className="text-slate-500">{effectiveTaxLabel}</span>
                 <span className="font-medium text-slate-900">
-                  {formatINR(Number(invoice.igst))}
+                  {formatMoney(displayIgst, invoiceCurrency)}
                 </span>
+              </div>
+            ) : effectiveIsZeroRated ? (
+              <div className="flex justify-between">
+                <span className="text-slate-500">{effectiveTaxLabel}</span>
+                <span className="font-medium text-slate-900">—</span>
               </div>
             ) : (
               <>
                 <div className="flex justify-between">
                   <span className="text-slate-500">CGST</span>
                   <span className="font-medium text-slate-900">
-                    {formatINR(Number(invoice.cgst))}
+                    {formatMoney(displayCgst, invoiceCurrency)}
                   </span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-slate-500">SGST</span>
                   <span className="font-medium text-slate-900">
-                    {formatINR(Number(invoice.sgst))}
+                    {formatMoney(displaySgst, invoiceCurrency)}
                   </span>
                 </div>
               </>
@@ -432,9 +649,17 @@ export default function InvoicePreview() {
             <div className="bg-primary-600 text-white rounded-lg px-4 py-3 flex justify-between items-center mt-3">
               <span className="font-semibold">Grand Total</span>
               <span className="text-lg font-bold">
-                {formatINR(Number(invoice.total))}
+                {formatMoney(displayTotal, invoiceCurrency)}
               </span>
             </div>
+
+            {isForeignCurrency && (
+              <p className="text-xs text-slate-400 text-right">
+                ≈ {formatMoney(baseTotalDisplay, baseCurrency)} (Base Currency Equivalent)
+              </p>
+            )}
+
+            <p className="text-xs text-slate-400 mt-1">{effectiveTaxNote}</p>
 
             {invoice.status !== "paid" && invoice.status !== "draft" && (
               <button
@@ -495,7 +720,7 @@ export default function InvoicePreview() {
             </div>
             <h2 className="text-xl font-bold text-slate-900 mb-2">Pay Invoice</h2>
             <p className="text-sm text-slate-500 mb-1">
-              Amount due: {formatINR(Number(invoice.total))}
+              Amount due: {formatMoney(displayTotal, invoiceCurrency)}
             </p>
             <p className="text-sm text-amber-600 font-medium mt-4">
               Payment gateway coming soon
@@ -517,10 +742,12 @@ function GSTBreakupTable({
   title,
   rows,
   type,
+  currency,
 }: {
   title: string;
   rows: { rate: number; taxable: number; tax: number }[];
   type: "igst" | "cgstsgst";
+  currency: string;
 }) {
   const merged = new Map<number, { taxable: number; tax: number }>();
   for (const r of rows) {
@@ -566,19 +793,19 @@ function GSTBreakupTable({
             <tr key={rate} className="border-t border-slate-100">
               <td className="px-3 py-2 text-slate-600">{rate}%</td>
               <td className="px-3 py-2 text-right text-slate-600">
-                {formatINR(v.taxable)}
+                {formatMoney(v.taxable, currency)}
               </td>
               {type === "igst" ? (
                 <td className="px-3 py-2 text-right text-slate-600">
-                  {formatINR(v.tax)}
+                  {formatMoney(v.tax, currency)}
                 </td>
               ) : (
                 <>
                   <td className="px-3 py-2 text-right text-slate-600">
-                    {formatINR(v.tax / 2)}
+                    {formatMoney(v.tax / 2, currency)}
                   </td>
                   <td className="px-3 py-2 text-right text-slate-600">
-                    {formatINR(v.tax / 2)}
+                    {formatMoney(v.tax / 2, currency)}
                   </td>
                 </>
               )}

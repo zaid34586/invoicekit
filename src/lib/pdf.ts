@@ -1,9 +1,57 @@
 import jsPDF from "jspdf";
 import type { Invoice, Profile } from "./types";
-import { formatINR, formatDate } from "./constants";
+import { formatDate } from "./constants";
 import { lineAmount } from "./gst";
+import { getCurrencySymbol, getCurrencyDecimals, convertCurrency } from "./currency";
 
-export function generateInvoicePDF(invoice: Invoice, profile: Profile): void {
+// Computed once in InvoicePreview.tsx and passed in here, so the PDF NEVER
+// recalculates currency/tax independently — it only renders numbers and
+// legal fields that were already shown on screen, all sourced from the
+// LOCKED invoice record (Profile is only used here for header display
+// items like logo/business name/phone/email, never for legal data).
+// This is what guarantees "PDF == Preview".
+export interface InvoicePDFExtras {
+  // ── Locked legal snapshot (invoice fields only, Profile fallback only
+  // happens upstream in InvoicePreview.tsx for legacy invoices) ────────────
+  businessCountry: string;
+  businessState: string | null;
+  businessCurrency: string;
+  clientCountry: string;
+
+  invoiceCurrency: string;
+  baseCurrency: string;
+  exchangeRate: number;
+  isForeignCurrency: boolean;
+  displaySubtotal: number;
+  displayCgst: number;
+  displaySgst: number;
+  displayIgst: number;
+  displayTotal: number;
+  baseTotal: number;
+  taxLabel: string;
+  taxNote: string;
+  isInterState: boolean;
+  isZeroRated: boolean;
+}
+
+// jsPDF's built-in helvetica font does not render the ₹ glyph reliably,
+// so INR keeps the existing "Rs." text workaround. Other currencies use
+// their standard symbol (all plain ASCII/Latin-1, safe for helvetica).
+function pdfMoney(value: number, currency: string): string {
+  const symbol = currency === "INR" ? "Rs. " : getCurrencySymbol(currency);
+  const decimals = getCurrencyDecimals(currency);
+  const formatted = new Intl.NumberFormat("en-US", {
+    minimumFractionDigits: decimals,
+    maximumFractionDigits: decimals,
+  }).format(value);
+  return `${symbol}${formatted}`;
+}
+
+export function generateInvoicePDF(
+  invoice: Invoice,
+  profile: Profile,
+  extras: InvoicePDFExtras
+): void {
   const doc = new jsPDF({ unit: "pt", format: "a4" });
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
@@ -37,6 +85,12 @@ export function generateInvoicePDF(invoice: Invoice, profile: Profile): void {
     doc.text(addrLines, margin + 72, addrY);
     addrY += addrLines.length * 12;
   }
+  // ── Locked business country/state (invoice snapshot, not live Profile) ──
+  const businessLocation = extras.businessState
+    ? `${extras.businessState}, ${extras.businessCountry}`
+    : extras.businessCountry;
+  doc.text(businessLocation, margin + 72, addrY);
+  addrY += 12;
   if (profile.gstin) {
     doc.text(`GSTIN: ${profile.gstin}`, margin + 72, addrY);
     addrY += 12;
@@ -116,6 +170,9 @@ export function generateInvoicePDF(invoice: Invoice, profile: Profile): void {
     doc.text(invoice.client_state, margin, y);
     y += 12;
   }
+  // ── Locked client country (invoice.client_country, no Clients lookup) ───
+  doc.text(extras.clientCountry, margin, y);
+  y += 12;
   if (invoice.client_phone) {
     doc.text(`Phone: ${invoice.client_phone}`, margin, y);
     y += 12;
@@ -125,7 +182,28 @@ export function generateInvoicePDF(invoice: Invoice, profile: Profile): void {
     y += 12;
   }
 
+  y += 6;
+
+  // ── Currency, exchange rate & tax basis line ─────────────────────────────
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(9);
+  doc.setTextColor(...gray);
+  doc.text(
+    `Invoice Currency: ${extras.invoiceCurrency}   Base Currency: ${extras.baseCurrency}   Tax Basis: ${extras.taxLabel}`,
+    margin,
+    y
+  );
   y += 12;
+  if (extras.isForeignCurrency) {
+    doc.text(
+      `Exchange Rate: 1 ${extras.invoiceCurrency} = ${pdfMoney(1 / extras.exchangeRate, extras.baseCurrency)}`,
+      margin,
+      y
+    );
+    y += 12;
+  }
+
+  y += 10;
 
   const tableX = margin;
   const tableW = pageWidth - margin * 2;
@@ -161,10 +239,17 @@ export function generateInvoicePDF(invoice: Invoice, profile: Profile): void {
     doc.text(descLines[0] || "", tableX + 8, y + 14);
     doc.text(item.hsnSac || "—", tableX + colDesc + 8, y + 14);
     doc.text(String(item.qty), tableX + colDesc + colHsn + 8, y + 14);
-    doc.text(formatINR(item.rate), tableX + colDesc + colHsn + colQty + 8, y + 14);
+    doc.text(pdfMoney(item.rate, extras.invoiceCurrency), tableX + colDesc + colHsn + colQty + 8, y + 14);
     doc.text(`${item.gstRate}%`, tableX + colDesc + colHsn + colQty + colRate + 8, y + 14);
+    const rawAmount = lineAmount(item);
+    // Routed through convertCurrency (same helper Preview uses) instead of a
+    // raw multiply, so PDF line amounts match Preview exactly, rounding
+    // included.
+    const displayAmount = extras.isForeignCurrency
+      ? convertCurrency(rawAmount, extras.exchangeRate)
+      : rawAmount;
     doc.text(
-      formatINR(lineAmount(item)),
+      pdfMoney(displayAmount, extras.invoiceCurrency),
       tableX + tableW - 8,
       y + 14,
       { align: "right" }
@@ -191,12 +276,15 @@ export function generateInvoicePDF(invoice: Invoice, profile: Profile): void {
     y += rowGap;
   }
 
-  totalRow("Subtotal", formatINR(invoice.subtotal));
-  if (invoice.igst > 0) {
-    totalRow("IGST", formatINR(invoice.igst));
+  totalRow("Subtotal", pdfMoney(extras.displaySubtotal, extras.invoiceCurrency));
+
+  if (extras.isInterState) {
+    totalRow(extras.taxLabel, pdfMoney(extras.displayIgst, extras.invoiceCurrency));
+  } else if (extras.isZeroRated) {
+    totalRow(extras.taxLabel, "—");
   } else {
-    if (invoice.cgst > 0) totalRow("CGST", formatINR(invoice.cgst));
-    if (invoice.sgst > 0) totalRow("SGST", formatINR(invoice.sgst));
+    if (extras.displayCgst > 0) totalRow("CGST", pdfMoney(extras.displayCgst, extras.invoiceCurrency));
+    if (extras.displaySgst > 0) totalRow("SGST", pdfMoney(extras.displaySgst, extras.invoiceCurrency));
   }
 
   y += 4;
@@ -211,8 +299,29 @@ export function generateInvoicePDF(invoice: Invoice, profile: Profile): void {
   doc.setFontSize(12);
   doc.setTextColor(255, 255, 255);
   doc.text("Grand Total", labelX, y + 5);
-  doc.text(formatINR(invoice.total), valueX - 8, y + 5, { align: "right" });
-  y += 40;
+  doc.text(pdfMoney(extras.displayTotal, extras.invoiceCurrency), valueX - 8, y + 5, { align: "right" });
+  y += 32;
+
+  if (extras.isForeignCurrency) {
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(9);
+    doc.setTextColor(...gray);
+    doc.text(
+      `~ ${pdfMoney(extras.baseTotal, extras.baseCurrency)} (Base Currency Equivalent)`,
+      valueX,
+      y,
+      { align: "right" }
+    );
+    y += 16;
+  }
+
+  // ── Tax note ──────────────────────────────────────────────────────────────
+  doc.setFont("helvetica", "italic");
+  doc.setFontSize(8);
+  doc.setTextColor(...gray);
+  const taxNoteLines = doc.splitTextToSize(extras.taxNote, tableW);
+  doc.text(taxNoteLines, margin, y);
+  y += taxNoteLines.length * 11 + 12;
 
   if (invoice.notes) {
     doc.setFont("helvetica", "bold");

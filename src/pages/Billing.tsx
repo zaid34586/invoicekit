@@ -1,4 +1,7 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useRegion } from "../context/RegionContext";
+import { INDIA_PLANS, GLOBAL_PLANS } from "../lib/pricing";
+import { useAuth } from "../context/AuthContext";
 
 // Placeholder billing history data
 const BILLING_HISTORY = [
@@ -206,6 +209,7 @@ function PricingCard({
 }
 
 export default function Billing() {
+  const { profile } = useAuth();
   const [paymentModalOpen, setPaymentModalOpen] = useState(false);
   const [confirmModal, setConfirmModal] = useState<{
     open: boolean;
@@ -215,15 +219,30 @@ export default function Billing() {
     onConfirm: () => void;
     variant?: "primary" | "danger";
   } | null>(null);
+const region = useRegion();
+
+const plans =
+  region === "india"
+    ? INDIA_PLANS
+    : GLOBAL_PLANS;
 
   // Placeholder data for current plan
-  const currentPlan = {
-    name: "Free",
-    status: "Active",
-    renewalDate: null,
-    invoicesUsed: 2,
-    invoicesLimit: 3,
-  };
+  const planName =
+  profile?.plan === "pro"
+    ? "Pro"
+    : profile?.plan === "business"
+    ? "Business"
+    : "Free";
+
+const currentPlan = {
+  name: planName,
+  status: profile?.plan === "free" ? "Inactive" : "Active",
+  renewalDate: profile?.plan_expires_at
+    ? new Date(profile.plan_expires_at).toLocaleDateString("en-IN")
+    : null,
+  invoicesUsed: 2,
+  invoicesLimit: profile?.plan === "free" ? 3 : 999999,
+};
 
   const invoicesRemaining = currentPlan.invoicesLimit - currentPlan.invoicesUsed;
   const usagePercentage = (currentPlan.invoicesUsed / currentPlan.invoicesLimit) * 100;
@@ -351,6 +370,7 @@ export default function Billing() {
         <h2 className="text-lg font-semibold text-slate-900 mb-4">
           Available Plans
         </h2>
+       
         <div className="grid md:grid-cols-3 gap-6">
           <PricingCard
             name="Free"
@@ -363,7 +383,7 @@ export default function Billing() {
           />
           <PricingCard
             name="Pro"
-            price="$9"
+            price={`${plans.pro.symbol}${plans.pro.price}`}
             description="For professionals and small businesses"
             features={[
               "Unlimited invoices",
@@ -378,7 +398,7 @@ export default function Billing() {
           />
           <PricingCard
             name="Business"
-            price="$29"
+            price={`${plans.business.symbol}${plans.business.price}`}
             description="For growing teams"
             features={[
               "Everything in Pro",
@@ -443,7 +463,9 @@ export default function Billing() {
                     {item.plan}
                   </td>
                   <td className="px-6 py-4 text-sm text-slate-900 font-medium">
-                    {item.amount === 0 ? "Free" : `$${item.amount}`}
+                    {item.amount === 0
+  ? "Free"
+  : `${plans.pro.symbol}${item.amount}`}
                   </td>
                   <td className="px-6 py-4">
                     <span

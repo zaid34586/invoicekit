@@ -297,7 +297,7 @@ function RevenueChart({ period }: { period: "7d" | "30d" | "year" }) {
 }
 
 export default function Dashboard() {
-  const { profile } = useAuth();
+  const { user, profile } = useAuth();
   const navigate = useNavigate();
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
@@ -305,22 +305,31 @@ export default function Dashboard() {
   const [chartPeriod, setChartPeriod] = useState<"7d" | "30d" | "year">("30d");
 
   useEffect(() => {
-    async function load() {
-      const [invoiceRes, clientRes] = await Promise.all([
-        supabase
-          .from("invoices")
-          .select("*")
-          .order("created_at", { ascending: false })
-          .limit(20),
-        supabase.from("clients").select("*").order("created_at", { ascending: false }),
-      ]);
+  async function load() {
+    if (!user) return;
 
-      if (invoiceRes.data) setInvoices(invoiceRes.data as Invoice[]);
-      if (clientRes.data) setClients(clientRes.data as Client[]);
-      setLoading(false);
-    }
-    load();
-  }, []);
+    const [invoiceRes, clientRes] = await Promise.all([
+      supabase
+        .from("invoices")
+        .select("*")
+        .eq("user_id", user.id)
+        .order("created_at", { ascending: false }),
+
+      supabase
+        .from("clients")
+        .select("*")
+        .eq("user_id", user.id)
+        .order("created_at", { ascending: false }),
+    ]);
+
+    if (invoiceRes.data) setInvoices(invoiceRes.data as Invoice[]);
+    if (clientRes.data) setClients(clientRes.data as Client[]);
+
+    setLoading(false);
+  }
+
+  load();
+}, [user]);
 
   // Calculate statistics
   const now = new Date();
@@ -377,11 +386,12 @@ export default function Dashboard() {
               <h1 className="text-2xl font-bold text-slate-900">
                 Welcome back{profile?.business_name ? `, ${profile.business_name}` : ""}
               </h1>
-              <span
-                className={`px-3 py-1 rounded-full text-xs font-semibold ${planBadgeColor}`}
-              >
-                {planName}
-              </span>
+              <Link
+  to="/billing"
+  className={`px-3 py-1 rounded-full text-xs font-semibold hover:scale-105 transition ${planBadgeColor}`}
+>
+  {planName}
+</Link>
             </div>
             <p className="text-slate-500">
               Here's what's happening with your business today.
@@ -426,21 +436,26 @@ export default function Dashboard() {
             </svg>
             Add Client
           </Link>
-          <Link to="/billing" className="btn-ghost px-4 py-2.5">
-            <svg
-              className="w-5 h-5"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-              strokeWidth={2}
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"
-              />
-            </svg>
-          </Link>
+         <Link
+  to="/billing"
+  className="btn-secondary px-5 py-2.5 flex items-center gap-2"
+>
+  <svg
+    className="w-5 h-5"
+    fill="none"
+    viewBox="0 0 24 24"
+    stroke="currentColor"
+    strokeWidth={2}
+  >
+    <path
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"
+    />
+  </svg>
+
+  Billing
+</Link>
         </div>
       </div>
 

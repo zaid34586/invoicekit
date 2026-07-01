@@ -1,16 +1,23 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import { BrowserRouter } from "react-router-dom";
+
 import App from "./App";
+
 import { AuthProvider } from "./context/AuthContext";
+import { UpgradeProvider } from "./context/UpgradeContext";
+import { RegionProvider } from "./context/RegionContext";
+
 import "./index.css";
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
-  <React.StrictMode>
-    <BrowserRouter>
+  <BrowserRouter>
+    <RegionProvider>
       <AuthProvider>
-        <App />
+        <UpgradeProvider>
+          <App />
+        </UpgradeProvider>
       </AuthProvider>
-    </BrowserRouter>
-  </React.StrictMode>
+    </RegionProvider>
+  </BrowserRouter>
 );

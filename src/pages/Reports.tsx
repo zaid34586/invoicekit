@@ -1,7 +1,10 @@
 import { useEffect, useState } from "react";
+import { useAuth } from "../context/AuthContext";
 import { supabase } from "../lib/supabase";
 import { formatINR } from "../lib/constants";
 import type { Invoice, Client } from "../lib/types";
+import * as XLSX from "xlsx";
+import jsPDF from "jspdf";
 
 // Type definitions
 type DateFilter = "today" | "week" | "month" | "year" | "custom";
@@ -287,6 +290,7 @@ function TopClientRow({
 }
 
 export default function Reports() {
+  const { user } = useAuth();
   const [loading, setLoading] = useState(true);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
@@ -300,8 +304,17 @@ export default function Reports() {
   useEffect(() => {
     async function loadData() {
       const [invoicesRes, clientsRes] = await Promise.all([
-        supabase.from("invoices").select("*").order("created_at", { ascending: false }),
-        supabase.from("clients").select("*").order("created_at", { ascending: false }),
+        supabase
+  .from("invoices")
+  .select("*")
+  .eq("user_id", user?.id)
+  .order("created_at", { ascending: false }),
+
+supabase
+  .from("clients")
+  .select("*")
+  .eq("user_id", user?.id)
+  .order("created_at", { ascending: false }),
       ]);
 
       if (invoicesRes.data) setInvoices(invoicesRes.data as Invoice[]);
@@ -309,8 +322,79 @@ export default function Reports() {
       setLoading(false);
     }
     loadData();
-  }, []);
+  }, [user]);
+function exportCSV() {
+  const headers = [
+    "Invoice No",
+    "Client",
+    "Status",
+    "Invoice Date",
+    "Due Date",
+    "Subtotal",
+    "GST",
+    "Total",
+  ];
 
+  const rows = invoices.map((i) => [
+    i.invoice_number,
+    i.client_name,
+    i.status,
+    i.invoice_date,
+    i.due_date,
+    i.subtotal,
+    Number(i.cgst) + Number(i.sgst) + Number(i.igst),
+    i.total,
+  ]);
+
+  const csv = [
+    headers.join(","),
+    ...rows.map((r) => r.join(",")),
+  ].join("\n");
+
+  const blob = new Blob([csv], {
+    type: "text/csv;charset=utf-8;",
+  });
+
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(blob);
+  link.download = "Invoice_Report.csv";
+  link.click();
+}
+function exportPDF() {
+  const doc = new jsPDF();
+
+  doc.setFontSize(18);
+  doc.text("InvoiceKit Reports", 20, 20);
+
+  doc.setFontSize(12);
+
+  doc.text(`Total Revenue: ${formatINR(totalRevenue)}`, 20, 40);
+  doc.text(`Paid Invoices: ${paidInvoices}`, 20, 50);
+  doc.text(`Pending Invoices: ${pendingInvoices}`, 20, 60);
+  doc.text(`Overdue Invoices: ${overdueInvoices}`, 20, 70);
+  doc.text(`Total Clients: ${totalClients}`, 20, 80);
+
+  doc.save("Invoice_Report.pdf");
+}
+function exportExcel() {
+  const rows = invoices.map((i) => ({
+    "Invoice No": i.invoice_number,
+    Client: i.client_name,
+    Status: i.status,
+    "Invoice Date": i.invoice_date,
+    "Due Date": i.due_date,
+    Subtotal: i.subtotal,
+    GST: Number(i.cgst) + Number(i.sgst) + Number(i.igst),
+    Total: i.total,
+  }));
+
+  const worksheet = XLSX.utils.json_to_sheet(rows);
+  const workbook = XLSX.utils.book_new();
+
+  XLSX.utils.book_append_sheet(workbook, worksheet, "Invoices");
+
+  XLSX.writeFile(workbook, "Invoice_Report.xlsx");
+}
   // Calculate analytics
   const now = new Date();
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -832,7 +916,7 @@ export default function Reports() {
             </p>
             <div className="flex flex-wrap gap-3">
               <button
-                onClick={() => setExportModal("PDF")}
+                onClick={exportPDF}
                 className="btn-secondary"
               >
                 <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -841,7 +925,7 @@ export default function Reports() {
                 Export PDF
               </button>
               <button
-                onClick={() => setExportModal("CSV")}
+                onClick={exportCSV}
                 className="btn-secondary"
               >
                 <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -850,7 +934,7 @@ export default function Reports() {
                 Export CSV
               </button>
               <button
-                onClick={() => setExportModal("Excel")}
+                onClick={exportExcel}
                 className="btn-secondary"
               >
                 <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>

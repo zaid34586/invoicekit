@@ -1,7 +1,13 @@
-import { Routes, Route, Navigate } from "react-router-dom";
+import type { ReactNode } from "react";
+import { Navigate, Route, Routes } from "react-router-dom";
 import { useAuth } from "./context/AuthContext";
+
+import Landing from "./pages/Landing";
 import Login from "./pages/Login";
 import Signup from "./pages/Signup";
+import CheckEmail from "./pages/CheckEmail";
+import VerifyPhone from "./pages/VerifyPhone";
+
 import AppLayout from "./components/AppLayout";
 import Dashboard from "./pages/Dashboard";
 import NewInvoice from "./pages/NewInvoice";
@@ -15,42 +21,130 @@ import Settings from "./pages/Settings";
 import Admin from "./pages/Admin";
 import ShareInvoice from "./pages/ShareInvoice";
 
-function ProtectedRoute({ children }: { children: React.ReactNode }) {
-  const { user, loading } = useAuth();
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-50">
-        <div className="flex flex-col items-center gap-3">
-          <div className="w-10 h-10 border-4 border-primary-200 border-t-primary-600 rounded-full animate-spin" />
-          <p className="text-sm text-slate-500">Loading InvoiceKit...</p>
+function LoadingScreen() {
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-slate-50">
+      <div className="card p-8 max-w-sm w-full text-center animate-fade-in">
+        <div className="w-14 h-14 bg-primary-100 rounded-full flex items-center justify-center mx-auto mb-4">
+          <div className="w-7 h-7 border-4 border-primary-200 border-t-primary-600 rounded-full animate-spin" />
         </div>
+
+        <h2 className="text-lg font-semibold text-slate-900">
+          Loading your workspace
+        </h2>
+
+        <p className="text-sm text-slate-500 mt-2">
+          Please wait while we prepare your account...
+        </p>
       </div>
-    );
-  }
-  if (!user) return <Navigate to="/login" replace />;
+    </div>
+  );
+}
+
+// Only accessible when NOT logged in
+function PublicOnlyRoute({ children }: { children: ReactNode }) {
+  const { user, profile, loading } = useAuth();
+  if (loading && !user) return <LoadingScreen />;
+  if (!user) return <>{children}</>;
+
+const confirmed =
+  new URLSearchParams(window.location.search).get("confirmed") === "1";
+
+if (confirmed) {
   return <>{children}</>;
 }
 
-export default function App() {
-  const { user, loading } = useAuth();
+if (!user.email_confirmed_at) {
+  return <Navigate to="/check-email" replace />;
+}
 
+if (profile === null) {
+  return <>{children}</>;
+}
+
+if (!profile.phone_verified) {
+  return <Navigate to="/verify-phone" replace />;
+}
+
+return <Navigate to="/dashboard" replace />;
+}
+
+// Full auth: email confirmed + phone verified
+function ProtectedRoute({ children }: { children: ReactNode }) {
+  const { user, profile, loading } = useAuth();
+  if (loading) return <LoadingScreen />;
+  if (!user) return <Navigate to="/login" replace />;
+  if (!user.email_confirmed_at) return <Navigate to="/check-email" replace />;
+  if (!profile?.phone_verified) return <Navigate to="/verify-phone" replace />;
+  return <>{children}</>;
+}
+
+// Phone verify route: email confirmed but phone not verified
+function PhoneRoute() {
+  const { user, profile, loading } = useAuth();
+  if (loading) return <LoadingScreen />;
+  if (!user) return <Navigate to="/login" replace />;
+  if (!user.email_confirmed_at) return <Navigate to="/check-email" replace />;
+  if (profile?.phone_verified) return <Navigate to="/dashboard" replace />;
+  return <VerifyPhone />;
+}
+
+// Check email route: signed up but email not confirmed yet
+function CheckEmailRoute() {
+  const { user, profile, loading } = useAuth();
+
+  const confirmed =
+    new URLSearchParams(window.location.search).get("confirmed") === "1";
+
+  if (loading) return <LoadingScreen />;
+
+  if (confirmed) {
+    return <Navigate to="/login?confirmed=1" replace />;
+  }
+
+  if (!user) return <Navigate to="/signup" replace />;
+
+  if (user.email_confirmed_at && profile?.phone_verified) {
+    return <Navigate to="/dashboard" replace />;
+  }
+
+  if (user.email_confirmed_at && !profile?.phone_verified) {
+    return <Navigate to="/login?confirmed=1" replace />;
+  }
+
+  return <CheckEmail />;
+}
+export default function App() {
   return (
     <Routes>
+      <Route path="/" element={<Landing />} />
+
       <Route
         path="/login"
-        element={user && !loading ? <Navigate to="/" replace /> : <Login />}
+        element={
+          <PublicOnlyRoute>
+            <Login />
+          </PublicOnlyRoute>
+        }
       />
+
       <Route
         path="/signup"
-        element={user && !loading ? <Navigate to="/" replace /> : <Signup />}
+        element={
+          <PublicOnlyRoute>
+            <Signup />
+          </PublicOnlyRoute>
+        }
       />
+
+      <Route path="/check-email" element={<CheckEmailRoute />} />
+      <Route path="/verify-phone" element={<PhoneRoute />} />
+
       <Route
-        path="/"
+        path="/dashboard"
         element={
           <ProtectedRoute>
-            <AppLayout>
-              <Dashboard />
-            </AppLayout>
+            <AppLayout><Dashboard /></AppLayout>
           </ProtectedRoute>
         }
       />
@@ -58,9 +152,7 @@ export default function App() {
         path="/new"
         element={
           <ProtectedRoute>
-            <AppLayout>
-              <NewInvoice />
-            </AppLayout>
+            <AppLayout><NewInvoice /></AppLayout>
           </ProtectedRoute>
         }
       />
@@ -68,9 +160,7 @@ export default function App() {
         path="/invoice/:id"
         element={
           <ProtectedRoute>
-            <AppLayout>
-              <InvoicePreview />
-            </AppLayout>
+            <AppLayout><InvoicePreview /></AppLayout>
           </ProtectedRoute>
         }
       />
@@ -78,9 +168,7 @@ export default function App() {
         path="/invoices"
         element={
           <ProtectedRoute>
-            <AppLayout>
-              <Invoices />
-            </AppLayout>
+            <AppLayout><Invoices /></AppLayout>
           </ProtectedRoute>
         }
       />
@@ -88,9 +176,7 @@ export default function App() {
         path="/clients"
         element={
           <ProtectedRoute>
-            <AppLayout>
-              <Clients />
-            </AppLayout>
+            <AppLayout><Clients /></AppLayout>
           </ProtectedRoute>
         }
       />
@@ -98,9 +184,7 @@ export default function App() {
         path="/account"
         element={
           <ProtectedRoute>
-            <AppLayout>
-              <Account />
-            </AppLayout>
+            <AppLayout><Account /></AppLayout>
           </ProtectedRoute>
         }
       />
@@ -108,9 +192,7 @@ export default function App() {
         path="/billing"
         element={
           <ProtectedRoute>
-            <AppLayout>
-              <Billing />
-            </AppLayout>
+            <AppLayout><Billing /></AppLayout>
           </ProtectedRoute>
         }
       />
@@ -118,9 +200,7 @@ export default function App() {
         path="/reports"
         element={
           <ProtectedRoute>
-            <AppLayout>
-              <Reports />
-            </AppLayout>
+            <AppLayout><Reports /></AppLayout>
           </ProtectedRoute>
         }
       />
@@ -128,9 +208,7 @@ export default function App() {
         path="/settings"
         element={
           <ProtectedRoute>
-            <AppLayout>
-              <Settings />
-            </AppLayout>
+            <AppLayout><Settings /></AppLayout>
           </ProtectedRoute>
         }
       />
@@ -138,12 +216,11 @@ export default function App() {
         path="/admin"
         element={
           <ProtectedRoute>
-            <AppLayout>
-              <Admin />
-            </AppLayout>
+            <AppLayout><Admin /></AppLayout>
           </ProtectedRoute>
         }
       />
+
       <Route path="/share/:token" element={<ShareInvoice />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

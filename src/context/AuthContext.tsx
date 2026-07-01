@@ -16,78 +16,153 @@ interface AuthContextValue {
   loading: boolean;
   signUp: (email: string, password: string) => Promise<{ error: string | null }>;
   signIn: (email: string, password: string) => Promise<{ error: string | null }>;
-  signInWithGoogle: () => Promise<{ error: string | null }>;
   signOut: () => Promise<void>;
-  refreshProfile: () => Promise<void>;
+  refreshProfile: () => Promise<Profile | null>;
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
+
+function createDefaultProfile(userId: string, email?: string) {
+  return {
+    user_id: userId,
+    email: email ?? null,
+    business_name: null,
+    gstin: null,
+    phone: null,
+    state: null,
+    address: null,
+    logo_url: null,
+    is_pro: false,
+    phone_verified: false,
+    currency: null,
+    payment_gateway: null,
+  };
+}
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
 
-  async function loadProfile(userId: string, email?: string) {
-    const { data, error } = await supabase
+  async function fetchOrCreateProfile(
+    userId: string,
+    email?: string
+  ): Promise<Profile | null> {
+    const { data: existing, error: fetchError } = await supabase
       .from("profiles")
       .select("*")
       .eq("user_id", userId)
       .maybeSingle();
-    if (error) {
-      console.error("Profile load error:", error.message);
-      return;
+
+    if (fetchError) {
+      console.error("Profile fetch error:", fetchError.message);
+      setProfile(null);
+      return null;
     }
-    if (data) {
-      setProfile(data as Profile);
-    } else {
-      const { data: created, error: createErr } = await supabase
-        .from("profiles")
-        .insert({ user_id: userId, email: email ?? null })
-        .select("*")
-        .single();
-      if (!createErr && created) {
-        setProfile(created as Profile);
-      }
+
+    if (existing) {
+      setProfile(existing as Profile);
+      return existing as Profile;
     }
+
+    const { data: created, error: createError } = await supabase
+      .from("profiles")
+      .insert(createDefaultProfile(userId, email))
+      .select("*")
+      .single();
+
+    if (createError) {
+      console.error("Profile create error:", createError.message);
+      setProfile(null);
+      return null;
+    }
+
+    setProfile(created as Profile);
+    return created as Profile;
+  }
+
+  async function syncSession(nextSession: Session | null) {
+    setSession(nextSession);
+
+    if (!nextSession?.user) {
+      setProfile(null);
+      return null;
+    }
+
+    // Only create profile if email is confirmed
+    if (!nextSession.user.email_confirmed_at) {
+      setProfile(null);
+      return null;
+    }
+
+    return await fetchOrCreateProfile(
+      nextSession.user.id,
+      nextSession.user.email
+    );
   }
 
   useEffect(() => {
     let mounted = true;
 
-    supabase.auth.getSession().then(({ data }) => {
+    async function initializeAuth() {
+      setLoading(true);
+      const { data } = await supabase.auth.getSession();
       if (!mounted) return;
-      setSession(data.session);
-      if (data.session?.user) {
-        loadProfile(data.session.user.id, data.session.user.email).finally(() => {
-          if (mounted) setLoading(false);
-        });
-      } else {
-        setLoading(false);
-      }
-    });
+      await syncSession(data.session);
+      if (mounted) setLoading(false);
+    }
 
-    const { data: listener } = supabase.auth.onAuthStateChange(
-      (_event, newSession) => {
-        setSession(newSession);
-        if (newSession?.user) {
-          loadProfile(newSession.user.id, newSession.user.email);
-        } else {
-          setProfile(null);
-        }
-      }
-    );
+    initializeAuth();
 
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange(async (_event, nextSession) => {
+  if (!mounted) return;
+
+  // App already loaded.
+  // Don't show global loader during login/logout.
+  await syncSession(nextSession);
+});
     return () => {
       mounted = false;
-      listener.subscription.unsubscribe();
+      subscription.unsubscribe();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Signup: check email via Edge Function first
   const signUp = async (email: string, password: string) => {
-    const { error } = await supabase.auth.signUp({ email, password });
-    return { error: error?.message ?? null };
+    // Call Edge Function to check if email already exists in auth.users
+    const { data, error: fnError } = await supabase.functions.invoke(
+      "check-email",
+      { body: { email } }
+    );
+
+    if (fnError) {
+      // Edge function error — fallback to direct signup
+      console.warn("check-email function error:", fnError.message);
+    } else if (data?.exists === true) {
+      return {
+        error: "This email is already registered. Please sign in.",
+      };
+    }
+
+    const { error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: {
+        emailRedirectTo: `${window.location.origin}/login?confirmed=1`,
+      },
+    });
+
+    if (error) {
+      const msg = error.message.toLowerCase();
+      if (msg.includes("already") || msg.includes("registered") || msg.includes("exists")) {
+        return { error: "This email is already registered. Please sign in." };
+      }
+      return { error: error.message };
+    }
+
+    return { error: null };
   };
 
   const signIn = async (email: string, password: string) => {
@@ -98,24 +173,31 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return { error: error?.message ?? null };
   };
 
-  const signInWithGoogle = async () => {
-    const { error } = await supabase.auth.signInWithOAuth({
-      provider: "google",
-      options: { redirectTo: window.location.origin },
-    });
-    return { error: error?.message ?? null };
-  };
-
   const signOut = async () => {
     await supabase.auth.signOut();
-    setProfile(null);
+    // Clear all local storage keys related to supabase
+    Object.keys(localStorage).forEach((key) => {
+      if (key.startsWith("sb-")) localStorage.removeItem(key);
+    });
+    sessionStorage.clear();
     setSession(null);
+    setProfile(null);
   };
 
   const refreshProfile = async () => {
-    if (session?.user) {
-      await loadProfile(session.user.id, session.user.email);
+    const { data } = await supabase.auth.getSession();
+
+    if (!data.session?.user) {
+      setSession(null);
+      setProfile(null);
+      return null;
     }
+
+    setSession(data.session);
+    return await fetchOrCreateProfile(
+      data.session.user.id,
+      data.session.user.email
+    );
   };
 
   return (
@@ -127,7 +209,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         loading,
         signUp,
         signIn,
-        signInWithGoogle,
         signOut,
         refreshProfile,
       }}

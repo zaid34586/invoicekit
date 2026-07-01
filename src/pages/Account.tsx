@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, type FormEvent } from "react";
 import { supabase } from "../lib/supabase";
+import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 
 // Time zones list
@@ -159,6 +160,7 @@ function SectionHeader({
 
 export default function Account() {
   const { user, profile, refreshProfile, signOut } = useAuth();
+  const navigate = useNavigate();
   const fileRef = useRef<HTMLInputElement>(null);
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -322,12 +324,23 @@ export default function Account() {
         "This action cannot be undone. All your data including invoices, clients, and settings will be permanently deleted.",
       confirmLabel: "Delete My Account",
       variant: "danger",
-      onConfirm: () => {
-        setMessage({
-          type: "error",
-          text: "Account deletion is not implemented yet.",
-        });
-      },
+      onConfirm: async () => {
+  const { error } = await supabase.functions.invoke("delete-account");
+
+  if (error) {
+    setMessage({
+      type: "error",
+      text: error.message,
+    });
+    return;
+  }
+
+  await signOut();
+
+  navigate("/", {
+    replace: true,
+  });
+},
     });
   }
 

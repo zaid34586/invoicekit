@@ -5,8 +5,100 @@ import type { Client, Invoice } from "../lib/types";
 import { INDIAN_STATES, formatINR, formatDate } from "../lib/constants";
 import StatusBadge from "../components/StatusBadge";
 
+const COUNTRIES = [
+  { name: "India", code: "+91", flag: "IN" },
+  { name: "United States", code: "+1", flag: "US" },
+  { name: "United Kingdom", code: "+44", flag: "GB" },
+  { name: "UAE", code: "+971", flag: "AE" },
+  { name: "Canada", code: "+1", flag: "CA" },
+  { name: "Australia", code: "+61", flag: "AU" },
+  { name: "Singapore", code: "+65", flag: "SG" },
+];
+
+const US_STATES = [
+  "Alabama", "Alaska", "Arizona", "Arkansas", "California", "Colorado",
+  "Connecticut", "Delaware", "Florida", "Georgia", "Hawaii", "Idaho",
+  "Illinois", "Indiana", "Iowa", "Kansas", "Kentucky", "Louisiana",
+  "Maine", "Maryland", "Massachusetts", "Michigan", "Minnesota",
+  "Mississippi", "Missouri", "Montana", "Nebraska", "Nevada",
+  "New Hampshire", "New Jersey", "New Mexico", "New York",
+  "North Carolina", "North Dakota", "Ohio", "Oklahoma", "Oregon",
+  "Pennsylvania", "Rhode Island", "South Carolina", "South Dakota",
+  "Tennessee", "Texas", "Utah", "Vermont", "Virginia", "Washington",
+  "West Virginia", "Wisconsin", "Wyoming",
+];
+
+const UK_REGIONS = [
+  "England", "Scotland", "Wales", "Northern Ireland",
+];
+
+const UAE_EMIRATES = [
+  "Abu Dhabi", "Dubai", "Sharjah", "Ajman", "Umm Al Quwain",
+  "Ras Al Khaimah", "Fujairah",
+];
+
+const CANADA_PROVINCES = [
+  "Alberta", "British Columbia", "Manitoba", "New Brunswick",
+  "Newfoundland and Labrador", "Nova Scotia", "Ontario",
+  "Prince Edward Island", "Quebec", "Saskatchewan",
+  "Northwest Territories", "Nunavut", "Yukon",
+];
+
+const AUSTRALIA_STATES = [
+  "New South Wales", "Victoria", "Queensland", "Western Australia",
+  "South Australia", "Tasmania", "Australian Capital Territory",
+  "Northern Territory",
+];
+
+const SINGAPORE_REGIONS = [
+  "Central Region", "East Region", "North Region",
+  "North-East Region", "West Region",
+];
+
+function getStatesForCountry(country: string): string[] {
+  switch (country) {
+    case "India":
+      return INDIAN_STATES;
+    case "United States":
+      return US_STATES;
+    case "United Kingdom":
+      return UK_REGIONS;
+    case "UAE":
+      return UAE_EMIRATES;
+    case "Canada":
+      return CANADA_PROVINCES;
+    case "Australia":
+      return AUSTRALIA_STATES;
+    case "Singapore":
+      return SINGAPORE_REGIONS;
+    default:
+      return [];
+  }
+}
+
+function getStateLabel(country: string): string {
+  switch (country) {
+    case "United States":
+      return "State";
+    case "United Kingdom":
+      return "Region";
+    case "UAE":
+      return "Emirate";
+    case "Canada":
+      return "Province";
+    case "Australia":
+      return "State / Territory";
+    case "Singapore":
+      return "Region";
+    default:
+      return "State";
+  }
+}
+
 const EMPTY_FORM = {
   name: "",
+  country: "India",
+  country_code: "+91",
   phone: "",
   email: "",
   address: "",
@@ -51,6 +143,8 @@ export default function Clients() {
     setEditingId(client.id);
     setForm({
       name: client.name,
+      country: client.country ?? "India",
+      country_code: client.country_code ?? "+91",
       phone: client.phone ?? "",
       email: client.email ?? "",
       address: client.address ?? "",
@@ -59,6 +153,18 @@ export default function Clients() {
     });
     setError(null);
     setShowForm(true);
+  }
+
+  function handleCountryChange(countryName: string) {
+    const selected = COUNTRIES.find((c) => c.name === countryName);
+    setForm({
+      ...form,
+      country: selected?.name ?? "India",
+      country_code: selected?.code ?? "+91",
+      // Reset state whenever the country changes so a stale value
+      // from the previous country can never be submitted.
+      state: "",
+    });
   }
 
   async function handleSubmit(e: FormEvent) {
@@ -73,6 +179,8 @@ export default function Clients() {
     const payload = {
       user_id: user.id,
       name: form.name.trim(),
+      country: form.country,
+      country_code: form.country_code,
       phone: form.phone.trim() || null,
       email: form.email.trim() || null,
       address: form.address.trim() || null,
@@ -132,6 +240,9 @@ export default function Clients() {
     setHistoryLoading(false);
   }
 
+  const availableStates = getStatesForCountry(form.country);
+  const stateLabel = getStateLabel(form.country);
+
   return (
     <div className="max-w-7xl mx-auto space-y-6 animate-fade-in">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
@@ -156,91 +267,160 @@ export default function Clients() {
       )}
 
       {showForm && (
-        <form onSubmit={handleSubmit} className="card p-5 sm:p-6 space-y-4">
-          <h2 className="text-base font-semibold text-slate-900">
-            {editingId ? "Edit Client" : "New Client"}
-          </h2>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div>
-              <label className="label">
-                Name <span className="text-red-500">*</span>
-              </label>
-              <input
-                value={form.name}
-                onChange={(e) => setForm({ ...form, name: e.target.value })}
-                className="input"
-                placeholder="Acme Corp"
-              />
-            </div>
-            <div>
-              <label className="label">GSTIN</label>
-              <input
-                value={form.gstin}
-                onChange={(e) =>
-                  setForm({ ...form, gstin: e.target.value.toUpperCase() })
-                }
-                className="input"
-                placeholder="22AAAAA0000A1Z5"
-              />
-            </div>
-            <div>
-              <label className="label">Phone</label>
-              <input
-                value={form.phone}
-                onChange={(e) => setForm({ ...form, phone: e.target.value })}
-                className="input"
-                placeholder="9876543210"
-              />
-            </div>
-            <div>
-              <label className="label">Email</label>
-              <input
-                type="email"
-                value={form.email}
-                onChange={(e) => setForm({ ...form, email: e.target.value })}
-                className="input"
-                placeholder="client@email.com"
-              />
-            </div>
-            <div>
-              <label className="label">State</label>
-              <select
-                value={form.state}
-                onChange={(e) => setForm({ ...form, state: e.target.value })}
-                className="input"
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div
+            className="absolute inset-0 bg-slate-900/50 backdrop-blur-sm"
+            onClick={() => setShowForm(false)}
+          />
+          <form
+            onSubmit={handleSubmit}
+            className="relative bg-white rounded-2xl shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto animate-scale-in"
+          >
+            <div className="sticky top-0 bg-white border-b border-slate-100 px-6 py-4 flex items-center justify-between rounded-t-2xl">
+              <div>
+                <h2 className="text-lg font-bold text-slate-900">
+                  {editingId ? "Edit Client" : "New Client"}
+                </h2>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Client details are reused automatically when you create invoices
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowForm(false)}
+                className="w-8 h-8 flex items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition"
               >
-                <option value="">Select state</option>
-                {INDIAN_STATES.map((s) => (
-                  <option key={s} value={s}>
-                    {s}
-                  </option>
-                ))}
-              </select>
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
             </div>
-            <div className="sm:col-span-2">
-              <label className="label">Address</label>
-              <textarea
-                value={form.address}
-                onChange={(e) => setForm({ ...form, address: e.target.value })}
-                className="input"
-                rows={2}
-                placeholder="Street, City, PIN"
-              />
+
+            <div className="px-6 py-5 space-y-5">
+              <div>
+                <label className="label">
+                  Client name <span className="text-red-500">*</span>
+                </label>
+                <input
+                  value={form.name}
+                  onChange={(e) => setForm({ ...form, name: e.target.value })}
+                  className="input"
+                  placeholder="Acme Corp"
+                  autoFocus
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="label">Country</label>
+                  <select
+                    value={form.country}
+                    onChange={(e) => handleCountryChange(e.target.value)}
+                    className="input"
+                  >
+                    {COUNTRIES.map((country) => (
+                      <option key={country.name} value={country.name}>
+                        {country.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="label">
+                    {stateLabel}
+                    {availableStates.length === 0 && (
+                      <span className="text-slate-400 font-normal"> (not applicable)</span>
+                    )}
+                  </label>
+                  <select
+                    value={form.state}
+                    onChange={(e) => setForm({ ...form, state: e.target.value })}
+                    className="input disabled:bg-slate-50 disabled:text-slate-400 disabled:cursor-not-allowed"
+                    disabled={availableStates.length === 0}
+                  >
+                    <option value="">
+                      {availableStates.length === 0
+                        ? "Not applicable"
+                        : `Select ${stateLabel.toLowerCase()}`}
+                    </option>
+                    {availableStates.map((s) => (
+                      <option key={s} value={s}>
+                        {s}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="label">Phone</label>
+                  <div className="flex gap-2">
+                    <div className="input w-20 flex items-center justify-center bg-slate-50 text-slate-500 font-medium shrink-0">
+                      {form.country_code}
+                    </div>
+                    <input
+                      value={form.phone}
+                      onChange={(e) => setForm({ ...form, phone: e.target.value })}
+                      className="input flex-1"
+                      placeholder="Phone number"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="label">Email</label>
+                  <input
+                    type="email"
+                    value={form.email}
+                    onChange={(e) => setForm({ ...form, email: e.target.value })}
+                    className="input"
+                    placeholder="client@email.com"
+                  />
+                </div>
+              </div>
+
+              {form.country === "India" && (
+                <div>
+                  <label className="label">GSTIN</label>
+                  <input
+                    value={form.gstin}
+                    onChange={(e) =>
+                      setForm({ ...form, gstin: e.target.value.toUpperCase() })
+                    }
+                    className="input"
+                    placeholder="22AAAAA0000A1Z5"
+                  />
+                </div>
+              )}
+
+              <div>
+                <label className="label">Address</label>
+                <textarea
+                  value={form.address}
+                  onChange={(e) => setForm({ ...form, address: e.target.value })}
+                  className="input"
+                  rows={3}
+                  placeholder="Street, City, PIN / ZIP"
+                />
+              </div>
             </div>
-          </div>
-          <div className="flex justify-end gap-3">
-            <button
-              type="button"
-              onClick={() => setShowForm(false)}
-              className="btn-ghost"
-            >
-              Cancel
-            </button>
-            <button type="submit" disabled={saving} className="btn-primary">
-              {saving ? "Saving..." : editingId ? "Update Client" : "Save Client"}
-            </button>
-          </div>
-        </form>
+
+            <div className="sticky bottom-0 bg-white border-t border-slate-100 px-6 py-4 flex justify-end gap-3 rounded-b-2xl">
+              <button
+                type="button"
+                onClick={() => setShowForm(false)}
+                className="btn-ghost"
+              >
+                Cancel
+              </button>
+              <button type="submit" disabled={saving} className="btn-primary">
+                {saving ? "Saving..." : editingId ? "Update client" : "Save client"}
+              </button>
+            </div>
+          </form>
+        </div>
       )}
 
       {loading ? (
@@ -273,11 +453,18 @@ export default function Clients() {
                     </p>
                   )}
                 </div>
+                {client.country && client.country !== "India" && (
+                  <span className="text-xs px-2 py-1 rounded-full bg-slate-100 text-slate-600 font-medium shrink-0">
+                    {client.country}
+                  </span>
+                )}
               </div>
               <div className="space-y-1 text-sm text-slate-600">
-                {client.phone && <p>Phone: {client.phone}</p>}
+                {client.phone && (
+                  <p>Phone: {client.country_code} {client.phone}</p>
+                )}
                 {client.email && <p>Email: {client.email}</p>}
-                {client.state && <p>State: {client.state}</p>}
+                {client.state && <p>{getStateLabel(client.country ?? "India")}: {client.state}</p>}
                 {client.address && (
                   <p className="whitespace-pre-line">{client.address}</p>
                 )}

@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { PRO_PLAN_PRICE } from "../lib/constants";
+import { useRegion } from "../context/RegionContext";
+import { INDIA_PLANS, GLOBAL_PLANS } from "../lib/pricing";
 
 interface UpgradeModalProps {
   isOpen: boolean;
@@ -15,6 +16,12 @@ const FEATURES = [
 ];
 
 export default function UpgradeModal({ isOpen, onClose }: UpgradeModalProps) {
+  const region = useRegion();
+
+const plans =
+  region === "india"
+    ? INDIA_PLANS
+    : GLOBAL_PLANS;
   const [subscribing, setSubscribing] = useState(false);
 
   if (!isOpen) return null;
@@ -24,7 +31,7 @@ export default function UpgradeModal({ isOpen, onClose }: UpgradeModalProps) {
     setTimeout(() => {
       setSubscribing(false);
       alert(
-        "Payment integration coming soon! This is a placeholder for Razorpay checkout."
+        "Payment integration will be available soon."
       );
     }, 800);
   }
@@ -52,7 +59,7 @@ export default function UpgradeModal({ isOpen, onClose }: UpgradeModalProps) {
           </div>
           <h2 className="text-2xl font-bold text-slate-900">InvoiceKit Pro</h2>
           <p className="text-3xl font-bold text-primary-600 mt-2">
-            ₹{PRO_PLAN_PRICE}
+            {plans.pro.symbol}{plans.pro.price}
             <span className="text-base font-normal text-slate-500">/month</span>
           </p>
         </div>

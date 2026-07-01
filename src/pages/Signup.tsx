@@ -1,55 +1,86 @@
 import { useState, type FormEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
-import GoogleIcon from "../components/GoogleIcon";
+
+type Stage = "form" | "loading" | "success";
 
 export default function Signup() {
-  const { signUp, signInWithGoogle } = useAuth();
+  const { signUp } = useAuth();
   const navigate = useNavigate();
+
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [googleError, setGoogleError] = useState<string | null>(null);
-  const [done, setDone] = useState(false);
+  const [stage, setStage] = useState<Stage>("form");
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setError(null);
-    setLoading(true);
-    const { error } = await signUp(email, password);
-    setLoading(false);
-    if (error) {
-      setError(error);
-    } else {
-      setDone(true);
+    setStage("loading");
+
+    const result = await signUp(email, password);
+
+    if (result.error) {
+      setStage("form");
+      setError(result.error);
+      return;
     }
+
+    setStage("success");
   }
 
-  async function handleGoogle() {
-    setGoogleError(null);
-    const { error } = await signInWithGoogle();
-    if (error) {
-      setGoogleError("Google login is not configured yet. Please use email and password.");
-    }
-  }
-
-  if (done) {
+  if (stage === "loading") {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-50 px-4">
-        <div className="card p-8 max-w-md w-full text-center animate-fade-in">
-          <div className="w-14 h-14 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
-            <svg className="w-7 h-7 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+      <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-white">
+        <div className="w-12 h-12 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin mb-6" />
+        <p className="text-lg font-semibold text-slate-700">Creating your account...</p>
+        <p className="text-sm text-slate-400 mt-2">Please wait a moment</p>
+      </div>
+    );
+  }
+
+  if (stage === "success") {
+    return (
+      <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-white px-4">
+        <div className="flex flex-col items-center text-center max-w-sm w-full">
+          <div className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mb-6">
+            <svg
+              className="w-10 h-10 text-green-600"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              strokeWidth={2}
+            >
               <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
             </svg>
           </div>
-          <h1 className="text-2xl font-bold text-slate-900 mb-2">Check your email</h1>
-          <p className="text-sm text-slate-500 mb-6">
-            We've sent a confirmation link to <strong>{email}</strong>. Click the link to verify your account, then sign in.
-          </p>
-          <button onClick={() => navigate("/login")} className="btn-primary w-full">
-            Go to sign in
+
+          <h1 className="text-2xl font-bold text-slate-900 mb-2">Account Created!</h1>
+
+          <p className="text-slate-500 text-sm mb-1">We sent a confirmation link to</p>
+
+          <p className="font-semibold text-slate-800 mb-8">{email}</p>
+
+          <a
+            href="https://mail.google.com"
+            target="_blank"
+            rel="noreferrer"
+            className="btn-primary w-full text-center mb-3 block"
+          >
+            Open Gmail
+          </a>
+
+          <button
+            type="button"
+            onClick={() => navigate("/login")}
+            className="btn-secondary w-full"
+          >
+            I have verified my email
           </button>
+
+          <p className="text-xs text-slate-400 mt-6">
+            Cannot find the email? Check your spam folder.
+          </p>
         </div>
       </div>
     );
@@ -62,7 +93,7 @@ export default function Signup() {
           <div className="text-center mb-8">
             <Link to="/" className="inline-flex items-center gap-2">
               <div className="w-10 h-10 bg-primary-600 rounded-lg flex items-center justify-center">
-                <span className="text-white text-xl font-bold">⚡</span>
+                <span className="text-white text-xl font-bold">IK</span>
               </div>
               <span className="text-2xl font-bold text-slate-900">InvoiceKit</span>
             </Link>
@@ -77,6 +108,14 @@ export default function Signup() {
             {error && (
               <div className="mb-4 rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">
                 {error}
+                {error.includes("already registered") && (
+                  <span>
+                    {" "}
+                    <Link to="/login" className="underline font-medium">
+                      Sign in here
+                    </Link>
+                  </span>
+                )}
               </div>
             )}
 
@@ -93,8 +132,10 @@ export default function Signup() {
                   onChange={(e) => setEmail(e.target.value)}
                   className="input"
                   placeholder="you@business.com"
+                  autoComplete="email"
                 />
               </div>
+
               <div>
                 <label className="label" htmlFor="password">
                   Password
@@ -108,36 +149,14 @@ export default function Signup() {
                   onChange={(e) => setPassword(e.target.value)}
                   className="input"
                   placeholder="At least 6 characters"
+                  autoComplete="new-password"
                 />
               </div>
-              <button type="submit" disabled={loading} className="btn-primary w-full">
-                {loading ? "Creating account..." : "Create free account"}
+
+              <button type="submit" className="btn-primary w-full">
+                Create free account
               </button>
             </form>
-
-            <div className="relative my-6">
-              <div className="absolute inset-0 flex items-center">
-                <div className="w-full border-t border-slate-200" />
-              </div>
-              <div className="relative flex justify-center text-xs">
-                <span className="bg-white px-3 text-slate-400">or sign up with</span>
-              </div>
-            </div>
-
-            {googleError && (
-              <div className="mb-4 rounded-lg bg-amber-50 border border-amber-200 px-4 py-3 text-sm text-amber-700">
-                {googleError}
-              </div>
-            )}
-
-            <button
-              onClick={handleGoogle}
-              className="btn-secondary w-full"
-              type="button"
-            >
-              <GoogleIcon />
-              Continue with Google
-            </button>
           </div>
 
           <p className="text-center text-sm text-slate-500 mt-6">
