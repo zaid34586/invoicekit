@@ -15,7 +15,7 @@ export default function VerifyPhone() {
 
   const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
   const navigate = useNavigate();
-  const { user, refreshProfile } = useAuth();
+  const { user, profile, refreshProfile } = useAuth();
 
   useEffect(() => {
     if (stage !== "otp" || resendTimer <= 0) return;
@@ -23,7 +23,8 @@ export default function VerifyPhone() {
     return () => window.clearTimeout(timer);
   }, [stage, resendTimer]);
 
-  const fullPhone = "+91" + phone;
+  const countryCode = profile?.country_code || "+91";
+const fullPhone = countryCode + phone;
 
   async function sendOTP() {
     setError("");
@@ -82,8 +83,6 @@ export default function VerifyPhone() {
         .update({
           phone: fullPhone,
           phone_verified: true,
-          currency: "INR",
-          payment_gateway: "Cashfree",
         })
         .eq("user_id", user?.id);
 
@@ -205,9 +204,13 @@ export default function VerifyPhone() {
           <div>
             <label className="label">Mobile Number</label>
             <div className="flex gap-2 mb-6">
-              <select className="input w-28" value="+91" disabled>
-                <option>+91</option>
-              </select>
+              <select
+  className="input w-28"
+  value={profile?.country_code || "+91"}
+  disabled
+>
+  <option>{profile?.country_code || "+91"}</option>
+</select>
               <input
                 className="input flex-1"
                 placeholder="9876543210"

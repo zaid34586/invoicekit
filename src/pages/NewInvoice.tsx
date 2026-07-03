@@ -147,7 +147,7 @@ export default function NewInvoice() {
   const taxDecision = useMemo(
     () =>
       decideTax({
-        businessCountry: "India", // profile country — extend when Profile adds country field
+        businessCountry: profile?.country ?? "India", // profile country — extend when Profile adds country field
         businessState: businessState,
         clientCountry: clientCountry,
         clientState: clientState || null,
@@ -258,7 +258,7 @@ export default function NewInvoice() {
         // look back at Clients or Profile again. Business side is hardcoded
         // "India" to stay consistent with the decideTax() call above — this
         // is not a new decision, just persisting what was already computed.
-        business_country: "India",
+        business_country: profile?.country ?? "India",
         business_state: businessState,
         business_currency: baseCurrency,
 

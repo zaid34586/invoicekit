@@ -4,6 +4,7 @@ import { supabase } from "../lib/supabase";
 import { useAuth } from "../context/AuthContext";
 import type { Invoice, Client } from "../lib/types";
 import { formatINR, formatDate, FREE_PLAN_LIMIT } from "../lib/constants";
+import { formatMoney } from "../lib/currency";
 
 // Skeleton loader component
 function Skeleton({ className }: { className?: string }) {
@@ -463,7 +464,7 @@ export default function Dashboard() {
       <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
         <StatCard
           label="Total Revenue"
-          value={formatINR(totalRevenue)}
+          value={formatMoney(pendingAmount, profile?.currency ?? "INR")}
           icon={
             <svg
               className="w-6 h-6"
@@ -532,7 +533,7 @@ export default function Dashboard() {
         />
         <StatCard
           label="Pending Payments"
-          value={formatINR(pendingAmount)}
+          value={formatMoney(totalRevenue, profile?.currency ?? "INR")}
           icon={
             <svg
               className="w-6 h-6"
@@ -676,7 +677,10 @@ export default function Dashboard() {
                     key={inv.id}
                     type={inv.status === "paid" ? "payment" : inv.status === "overdue" ? "overdue" : "invoice"}
                     title={`${inv.invoice_number} ${inv.status === "paid" ? "paid" : "created"}`}
-                    description={`${inv.client_name} • ${formatINR(Number(inv.total))}`}
+                    description={`${inv.client_name} • ${formatMoney(
+  Number(inv.invoice_total ?? inv.total),
+  inv.invoice_currency ?? profile?.currency ?? "INR"
+)}`}
                     timestamp={formatDate(inv.created_at)}
                     icon={
                       inv.status === "paid" ? (
@@ -820,7 +824,10 @@ export default function Dashboard() {
                         {inv.client_name}
                       </p>
                       <p className="text-sm font-semibold text-slate-900 mt-1">
-                        {formatINR(Number(inv.total))}
+                        {formatMoney(
+  Number(inv.invoice_total ?? inv.total),
+  inv.invoice_currency ?? profile?.currency ?? "INR"
+)}
                       </p>
                     </Link>
                   );
