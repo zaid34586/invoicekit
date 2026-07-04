@@ -96,7 +96,7 @@ Once verified, return here and sign in to continue.
 </a>
 
 <button
-  onClick={() => navigate("/login")}
+  onClick={() => navigate("/login?confirmed=1")}
   className="btn-primary w-full mb-3"
 >
   I've Verified My Email

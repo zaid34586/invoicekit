@@ -1,3 +1,4 @@
+import { getExchangeRate } from "../lib/exchangeRate";
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabase";
@@ -6,7 +7,6 @@ import { useUpgrade } from "../context/UpgradeContext";
 import type { LineItem, Client, InvoiceStatus } from "../lib/types";
 import {
   COUNTRIES,
-  formatINR,
   todayISO,
   addDaysISO,
   FREE_PLAN_LIMIT,
@@ -68,15 +68,19 @@ export default function NewInvoice() {
   const businessState = profile?.state ?? null;
 
   // Base currency comes from the business profile (defaults to INR)
-  const baseCurrency = profile?.currency ?? "INR";
+  const baseCurrency = profile?.currency ?? "USD";
 
   const [invoiceNumber, setInvoiceNumber] = useState("");
   const [invoiceDate, setInvoiceDate] = useState(todayISO());
   const [dueDate, setDueDate] = useState(addDaysISO(15));
   const [status, setStatus] = useState<InvoiceStatus>("draft");
   const [clientName, setClientName] = useState("");
-  const [clientCountry, setClientCountry] = useState("India");
-  const [clientCountryCode, setClientCountryCode] = useState("+91");
+  const [clientCountry, setClientCountry] = useState(
+  profile?.country ?? "United States"
+);
+  const [clientCountryCode, setClientCountryCode] = useState(
+  profile?.country_code ?? ""
+);
   const [clientPhone, setClientPhone] = useState("");
   const [clientEmail, setClientEmail] = useState("");
   const [clientAddress, setClientAddress] = useState("");
@@ -100,8 +104,27 @@ export default function NewInvoice() {
 
   // Reset exchange rate to 1 whenever the currency changes
   useEffect(() => {
-    setExchangeRate(1);
-  }, [invoiceCurrency]);
+  async function loadRate() {
+    if (invoiceCurrency === baseCurrency) {
+      setExchangeRate(1);
+      return;
+    }
+
+    try {
+      const result = await getExchangeRate(
+        baseCurrency,
+        invoiceCurrency
+      );
+
+      setExchangeRate(result.rate);
+    } catch (err) {
+      console.error(err);
+      setExchangeRate(1);
+    }
+  }
+
+  loadRate();
+}, [baseCurrency, invoiceCurrency]);
 
   const currencySymbol = getCurrencySymbol(invoiceCurrency);
   // ─────────────────────────────────────────────────────────────────────────
@@ -186,7 +209,11 @@ export default function NewInvoice() {
 
   function selectClient(client: Client) {
     setClientName(client.name);
-    setClientCountry(client.country ?? "India");
+    setClientCountry(
+  client.country ??
+  profile?.country ??
+  "United States"
+);
     setClientCountryCode(
       client.country_code ??
         COUNTRIES.find((c) => c.name === (client.country ?? "India"))?.code ??
@@ -737,7 +764,7 @@ export default function NewInvoice() {
               {/* Show base equivalent when foreign currency is used */}
               {isForeignCurrency && (
                 <p className="text-xs text-slate-400 text-right">
-                  ≈ {formatINR(calc.total)} (base {baseCurrency})
+                  ≈ {formatMoney(calc.total, baseCurrency)} (base {baseCurrency})
                 </p>
               )}
             </div>

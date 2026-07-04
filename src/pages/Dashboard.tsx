@@ -3,7 +3,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../context/AuthContext";
 import type { Invoice, Client } from "../lib/types";
-import { formatINR, formatDate, FREE_PLAN_LIMIT } from "../lib/constants";
+import { formatDate, FREE_PLAN_LIMIT } from "../lib/constants";
 import { formatMoney } from "../lib/currency";
 
 // Skeleton loader component
@@ -231,7 +231,13 @@ function ActivityItem({
 }
 
 // Revenue chart placeholder
-function RevenueChart({ period }: { period: "7d" | "30d" | "year" }) {
+function RevenueChart({
+  period,
+  currency,
+}: {
+  period: "7d" | "30d" | "year";
+  currency: string;
+}) {
   // Placeholder data based on period
   const chartData = {
     "7d": [3200, 4100, 2800, 5600, 4300, 3800, 5200],
@@ -255,7 +261,7 @@ function RevenueChart({ period }: { period: "7d" | "30d" | "year" }) {
             Revenue Overview
           </h3>
           <p className="text-sm text-slate-500 mt-0.5">
-            Total: {formatINR(total)}
+            Total: {formatMoney(total, currency)}
           </p>
         </div>
         <div className="flex items-center gap-2 text-sm">
@@ -288,7 +294,7 @@ function RevenueChart({ period }: { period: "7d" | "30d" | "year" }) {
             style={{ height: `${(value / maxValue) * 100}%` }}
           >
             <div className="absolute -top-8 left-1/2 -translate-x-1/2 bg-slate-900 text-white text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">
-              {formatINR(value)}
+              {formatMoney(value, currency)}
             </div>
           </div>
         ))}
@@ -464,7 +470,7 @@ export default function Dashboard() {
       <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
         <StatCard
           label="Total Revenue"
-          value={formatMoney(pendingAmount, profile?.currency ?? "INR")}
+         value={formatMoney(totalRevenue, profile?.currency ?? "USD")}
           icon={
             <svg
               className="w-6 h-6"
@@ -533,7 +539,7 @@ export default function Dashboard() {
         />
         <StatCard
           label="Pending Payments"
-          value={formatMoney(totalRevenue, profile?.currency ?? "INR")}
+          value={formatMoney(pendingAmount, profile?.currency ?? "USD")}
           icon={
             <svg
               className="w-6 h-6"
@@ -613,7 +619,10 @@ export default function Dashboard() {
             This Year
           </button>
         </div>
-        <RevenueChart period={chartPeriod} />
+        <RevenueChart
+  period={chartPeriod}
+  currency={profile?.currency ?? "USD"}
+/>
       </div>
 
       {/* Two Column Layout */}
@@ -679,7 +688,7 @@ export default function Dashboard() {
                     title={`${inv.invoice_number} ${inv.status === "paid" ? "paid" : "created"}`}
                     description={`${inv.client_name} • ${formatMoney(
   Number(inv.invoice_total ?? inv.total),
-  inv.invoice_currency ?? profile?.currency ?? "INR"
+  inv.invoice_currency ?? profile?.currency ?? "USD"
 )}`}
                     timestamp={formatDate(inv.created_at)}
                     icon={
@@ -1004,7 +1013,10 @@ export default function Dashboard() {
                 {overdueInvoices.length} overdue invoice{overdueInvoices.length > 1 ? "s" : ""}
               </h3>
               <p className="text-sm text-red-700 mt-0.5">
-                Total overdue amount: {formatINR(overdueAmount)}
+                Total overdue amount: {formatMoney(
+  overdueAmount,
+  profile?.currency ?? "USD"
+)}
               </p>
             </div>
             <Link

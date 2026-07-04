@@ -50,7 +50,7 @@ function PublicOnlyRoute({ children }: { children: ReactNode }) {
 const confirmed =
   new URLSearchParams(window.location.search).get("confirmed") === "1";
 
-if (confirmed) {
+if (confirmed && window.location.pathname === "/login") {
   return <>{children}</>;
 }
 
@@ -58,8 +58,8 @@ if (!user.email_confirmed_at) {
   return <Navigate to="/check-email" replace />;
 }
 
-if (profile === null) {
-  return <>{children}</>;
+if (!profile) {
+  return <LoadingScreen />;
 }
 
 if (!profile.phone_verified) {
@@ -93,14 +93,13 @@ function PhoneRoute() {
 function CheckEmailRoute() {
   const { user, profile, loading } = useAuth();
 
-  const confirmed =
-    new URLSearchParams(window.location.search).get("confirmed") === "1";
+  
 
   if (loading) return <LoadingScreen />;
 
-  if (confirmed) {
-    return <Navigate to="/login?confirmed=1" replace />;
-  }
+  if (user?.email_confirmed_at) {
+  return <Navigate to="/login?confirmed=1" replace />;
+}
 
   if (!user) return <Navigate to="/signup" replace />;
 
@@ -108,9 +107,7 @@ function CheckEmailRoute() {
     return <Navigate to="/dashboard" replace />;
   }
 
-  if (user.email_confirmed_at && !profile?.phone_verified) {
-    return <Navigate to="/login?confirmed=1" replace />;
-  }
+  
 
   return <CheckEmail />;
 }

@@ -217,10 +217,16 @@ export default function InvoicePreview() {
   // business_country/business_state/business_currency are null). Never used
   // for invoices that already have this snapshot. ───────────────────────────
   const isLegacyBusinessInfo = invoice.business_country == null;
-  const businessCountry = invoice.business_country ?? profile?.country ?? "India";
+  const businessCountry =
+  invoice.business_country ??
+  profile?.country ??
+  "United States";
   const businessState = invoice.business_state ?? profile?.state ?? null;
   const businessCurrency =
-    invoice.business_currency ?? invoice.base_currency ?? profile?.currency ?? "INR";
+  invoice.business_currency ??
+  invoice.base_currency ??
+  profile?.currency ??
+  "USD";
 
   // ── Client legal data: LOCKED invoice field only. NO Clients table lookup.
   // Old invoices (pre-upgrade) simply have no reliable client country — we do
@@ -231,7 +237,10 @@ export default function InvoicePreview() {
 
   // ── Currency: base/invoice currency come from the LOCKED invoice snapshot.
   // Profile is only a fallback for legacy invoices missing base_currency. ───
-  const baseCurrency = invoice.base_currency ?? profile?.currency ?? "INR";
+  const baseCurrency =
+  invoice.base_currency ??
+  profile?.currency ??
+  "USD";
   const invoiceCurrency = invoice.invoice_currency ?? baseCurrency;
   const isForeignCurrency = invoiceCurrency !== baseCurrency;
   const exchangeRate = invoice.exchange_rate ?? 1;
@@ -275,7 +284,8 @@ export default function InvoicePreview() {
     legacyTaxDecision = decideTax({
       businessCountry: invoice.business_country ?? profile?.country ?? "India",
       businessState: invoice.business_state ?? profile?.state ?? null,
-      clientCountry: invoice.client_country ?? "India",
+      clientCountry:
+invoice.client_country ?? "United States",
       clientState: invoice.client_state,
       defaultGstRate: invoice.items[0]?.gstRate ?? 18,
     });

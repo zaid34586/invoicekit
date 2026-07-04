@@ -2,6 +2,8 @@ import { useState, useRef, useEffect, type FormEvent } from "react";
 import { supabase } from "../lib/supabase";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
+import { getGlobalCountryConfig } from "../lib/globalConfig";
+
 
 // Time zones list
 const TIME_ZONES = [
@@ -173,7 +175,7 @@ export default function Account() {
   const [fullName, setFullName] = useState("");
   const [businessName, setBusinessName] = useState("");
   const [phone, setPhone] = useState("");
-  const [country, setCountry] = useState("India");
+  const [country, setCountry] = useState("");
   const [timezone, setTimezone] = useState("Asia/Kolkata");
   const [language, setLanguage] = useState("en");
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
@@ -211,6 +213,9 @@ export default function Account() {
       setBusinessName(profile.business_name ?? "");
       setPhone(profile.phone ?? "");
       setAvatarUrl(profile.logo_url ?? null);
+
+      setCountry(profile.country ?? "");
+setTimezone(profile.timezone ?? "UTC");
     }
   }, [profile]);
 
@@ -251,12 +256,16 @@ export default function Account() {
     if (!user) return;
     setSaving(true);
     setMessage(null);
-
+const config = getGlobalCountryConfig(country);
     const payload = {
       user_id: user.id,
       business_name: businessName.trim() || fullName.trim() || null,
       phone: phone.trim() || null,
       logo_url: avatarUrl,
+      country,
+timezone,
+country_code: config.phoneCode,
+currency: config.currency,
     };
 
     const { error } = await supabase

@@ -1,28 +1,28 @@
 import {
   createContext,
   useContext,
+  useMemo,
   type ReactNode,
 } from "react";
 
 export type Region = "india" | "global";
 
-const isIndia =
-  window.location.hostname.endsWith(".in") ||
-  window.location.hostname === "localhost";
+const hostname = window.location.hostname;
+const isIndia = hostname.endsWith(".in");
 
-const RegionContext = createContext<Region>(
-  isIndia ? "india" : "global"
-);
+const defaultRegion: Region = isIndia ? "india" : "global";
+
+const RegionContext = createContext<Region>(defaultRegion);
 
 export function RegionProvider({
   children,
 }: {
   children: ReactNode;
 }) {
+  const region = useMemo(() => defaultRegion, []);
+
   return (
-    <RegionContext.Provider
-      value={isIndia ? "india" : "global"}
-    >
+    <RegionContext.Provider value={region}>
       {children}
     </RegionContext.Provider>
   );

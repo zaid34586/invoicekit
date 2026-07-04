@@ -2,7 +2,8 @@ import { useEffect, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 import type { Invoice, Profile } from "../lib/types";
-import { formatINR, formatDate } from "../lib/constants";
+import { formatDate } from "../lib/constants";
+import { formatMoney } from "../lib/currency";
 import { lineAmount } from "../lib/gst";
 
 export default function ShareInvoice() {
@@ -75,6 +76,11 @@ export default function ShareInvoice() {
       </div>
     );
   }
+  const invoiceCurrency =
+  invoice.invoice_currency ??
+  invoice.business_currency ??
+  profile?.currency ??
+  "USD";
 
   const isInterState = invoice.igst > 0;
 
@@ -220,13 +226,13 @@ export default function ShareInvoice() {
                         {item.qty}
                       </td>
                       <td className="px-4 py-3 text-sm text-slate-700 text-right">
-                        {formatINR(item.rate)}
+                        {formatMoney(item.rate, invoiceCurrency)}
                       </td>
                       <td className="px-4 py-3 text-sm text-slate-700 text-center">
                         {item.gstRate}%
                       </td>
                       <td className="px-4 py-3 text-sm font-medium text-slate-900 text-right">
-                        {formatINR(lineAmount(item))}
+                        {formatMoney(lineAmount(item), invoiceCurrency)}
                       </td>
                     </tr>
                   ))}
@@ -239,16 +245,18 @@ export default function ShareInvoice() {
             <div className="flex-1">
               {isInterState ? (
                 <GSTBreakup
-                  title="IGST Breakup"
-                  items={invoice.items}
-                  type="igst"
-                />
+  title="IGST Breakup"
+  items={invoice.items}
+  type="igst"
+  currency={invoiceCurrency}
+/>
               ) : invoice.cgst > 0 || invoice.sgst > 0 ? (
                 <GSTBreakup
-                  title="CGST + SGST Breakup"
-                  items={invoice.items}
-                  type="cgstsgst"
-                />
+  title="CGST + SGST Breakup"
+  items={invoice.items}
+  type="cgstsgst"
+  currency={invoiceCurrency}
+/>
               ) : null}
             </div>
 
@@ -256,14 +264,14 @@ export default function ShareInvoice() {
               <div className="flex justify-between">
                 <span className="text-slate-500">Subtotal</span>
                 <span className="font-medium text-slate-900">
-                  {formatINR(Number(invoice.subtotal))}
+                  {formatMoney(Number(invoice.subtotal), invoiceCurrency)}
                 </span>
               </div>
               {isInterState ? (
                 <div className="flex justify-between">
                   <span className="text-slate-500">IGST</span>
                   <span className="font-medium text-slate-900">
-                    {formatINR(Number(invoice.igst))}
+                    {formatMoney(Number(invoice.igst), invoiceCurrency)}
                   </span>
                 </div>
               ) : (
@@ -271,13 +279,14 @@ export default function ShareInvoice() {
                   <div className="flex justify-between">
                     <span className="text-slate-500">CGST</span>
                     <span className="font-medium text-slate-900">
-                      {formatINR(Number(invoice.cgst))}
+                      {formatMoney(Number(invoice.cgst), invoiceCurrency)}
                     </span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-slate-500">SGST</span>
                     <span className="font-medium text-slate-900">
-                      {formatINR(Number(invoice.sgst))}
+                      {formatMoney(Number(invoice.sgst), invoiceCurrency)}
+                    
                     </span>
                   </div>
                 </>
@@ -285,7 +294,7 @@ export default function ShareInvoice() {
               <div className="bg-primary-600 text-white rounded-lg px-4 py-3 flex justify-between items-center mt-3">
                 <span className="font-semibold">Grand Total</span>
                 <span className="text-lg font-bold">
-                  {formatINR(Number(invoice.total))}
+                  {formatMoney(Number(invoice.total), invoiceCurrency)}
                 </span>
               </div>
             </div>
@@ -347,7 +356,7 @@ export default function ShareInvoice() {
             </div>
             <h2 className="text-xl font-bold text-slate-900 mb-2">Pay Invoice</h2>
             <p className="text-sm text-slate-500 mb-1">
-              Amount due: {formatINR(Number(invoice.total))}
+              Amount due: {formatMoney(Number(invoice.total), invoiceCurrency)}
             </p>
             <p className="text-sm text-amber-600 font-medium mt-4">
               Payment gateway coming soon
@@ -369,10 +378,12 @@ function GSTBreakup({
   title,
   items,
   type,
+  currency,
 }: {
   title: string;
   items: Invoice["items"];
   type: "igst" | "cgstsgst";
+  currency: string;
 }) {
   const merged = new Map<number, { taxable: number; tax: number }>();
   for (const it of items) {
@@ -409,13 +420,13 @@ function GSTBreakup({
           {sorted.map(([rate, v]) => (
             <tr key={rate} className="border-t border-slate-100">
               <td className="px-3 py-2 text-slate-600">{rate}%</td>
-              <td className="px-3 py-2 text-right text-slate-600">{formatINR(v.taxable)}</td>
+              <td className="px-3 py-2 text-right text-slate-600">{formatMoney(v.taxable, currency)}</td>
               {type === "igst" ? (
-                <td className="px-3 py-2 text-right text-slate-600">{formatINR(v.tax)}</td>
+                <td className="px-3 py-2 text-right text-slate-600">{formatMoney(v.tax, currency)}</td>
               ) : (
                 <>
-                  <td className="px-3 py-2 text-right text-slate-600">{formatINR(v.tax / 2)}</td>
-                  <td className="px-3 py-2 text-right text-slate-600">{formatINR(v.tax / 2)}</td>
+                  <td className="px-3 py-2 text-right text-slate-600">{formatMoney(v.tax / 2, currency)}</td>
+                  <td className="px-3 py-2 text-right text-slate-600">{formatMoney(v.tax / 2, currency)}</td>
                 </>
               )}
             </tr>

@@ -1,16 +1,9 @@
 // ─── Currency engine for InvoiceKit ────────────────────────────────────────
 // This file is the single source of truth for currency logic.
 // It is intentionally kept separate from subscription/billing concerns.
+import { getGlobalCountryConfig } from "./globalConfig";
 
-const COUNTRY_CURRENCY: Record<string, string> = {
-  India: "INR",
-  "United States": "USD",
-  "United Kingdom": "GBP",
-  UAE: "AED",
-  Canada: "CAD",
-  Australia: "AUD",
-  Singapore: "SGD",
-};
+
 
 const CURRENCY_SYMBOL: Record<string, string> = {
   INR: "₹",
@@ -35,7 +28,7 @@ const CURRENCY_DECIMALS: Record<string, number> = {
 
 /** Returns the ISO 4217 currency code for a given country name. */
 export function getCurrencyForCountry(country: string): string {
-  return COUNTRY_CURRENCY[country] ?? "INR";
+  return getGlobalCountryConfig(country).currency;
 }
 
 /** Returns the display symbol (e.g. "₹", "$") for a currency code. */
@@ -62,7 +55,9 @@ export function formatMoney(amount: number, currency: string): string {
   }).format(rounded);
   return `${symbol}${formatted}`;
 }
-
+export function getCurrencyFromCountry(country: string) {
+  return getGlobalCountryConfig(country).currency;
+}
 /**
  * Convert an amount from base currency to invoice currency.
  * rate = how many invoice-currency units equal 1 base-currency unit.

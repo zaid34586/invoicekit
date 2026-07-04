@@ -23,7 +23,7 @@ export default function VerifyPhone() {
     return () => window.clearTimeout(timer);
   }, [stage, resendTimer]);
 
-  const countryCode = profile?.country_code || "+91";
+  const countryCode = profile?.country_code ?? "";
 const fullPhone = countryCode + phone;
 
   async function sendOTP() {
@@ -204,19 +204,15 @@ const fullPhone = countryCode + phone;
           <div>
             <label className="label">Mobile Number</label>
             <div className="flex gap-2 mb-6">
-              <select
-  className="input w-28"
-  value={profile?.country_code || "+91"}
-  disabled
->
-  <option>{profile?.country_code || "+91"}</option>
-</select>
+              <div className="input w-28 flex items-center justify-center bg-slate-100">
+  {countryCode}
+</div>
               <input
                 className="input flex-1"
-                placeholder="9876543210"
+                placeholder="Enter mobile number"
                 value={phone}
                 onChange={(e) =>
-                  setPhone(e.target.value.replace(/\D/g, "").slice(0, 10))
+                  setPhone(e.target.value.replace(/\D/g, "").slice(0, 15))
                 }
               />
             </div>

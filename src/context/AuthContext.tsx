@@ -150,7 +150,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       email,
       password,
       options: {
-        emailRedirectTo: `${window.location.origin}/login?confirmed=1`,
+        emailRedirectTo: "https://invoicekit-liard.vercel.app/login?confirmed=1",
       },
     });
 

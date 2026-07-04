@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useAuth } from "../context/AuthContext";
 import { supabase } from "../lib/supabase";
-import { formatINR } from "../lib/constants";
+import { formatMoney } from "../lib/currency";
 import type { Invoice, Client } from "../lib/types";
 import * as XLSX from "xlsx";
 import jsPDF from "jspdf";
@@ -92,7 +92,19 @@ function StatCard({
 }
 
 // Bar Chart Component
-function BarChart({ data, labels, title, color = "primary" }: { data: number[]; labels: string[]; title: string; color?: "primary" | "green" | "blue" }) {
+function BarChart({
+  data,
+  labels,
+  title,
+  color = "primary",
+  currency,
+}: {
+  data: number[];
+  labels: string[];
+  title: string;
+  color?: "primary" | "green" | "blue";
+  currency: string;
+}) {
   const maxValue = Math.max(...data, 1);
 
   return (
@@ -112,7 +124,7 @@ function BarChart({ data, labels, title, color = "primary" }: { data: number[]; 
                 style={{ width: `${(value / maxValue) * 100}%` }}
               />
             </div>
-            <div className="w-20 text-sm font-medium text-slate-900 text-right">{formatINR(value)}</div>
+            <div className="w-20 text-sm font-medium text-slate-900 text-right">{formatMoney(value, currency)}</div>
           </div>
         ))}
       </div>
@@ -267,11 +279,13 @@ function TopClientRow({
   revenue,
   invoices,
   rank,
+  currency,
 }: {
   name: string;
   revenue: number;
   invoices: number;
   rank: number;
+  currency: string;
 }) {
   const rankColors = ["text-amber-500", "text-slate-400", "text-amber-700"];
 
@@ -284,13 +298,13 @@ function TopClientRow({
         <p className="text-sm font-medium text-slate-900 truncate">{name}</p>
         <p className="text-xs text-slate-500">{invoices} invoices</p>
       </div>
-      <p className="text-sm font-semibold text-slate-900">{formatINR(revenue)}</p>
+      <p className="text-sm font-semibold text-slate-900">{formatMoney(revenue, currency)}</p>
     </div>
   );
 }
 
 export default function Reports() {
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const [loading, setLoading] = useState(true);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
@@ -300,6 +314,7 @@ export default function Reports() {
   const [selectedStatus, setSelectedStatus] = useState<string>("all");
   const [selectedClient, setSelectedClient] = useState<string>("all");
   const [exportModal, setExportModal] = useState<string | null>(null);
+const currency = profile?.currency ?? "USD";
 
   useEffect(() => {
     async function loadData() {
@@ -368,7 +383,7 @@ function exportPDF() {
 
   doc.setFontSize(12);
 
-  doc.text(`Total Revenue: ${formatINR(totalRevenue)}`, 20, 40);
+  doc.text(`Total Revenue: ${formatMoney(totalRevenue, currency)}`, 20, 40);
   doc.text(`Paid Invoices: ${paidInvoices}`, 20, 50);
   doc.text(`Pending Invoices: ${pendingInvoices}`, 20, 60);
   doc.text(`Overdue Invoices: ${overdueInvoices}`, 20, 70);
@@ -645,7 +660,7 @@ function exportExcel() {
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
               <StatCard
                 label="Total Revenue"
-                value={formatINR(totalRevenue)}
+                value={formatMoney(totalRevenue, currency)}
                 icon={
                   <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1" />
@@ -656,7 +671,7 @@ function exportExcel() {
               />
               <StatCard
                 label="Revenue This Month"
-                value={formatINR(revenueThisMonth)}
+                value={formatMoney(revenueThisMonth, currency)}
                 icon={
                   <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
@@ -669,7 +684,7 @@ function exportExcel() {
               />
               <StatCard
                 label="Revenue Last Month"
-                value={formatINR(revenueLastMonth)}
+                value={formatMoney(revenueLastMonth, currency)}
                 icon={
                   <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -787,7 +802,7 @@ function exportExcel() {
               <StatCard
                 label="Top Paying Client"
                 value={highestPayingClient.length > 15 ? highestPayingClient.substring(0, 15) + "..." : highestPayingClient}
-                subtitle={topClients[0] ? formatINR(topClients[0].revenue) : undefined}
+                subtitle={topClients[0] ? formatMoney(topClients[0].revenue, currency) : undefined}
                 icon={
                   <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" />
@@ -825,6 +840,7 @@ function exportExcel() {
                       revenue={client.revenue}
                       invoices={client.invoices}
                       rank={index}
+                      currency={currency}
                     />
                   ))}
                 </div>
@@ -838,7 +854,7 @@ function exportExcel() {
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
               <StatCard
                 label="Total GST Collected"
-                value={formatINR(totalGST)}
+                value={formatMoney(totalGST, currency)}
                 icon={
                   <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M9 14l6-6m-5.5.5h.01m4.99 5h.01M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16l3.5-2 3.5 2 3.5-2 3.5 2z" />
@@ -849,7 +865,7 @@ function exportExcel() {
               />
               <StatCard
                 label="CGST"
-                value={formatINR(totalCGST)}
+                value={formatMoney(totalCGST, currency)}
                 icon={
                   <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
@@ -860,7 +876,7 @@ function exportExcel() {
               />
               <StatCard
                 label="SGST"
-                value={formatINR(totalSGST)}
+                value={formatMoney(totalSGST, currency)}
                 icon={
                   <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
@@ -871,7 +887,7 @@ function exportExcel() {
               />
               <StatCard
                 label="IGST"
-                value={formatINR(totalIGST)}
+                value={formatMoney(totalIGST, currency)}
                 icon={
                   <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
@@ -890,6 +906,7 @@ function exportExcel() {
               labels={monthLabels}
               title="Revenue Trend (6 Months)"
               color="primary"
+              currency={currency}
             />
             <StatusChart data={statusChartData} />
           </section>
@@ -905,6 +922,7 @@ function exportExcel() {
               labels={monthlyRevenueLabels}
               title="Monthly Revenue Breakdown"
               color="green"
+              currency={currency}
             />
           </section>
 
