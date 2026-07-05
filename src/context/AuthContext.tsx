@@ -7,6 +7,7 @@ import {
 } from "react";
 import type { Session, User } from "@supabase/supabase-js";
 import { supabase } from "../lib/supabase";
+import { SITE_URL } from "../config/env";
 import type { Profile } from "../lib/types";
 
 interface AuthContextValue {
@@ -36,6 +37,15 @@ function createDefaultProfile(userId: string, email?: string) {
     phone_verified: false,
     currency: null,
     payment_gateway: null,
+    // These four are deliberately null at signup — we do not know the
+    // user's business country yet, and guessing (e.g. defaulting to a
+    // specific country) is exactly the bug this fix removes. They are
+    // populated together, once, by BusinessSetupRoute (see App.tsx),
+    // which the router now guarantees runs before /verify-phone.
+    country: null,
+    country_code: null,
+    timezone: null,
+    date_format: null,
   };
 }
 
@@ -150,7 +160,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       email,
       password,
       options: {
-        emailRedirectTo: "https://invoicekit-liard.vercel.app/login?confirmed=1",
+        emailRedirectTo: `${SITE_URL}/login?confirmed=1`,
       },
     });
 

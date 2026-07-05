@@ -6,6 +6,7 @@ import Landing from "./pages/Landing";
 import Login from "./pages/Login";
 import Signup from "./pages/Signup";
 import CheckEmail from "./pages/CheckEmail";
+import BusinessSetup from "./pages/BusinessSetup";
 import VerifyPhone from "./pages/VerifyPhone";
 
 import AppLayout from "./components/AppLayout";
@@ -62,6 +63,10 @@ if (!profile) {
   return <LoadingScreen />;
 }
 
+if (!profile.country) {
+  return <Navigate to="/business-setup" replace />;
+}
+
 if (!profile.phone_verified) {
   return <Navigate to="/verify-phone" replace />;
 }
@@ -69,22 +74,39 @@ if (!profile.phone_verified) {
 return <Navigate to="/dashboard" replace />;
 }
 
-// Full auth: email confirmed + phone verified
+// Full auth: email confirmed + business country set + phone verified
 function ProtectedRoute({ children }: { children: ReactNode }) {
   const { user, profile, loading } = useAuth();
   if (loading) return <LoadingScreen />;
   if (!user) return <Navigate to="/login" replace />;
   if (!user.email_confirmed_at) return <Navigate to="/check-email" replace />;
+  if (!profile?.country) return <Navigate to="/business-setup" replace />;
   if (!profile?.phone_verified) return <Navigate to="/verify-phone" replace />;
   return <>{children}</>;
 }
 
-// Phone verify route: email confirmed but phone not verified
+// Business setup route: email confirmed, but business country not set yet.
+// This is what guarantees Phone Verification never runs without a country.
+function BusinessSetupRoute() {
+  const { user, profile, loading } = useAuth();
+  if (loading) return <LoadingScreen />;
+  if (!user) return <Navigate to="/login" replace />;
+  if (!user.email_confirmed_at) return <Navigate to="/check-email" replace />;
+  if (profile?.country) {
+    return profile.phone_verified
+      ? <Navigate to="/dashboard" replace />
+      : <Navigate to="/verify-phone" replace />;
+  }
+  return <BusinessSetup />;
+}
+
+// Phone verify route: email confirmed + country set, but phone not verified
 function PhoneRoute() {
   const { user, profile, loading } = useAuth();
   if (loading) return <LoadingScreen />;
   if (!user) return <Navigate to="/login" replace />;
   if (!user.email_confirmed_at) return <Navigate to="/check-email" replace />;
+  if (!profile?.country) return <Navigate to="/business-setup" replace />;
   if (profile?.phone_verified) return <Navigate to="/dashboard" replace />;
   return <VerifyPhone />;
 }
@@ -135,6 +157,7 @@ export default function App() {
       />
 
       <Route path="/check-email" element={<CheckEmailRoute />} />
+      <Route path="/business-setup" element={<BusinessSetupRoute />} />
       <Route path="/verify-phone" element={<PhoneRoute />} />
 
       <Route

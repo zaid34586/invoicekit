@@ -13,9 +13,11 @@ const CURRENCY_SYMBOL: Record<string, string> = {
   CAD: "C$",
   AUD: "A$",
   SGD: "S$",
+  JPY: "¥",
 };
 
 // Most currencies use 2 decimal places; add exceptions here if needed.
+// JPY has no minor unit in everyday use.
 const CURRENCY_DECIMALS: Record<string, number> = {
   INR: 2,
   USD: 2,
@@ -24,6 +26,7 @@ const CURRENCY_DECIMALS: Record<string, number> = {
   CAD: 2,
   AUD: 2,
   SGD: 2,
+  JPY: 0,
 };
 
 /** Returns the ISO 4217 currency code for a given country name. */

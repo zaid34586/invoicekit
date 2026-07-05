@@ -5,6 +5,9 @@ export const GLOBAL_COUNTRIES = {
     phoneCode: "+1",
     locale: "en-US",
     taxLabel: "Sales Tax",
+    timezone: "America/New_York",
+    dateFormat: "MM/DD/YYYY",
+    states: [],
   },
   "United Kingdom": {
     currency: "GBP",
@@ -12,6 +15,9 @@ export const GLOBAL_COUNTRIES = {
     phoneCode: "+44",
     locale: "en-GB",
     taxLabel: "VAT",
+    timezone: "Europe/London",
+    dateFormat: "DD/MM/YYYY",
+    states: [],
   },
   Australia: {
     currency: "AUD",
@@ -19,6 +25,9 @@ export const GLOBAL_COUNTRIES = {
     phoneCode: "+61",
     locale: "en-AU",
     taxLabel: "GST",
+    timezone: "Australia/Sydney",
+    dateFormat: "DD/MM/YYYY",
+    states: [],
   },
   Japan: {
   currency: "JPY",
@@ -27,6 +36,7 @@ export const GLOBAL_COUNTRIES = {
   locale: "ja-JP",
   timezone: "Asia/Tokyo",
   taxLabel: "Consumption Tax",
+  dateFormat: "YYYY/MM/DD",
   states: ["Tokyo"],
 },
   Singapore: {
@@ -35,6 +45,9 @@ export const GLOBAL_COUNTRIES = {
     phoneCode: "+65",
     locale: "en-SG",
     taxLabel: "GST",
+    timezone: "Asia/Singapore",
+    dateFormat: "DD/MM/YYYY",
+    states: [],
   },
   UAE: {
     currency: "AED",
@@ -42,6 +55,9 @@ export const GLOBAL_COUNTRIES = {
     phoneCode: "+971",
     locale: "en-AE",
     taxLabel: "VAT",
+    timezone: "Asia/Dubai",
+    dateFormat: "DD/MM/YYYY",
+    states: [],
   },
   Canada: {
     currency: "CAD",
@@ -49,6 +65,9 @@ export const GLOBAL_COUNTRIES = {
     phoneCode: "+1",
     locale: "en-CA",
     taxLabel: "GST/HST",
+    timezone: "America/Toronto",
+    dateFormat: "DD/MM/YYYY",
+    states: [],
   },
 } as const;
 
