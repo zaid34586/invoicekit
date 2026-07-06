@@ -19,7 +19,7 @@ export async function getExchangeRate(
   }
 
   const response = await fetch(
-  `https://api.frankfurter.app/latest?from=${baseCurrency}&to=${invoiceCurrency}`
+  `/api/exchange-rate?from=${baseCurrency}&to=${invoiceCurrency}`
 );
 
 if (!response.ok) {
