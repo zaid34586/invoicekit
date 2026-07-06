@@ -101,30 +101,47 @@ export default function NewInvoice() {
   // Exchange rate: 1 base unit = exchangeRate invoice units
   // e.g. base=INR, invoice=USD → rate ≈ 0.012
   const [exchangeRate, setExchangeRate] = useState<number>(1);
+  // Tracks whether the rate came from the live API, is loading, failed, or
+  // was overridden by the user — drives the message shown next to the field.
+  const [rateStatus, setRateStatus] = useState<"idle" | "loading" | "auto" | "error" | "manual">("idle");
+  const [rateUpdatedAt, setRateUpdatedAt] = useState<string | null>(null);
 
-  // Reset exchange rate to 1 whenever the currency changes
+  // Auto-fetch the live rate whenever the currency pair changes
   useEffect(() => {
-  async function loadRate() {
-    if (invoiceCurrency === baseCurrency) {
-      setExchangeRate(1);
-      return;
+    let cancelled = false;
+
+    async function loadRate() {
+      if (invoiceCurrency === baseCurrency) {
+        setExchangeRate(1);
+        setRateStatus("idle");
+        setRateUpdatedAt(null);
+        return;
+      }
+
+      setRateStatus("loading");
+
+      try {
+        const result = await getExchangeRate(baseCurrency, invoiceCurrency);
+        if (cancelled) return;
+        setExchangeRate(result.rate);
+        setRateUpdatedAt(result.lastUpdated);
+        setRateStatus("auto");
+      } catch (err) {
+        if (cancelled) return;
+        console.error(err);
+        // Fall back to 1 so totals still render, but flag it clearly so the
+        // user knows this is NOT a fetched rate and should double check it.
+        setExchangeRate(1);
+        setRateStatus("error");
+      }
     }
 
-    try {
-      const result = await getExchangeRate(
-        baseCurrency,
-        invoiceCurrency
-      );
+    loadRate();
 
-      setExchangeRate(result.rate);
-    } catch (err) {
-      console.error(err);
-      setExchangeRate(1);
-    }
-  }
-
-  loadRate();
-}, [baseCurrency, invoiceCurrency]);
+    return () => {
+      cancelled = true;
+    };
+  }, [baseCurrency, invoiceCurrency]);
 
   const currencySymbol = getCurrencySymbol(invoiceCurrency);
   // ─────────────────────────────────────────────────────────────────────────
@@ -524,7 +541,11 @@ export default function NewInvoice() {
                 <div className="flex-1 text-sm text-blue-700">
                   <span className="font-medium">Invoice currency: {invoiceCurrency}</span>
                   <span className="text-blue-500 ml-2">
-                    (Base: {baseCurrency}) — enter exchange rate below
+                    (Base: {baseCurrency})
+                    {rateStatus === "loading" && " — fetching live rate…"}
+                    {rateStatus === "auto" && ` — live rate as of ${rateUpdatedAt ?? "today"}`}
+                    {rateStatus === "manual" && " — manually overridden"}
+                    {rateStatus === "error" && " — couldn't fetch live rate, please enter it manually"}
                   </span>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
@@ -536,13 +557,19 @@ export default function NewInvoice() {
                     min={0.000001}
                     step="any"
                     value={exchangeRate}
-                    onChange={(e) => setExchangeRate(Number(e.target.value) || 1)}
-                    className="input w-28"
+                    disabled={rateStatus === "loading"}
+                    onChange={(e) => {
+                      setExchangeRate(Number(e.target.value) || 1);
+                      setRateStatus("manual");
+                    }}
+                    className="input w-28 disabled:opacity-50"
                   />
                   <span className="text-sm text-slate-600">{invoiceCurrency}</span>
                 </div>
                 <p className="text-xs text-blue-400 sm:hidden">
-                  Rate will be locked once invoice is saved.
+                  {rateStatus === "auto"
+                    ? "Rate auto-fetched. You can override it above if needed."
+                    : "Rate will be locked once invoice is saved."}
                 </p>
               </div>
             )}
