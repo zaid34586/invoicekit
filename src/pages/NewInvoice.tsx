@@ -189,8 +189,11 @@ export default function NewInvoice() {
     [items, businessState, clientState, profile?.country, clientCountry]
   );
 
-  // Tax decision — determines label, note, and tax type for display.
-  // Does NOT affect gst.ts calculations; it only drives what the UI shows.
+  // Tax decision — determines label, note, tax type, AND (for non-India
+  // invoices) the actual rate applied. For India, items keep their own
+  // manually-picked GST slab (5/12/18/28%) since different products can be
+  // taxed differently — defaultGstRate here just seeds decideTax's own
+  // reasoning and doesn't override anything.
   const taxDecision = useMemo(
     () =>
       decideTax({
@@ -202,6 +205,21 @@ export default function NewInvoice() {
       }),
     [businessState, clientCountry, clientState, items]
   );
+
+  // Non-India invoices don't let the user hand-pick a rate per line item —
+  // there's no equivalent to India's GST slabs, so every item's rate is kept
+  // in sync with whatever decideTax() worked out for this business/client
+  // country pair (0% for cross-border/exempt, or the country's standard
+  // rate for domestic). This runs whenever the computed rate or country
+  // changes, and is a no-op for India (where items keep their own rate).
+  useEffect(() => {
+    if (clientCountry === "India") return;
+    setItems((prev) =>
+      prev.every((it) => it.gstRate === taxDecision.taxRate)
+        ? prev
+        : prev.map((it) => ({ ...it, gstRate: taxDecision.taxRate }))
+    );
+  }, [taxDecision.taxRate, clientCountry]);
 
   // Converted amounts for display when invoice currency differs from base
   const displaySubtotal = isForeignCurrency ? convertCurrency(calc.subtotal, exchangeRate) : calc.subtotal;
@@ -658,16 +676,30 @@ export default function NewInvoice() {
                     </div>
                   </div>
                   <div className="col-span-3 sm:col-span-2">
-                    <label className="text-xs text-slate-500 sm:hidden">GST %</label>
-                    <select
-                      value={item.gstRate}
-                      onChange={(e) => updateItem(item.id, { gstRate: Number(e.target.value) })}
-                      className="input"
-                    >
-                      {[0, 5, 12, 18, 28].map((r) => (
-                        <option key={r} value={r}>{r}%</option>
-                      ))}
-                    </select>
+                    <label className="text-xs text-slate-500 sm:hidden">
+                      {clientCountry === "India" ? "GST %" : "Tax %"}
+                    </label>
+                    {clientCountry === "India" ? (
+                      <select
+                        value={item.gstRate}
+                        onChange={(e) => updateItem(item.id, { gstRate: Number(e.target.value) })}
+                        className="input"
+                      >
+                        {[0, 5, 12, 18, 28].map((r) => (
+                          <option key={r} value={r}>{r}%</option>
+                        ))}
+                      </select>
+                    ) : (
+                      // Non-India: the rate isn't a per-item choice the user picks —
+                      // it's whatever the business's country + cross-border rules
+                      // decide (taxDecision.taxRate), kept in sync automatically.
+                      <div
+                        className="input flex items-center justify-center bg-slate-100 text-slate-500 cursor-not-allowed select-none"
+                        title="Set automatically based on business/client country"
+                      >
+                        {item.gstRate}%
+                      </div>
+                    )}
                   </div>
                   <div className="col-span-1 flex items-center justify-center h-10">
                     {items.length > 1 && (
