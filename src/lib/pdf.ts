@@ -40,11 +40,34 @@ export interface InvoicePDFExtras {
   isIndiaLineItemLabels: boolean;
 }
 
-// jsPDF's built-in helvetica font does not render the ₹ glyph reliably,
-// so INR keeps the existing "Rs." text workaround. Other currencies use
-// their standard symbol (all plain ASCII/Latin-1, safe for helvetica).
+// jsPDF's built-in "helvetica" font uses WinAnsiEncoding (Windows-1252),
+// which only covers Latin-script + a handful of symbols (£, ¥, €, $, ¢).
+// Any currency symbol outside that set silently renders as a wrong/garbled
+// glyph instead of throwing an error — which is how the ₹ → mangled-glyph
+// bug happened before (fixed with the "Rs." text fallback below), and how
+// the ₩ → "©" bug was found for South Korea (KRW) invoices.
+//
+// Rather than fix these one at a time as each one gets reported, every
+// currency whose on-screen symbol is outside WinAnsi falls back here to its
+// plain ASCII ISO code (e.g. "KRW 2,820,766" instead of a broken "₩" glyph).
+// This ONLY affects the PDF — the on-screen Preview/NewInvoice pages keep
+// showing the real symbol (₩, ₹, ₪, etc.), since browsers render those fine.
+const PDF_UNSAFE_CURRENCY_SYMBOLS: Record<string, string> = {
+  INR: "Rs. ",
+  KRW: "KRW ",
+  ILS: "ILS ",
+  NGN: "NGN ",
+  PKR: "PKR ",
+  PHP: "PHP ",
+  TRY: "TRY ",
+  VND: "VND ",
+  BDT: "BDT ",
+  THB: "THB ",
+  PLN: "PLN ", // "zł" contains "ł" (U+0142), also outside WinAnsi
+};
+
 function pdfMoney(value: number, currency: string): string {
-  const symbol = currency === "INR" ? "Rs. " : getCurrencySymbol(currency);
+  const symbol = PDF_UNSAFE_CURRENCY_SYMBOLS[currency] ?? getCurrencySymbol(currency);
   const decimals = getCurrencyDecimals(currency);
   const formatted = new Intl.NumberFormat("en-US", {
     minimumFractionDigits: decimals,
