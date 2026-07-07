@@ -21,6 +21,7 @@ export interface InvoicePDFExtras {
   invoiceCurrency: string;
   baseCurrency: string;
   exchangeRate: number;
+  exchangeRateDate: string | null;
   isForeignCurrency: boolean;
   displaySubtotal: number;
   displayCgst: number;
@@ -200,11 +201,10 @@ export function generateInvoicePDF(
   );
   y += 12;
   if (extras.isForeignCurrency) {
-    doc.text(
-      `Exchange Rate: 1 ${extras.invoiceCurrency} = ${pdfMoney(1 / extras.exchangeRate, extras.baseCurrency)}`,
-      margin,
-      y
-    );
+    const rateLine = extras.exchangeRateDate
+      ? `Exchange Rate: 1 ${extras.invoiceCurrency} = ${pdfMoney(1 / extras.exchangeRate, extras.baseCurrency)}   Rate Date: ${formatDate(extras.exchangeRateDate)}`
+      : `Exchange Rate: 1 ${extras.invoiceCurrency} = ${pdfMoney(1 / extras.exchangeRate, extras.baseCurrency)}`;
+    doc.text(rateLine, margin, y);
     y += 12;
   }
 

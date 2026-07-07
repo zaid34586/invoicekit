@@ -11,6 +11,7 @@ import {
   addDaysISO,
   FREE_PLAN_LIMIT,
   COUNTRY_SETTINGS,
+  getCountryFlag,
 } from "../lib/constants";
 import { calculateInvoice, lineAmount } from "../lib/gst";
 import {
@@ -596,15 +597,30 @@ export default function NewInvoice() {
               </div>
             </div>
 
+            {/* ── Currency badge — always visible, shows invoice vs base currency ── */}
+            <div className="mt-4 flex flex-wrap gap-3">
+              <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-50 border border-slate-200">
+                <span className="text-xs text-slate-500 uppercase tracking-wide">Invoice Currency</span>
+                <span className="font-semibold text-slate-900">
+                  {invoiceCurrency} {getCountryFlag(clientCountry)}
+                </span>
+              </div>
+              {isForeignCurrency && (
+                <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-50 border border-slate-200">
+                  <span className="text-xs text-slate-500 uppercase tracking-wide">Base Currency</span>
+                  <span className="font-semibold text-slate-900">
+                    {baseCurrency} {getCountryFlag(profile?.country)}
+                  </span>
+                </div>
+              )}
+            </div>
+
             {/* ── Exchange rate row — only visible when invoice currency ≠ base ── */}
             {isForeignCurrency && (
               <div className="mt-4 p-3 rounded-lg bg-blue-50 border border-blue-100">
                 <div className="flex flex-col sm:flex-row sm:items-center gap-3">
                   <div className="flex-1 text-sm text-blue-700">
-                    <span className="font-medium">Invoice currency: {invoiceCurrency}</span>
-                    <span className="text-blue-500 ml-2">
-                      (Base: {baseCurrency}) — live exchange rate
-                    </span>
+                    <span className="text-blue-500">Live exchange rate</span>
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
                     <span className="text-sm text-slate-600 whitespace-nowrap">

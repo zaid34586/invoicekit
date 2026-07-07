@@ -3,7 +3,7 @@ import { useParams, useNavigate, Link } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../context/AuthContext";
 import type { Invoice, InvoiceStatus } from "../lib/types";
-import { formatDate } from "../lib/constants";
+import { formatDate, getCountryFlag } from "../lib/constants";
 import { lineAmount } from "../lib/gst";
 import { generateInvoicePDF, type InvoicePDFExtras } from "../lib/pdf";
 import { buildWhatsAppLink } from "../lib/whatsapp";
@@ -146,6 +146,7 @@ export default function InvoicePreview() {
       invoiceCurrency,
       baseCurrency,
       exchangeRate,
+      exchangeRateDate: invoice.exchange_rate_date,
       isForeignCurrency,
       displaySubtotal,
       displayCgst,
@@ -433,17 +434,25 @@ invoice.client_country ?? "United States",
         </div>
         <div>
           <span className="text-slate-500 block text-xs uppercase tracking-wide">Invoice Currency</span>
-          <span className="font-medium text-slate-900">{invoiceCurrency}</span>
+          <span className="font-medium text-slate-900">{invoiceCurrency} {getCountryFlag(clientCountry)}</span>
         </div>
         <div>
           <span className="text-slate-500 block text-xs uppercase tracking-wide">Base Currency</span>
-          <span className="font-medium text-slate-900">{baseCurrency}</span>
+          <span className="font-medium text-slate-900">{baseCurrency} {getCountryFlag(businessCountry)}</span>
         </div>
         {isForeignCurrency && (
           <div>
             <span className="text-slate-500 block text-xs uppercase tracking-wide">Exchange Rate</span>
             <span className="font-medium text-slate-900">
               1 {invoiceCurrency} = {formatMoney(1 / exchangeRate, baseCurrency)}
+            </span>
+          </div>
+        )}
+        {isForeignCurrency && invoice.exchange_rate_date && (
+          <div>
+            <span className="text-slate-500 block text-xs uppercase tracking-wide">Rate Date</span>
+            <span className="font-medium text-slate-900">
+              {formatDate(invoice.exchange_rate_date)}
             </span>
           </div>
         )}
