@@ -3,7 +3,8 @@ import { Link } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../context/AuthContext";
 import type { Invoice, InvoiceStatus } from "../lib/types";
-import { formatINR, formatDate } from "../lib/constants";
+import { formatDate } from "../lib/constants";
+import { formatMoney } from "../lib/currency";
 import StatusBadge from "../components/StatusBadge";
 
 type Filter = "all" | InvoiceStatus;
@@ -177,7 +178,10 @@ export default function Invoices() {
                       {inv.client_name}
                     </td>
                     <td className="px-5 py-3.5 text-sm text-slate-700 hidden sm:table-cell">
-                      {formatINR(Number(inv.total))}
+                      {formatMoney(
+                        Number(inv.invoice_total ?? inv.total),
+                        inv.invoice_currency ?? inv.business_currency ?? "INR"
+                      )}
                     </td>
                     <td className="px-5 py-3.5 text-sm text-slate-500 hidden md:table-cell">
                       {formatDate(inv.created_at)}

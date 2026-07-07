@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, type FormEvent } from "react";
 import { supabase } from "../lib/supabase";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
-import { getGlobalCountryConfig } from "../lib/globalConfig";
+import { getGlobalCountryConfig, getGlobalCountries } from "../lib/globalConfig";
 
 
 // Time zones list
@@ -19,20 +19,12 @@ const TIME_ZONES = [
   { value: "Australia/Sydney", label: "Australian Eastern Time (AET)" },
 ];
 
-// Countries list
-const COUNTRIES = [
-  "India",
-  "United States",
-  "United Kingdom",
-  "Canada",
-  "Australia",
-  "Germany",
-  "France",
-  "UAE",
-  "Singapore",
-  "Japan",
-  "Other",
-];
+// Previously a hand-picked 10-country list (+ "Other") that was completely
+// disconnected from the Settings page's country list — meaning a user could
+// come here instead of Settings, pick "Other" (or any country not in this
+// list), and silently have their currency reset to USD. Now derived from
+// the same shared country config as everywhere else in the app.
+const COUNTRIES = getGlobalCountries();
 
 // Password strength calculator
 function getPasswordStrength(password: string): {

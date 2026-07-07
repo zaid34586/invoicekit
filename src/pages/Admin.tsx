@@ -3,6 +3,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../context/AuthContext";
 import { ADMIN_EMAIL, formatINR, formatDate } from "../lib/constants";
+import { formatMoney } from "../lib/currency";
 import type { Profile, Invoice } from "../lib/types";
 import StatusBadge from "../components/StatusBadge";
 
@@ -210,7 +211,10 @@ export default function Admin() {
                       {inv.client_name}
                     </td>
                     <td className="px-5 py-3.5 text-sm text-slate-700 hidden sm:table-cell">
-                      {formatINR(Number(inv.total))}
+                      {formatMoney(
+                        Number(inv.invoice_total ?? inv.total),
+                        inv.invoice_currency ?? inv.business_currency ?? "INR"
+                      )}
                     </td>
                     <td className="px-5 py-3.5">
                       <StatusBadge status={inv.status} />

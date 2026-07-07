@@ -2,59 +2,15 @@ import { useEffect, useState, type FormEvent } from "react";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../context/AuthContext";
 import type { Client, Invoice } from "../lib/types";
-import { INDIAN_STATES, formatINR, formatDate } from "../lib/constants";
+import { INDIAN_STATES, formatDate, COUNTRIES as ALL_COUNTRIES } from "../lib/constants";
+import { formatMoney } from "../lib/currency";
 import StatusBadge from "../components/StatusBadge";
 
-const COUNTRIES = [
-  { name: "Argentina", code: "+54", flag: "AR" },
-  { name: "Australia", code: "+61", flag: "AU" },
-  { name: "Austria", code: "+43", flag: "AT" },
-  { name: "Bangladesh", code: "+880", flag: "BD" },
-  { name: "Belgium", code: "+32", flag: "BE" },
-  { name: "Brazil", code: "+55", flag: "BR" },
-  { name: "Canada", code: "+1", flag: "CA" },
-  { name: "China", code: "+86", flag: "CN" },
-  { name: "Denmark", code: "+45", flag: "DK" },
-  { name: "Egypt", code: "+20", flag: "EG" },
-  { name: "Finland", code: "+358", flag: "FI" },
-  { name: "France", code: "+33", flag: "FR" },
-  { name: "Germany", code: "+49", flag: "DE" },
-  { name: "Hong Kong", code: "+852", flag: "HK" },
-  { name: "India", code: "+91", flag: "IN" },
-  { name: "Indonesia", code: "+62", flag: "ID" },
-  { name: "Ireland", code: "+353", flag: "IE" },
-  { name: "Israel", code: "+972", flag: "IL" },
-  { name: "Italy", code: "+39", flag: "IT" },
-  { name: "Japan", code: "+81", flag: "JP" },
-  { name: "Kenya", code: "+254", flag: "KE" },
-  { name: "Kuwait", code: "+965", flag: "KW" },
-  { name: "Malaysia", code: "+60", flag: "MY" },
-  { name: "Mexico", code: "+52", flag: "MX" },
-  { name: "Netherlands", code: "+31", flag: "NL" },
-  { name: "New Zealand", code: "+64", flag: "NZ" },
-  { name: "Nigeria", code: "+234", flag: "NG" },
-  { name: "Norway", code: "+47", flag: "NO" },
-  { name: "Oman", code: "+968", flag: "OM" },
-  { name: "Pakistan", code: "+92", flag: "PK" },
-  { name: "Philippines", code: "+63", flag: "PH" },
-  { name: "Poland", code: "+48", flag: "PL" },
-  { name: "Portugal", code: "+351", flag: "PT" },
-  { name: "Qatar", code: "+974", flag: "QA" },
-  { name: "Saudi Arabia", code: "+966", flag: "SA" },
-  { name: "Singapore", code: "+65", flag: "SG" },
-  { name: "South Africa", code: "+27", flag: "ZA" },
-  { name: "South Korea", code: "+82", flag: "KR" },
-  { name: "Spain", code: "+34", flag: "ES" },
-  { name: "Sri Lanka", code: "+94", flag: "LK" },
-  { name: "Sweden", code: "+46", flag: "SE" },
-  { name: "Switzerland", code: "+41", flag: "CH" },
-  { name: "Thailand", code: "+66", flag: "TH" },
-  { name: "Turkey", code: "+90", flag: "TR" },
-  { name: "UAE", code: "+971", flag: "AE" },
-  { name: "United Kingdom", code: "+44", flag: "GB" },
-  { name: "United States", code: "+1", flag: "US" },
-  { name: "Vietnam", code: "+84", flag: "VN" },
-];
+// Previously a hand-maintained duplicate of constants.ts's COUNTRIES list —
+// kept its own copy of every name/dial-code pair, so any future edit to the
+// real list (constants.ts) would silently NOT show up here. Now derived
+// directly from constants.ts, so this page always matches every other page.
+const COUNTRIES = ALL_COUNTRIES.map((c) => ({ name: c.name, code: c.code }));
 
 const US_STATES = [
   "Alabama", "Alaska", "Arizona", "Arkansas", "California", "Colorado",
@@ -645,7 +601,10 @@ export default function Clients() {
                     </div>
                     <div className="flex items-center gap-3">
                       <span className="text-sm font-medium text-slate-900">
-                        {formatINR(Number(inv.total))}
+                        {formatMoney(
+                          Number(inv.invoice_total ?? inv.total),
+                          inv.invoice_currency ?? inv.business_currency ?? "INR"
+                        )}
                       </span>
                       <StatusBadge status={inv.status} />
                     </div>
