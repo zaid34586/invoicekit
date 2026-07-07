@@ -2,10 +2,16 @@ import type { ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 
-// Deliberately separate from AppLayout.tsx — the admin panel is a
-// completely different surface from the customer-facing app, so it does
-// not show the customer sidebar (Dashboard/New Invoice/Clients/Billing/
-// Settings). Just a header identifying it as Admin, and a sign-out button.
+const adminNav = [
+  { id: "dashboard", label: "Dashboard", hash: "#dashboard" },
+  { id: "users", label: "Users", hash: "#users" },
+  { id: "team", label: "Team Members", hash: "#team" },
+  { id: "credits", label: "Credits & Plans", hash: "#credits" },
+  { id: "invoices", label: "Invoices", hash: "#invoices" },
+  { id: "finance", label: "Revenue & Finance", hash: "#finance" },
+  { id: "tasks", label: "Tasks", hash: "#tasks" },
+];
+
 export default function AdminLayout({ children }: { children: ReactNode }) {
   const { signOut } = useAuth();
   const navigate = useNavigate();
@@ -16,29 +22,45 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50">
-      <header className="bg-slate-900 text-white">
-        <div className="max-w-7xl mx-auto flex items-center justify-between h-14 px-4 sm:px-6">
-          <div className="flex items-center gap-2">
-            <div className="w-7 h-7 bg-slate-700 rounded-md flex items-center justify-center">
-              <svg className="w-4 h-4 text-slate-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
-              </svg>
-            </div>
-            <span className="font-semibold text-sm">InvoiceKit Admin</span>
-          </div>
-          <button
-            onClick={handleSignOut}
-            className="text-sm text-slate-300 hover:text-white transition flex items-center gap-1.5"
-          >
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+    <div className="min-h-screen bg-slate-50 lg:flex">
+      <aside className="bg-slate-950 text-white lg:w-64 lg:min-h-screen">
+        <div className="h-16 flex items-center gap-3 px-5 border-b border-white/10">
+          <div className="w-9 h-9 bg-slate-800 rounded-xl flex items-center justify-center">
+            <svg className="w-5 h-5 text-slate-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
             </svg>
+          </div>
+          <div>
+            <p className="font-bold leading-tight">InvoiceKit</p>
+            <p className="text-xs text-slate-400">Admin Control</p>
+          </div>
+        </div>
+
+        <nav className="flex gap-2 overflow-x-auto p-3 lg:block lg:space-y-1 lg:overflow-visible">
+          {adminNav.map((item) => (
+            <a
+              key={item.id}
+              href={item.hash}
+              className="whitespace-nowrap block rounded-lg px-3 py-2 text-sm text-slate-300 hover:bg-white/10 hover:text-white transition"
+            >
+              {item.label}
+            </a>
+          ))}
+        </nav>
+      </aside>
+
+      <div className="flex-1 min-w-0">
+        <header className="bg-white border-b border-slate-200 h-16 flex items-center justify-between px-4 sm:px-6">
+          <div>
+            <h1 className="text-sm font-semibold text-slate-900">Owner Admin Panel</h1>
+            <p className="text-xs text-slate-500">Users, team, credits, invoices, revenue and tasks</p>
+          </div>
+          <button onClick={handleSignOut} className="btn-secondary text-sm">
             Sign out
           </button>
-        </div>
-      </header>
-      <main className="max-w-7xl mx-auto p-4 sm:p-6 lg:p-8">{children}</main>
+        </header>
+        <main className="p-4 sm:p-6 lg:p-8">{children}</main>
+      </div>
     </div>
   );
 }
