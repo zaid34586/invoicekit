@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../context/AuthContext";
-import { ADMIN_EMAIL, formatINR, formatDate } from "../lib/constants";
+import { ADMIN_EMAIL, formatDate } from "../lib/constants";
 import { formatMoney } from "../lib/currency";
 import type { Profile, Invoice } from "../lib/types";
 import StatusBadge from "../components/StatusBadge";
@@ -89,6 +89,13 @@ export default function Admin() {
   const paidInvoices = invoices.filter((i) => i.status === "paid").length;
   const overdueInvoices = invoices.filter((i) => i.status === "overdue").length;
 
+  // NOTE: this sums `total` across every user's invoices without converting
+  // currencies — fine while every business on the platform uses the same
+  // base currency, but once businesses in different countries/currencies
+  // exist, a raw sum here is misleading (adding USD + EUR + INR as if they
+  // were the same unit). Flagged here rather than silently formatted with
+  // one currency's symbol; a real fix needs per-currency subtotals or FX
+  // conversion, which is out of scope for this pass.
   const stats = [
     { label: "Total Users", value: String(profiles.length), color: "text-primary-600 bg-primary-50" },
     { label: "Pro Users", value: String(proUsers), color: "text-amber-600 bg-amber-50" },
@@ -96,8 +103,8 @@ export default function Admin() {
     { label: "Total Invoices", value: String(invoices.length), color: "text-blue-600 bg-blue-50" },
     { label: "Paid Invoices", value: String(paidInvoices), color: "text-green-600 bg-green-50" },
     { label: "Overdue", value: String(overdueInvoices), color: "text-red-600 bg-red-50" },
-    { label: "Revenue (Paid)", value: formatINR(totalRevenue), color: "text-green-600 bg-green-50" },
-    { label: "Avg Invoice", value: formatINR(invoices.length ? totalRevenue / Math.max(paidInvoices, 1) : 0), color: "text-primary-600 bg-primary-50" },
+    { label: "Revenue (Paid, mixed currencies)", value: formatMoney(totalRevenue, "USD"), color: "text-green-600 bg-green-50" },
+    { label: "Avg Invoice (mixed currencies)", value: formatMoney(invoices.length ? totalRevenue / Math.max(paidInvoices, 1) : 0, "USD"), color: "text-primary-600 bg-primary-50" },
   ];
 
   return (
@@ -212,8 +219,8 @@ export default function Admin() {
                     </td>
                     <td className="px-5 py-3.5 text-sm text-slate-700 hidden sm:table-cell">
                       {formatMoney(
-                        Number(inv.invoice_total ?? inv.total),
-                        inv.invoice_currency ?? inv.business_currency ?? "INR"
+                        inv.invoice_total ?? Number(inv.total),
+                        inv.invoice_currency ?? inv.base_currency ?? "USD"
                       )}
                     </td>
                     <td className="px-5 py-3.5">

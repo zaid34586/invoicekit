@@ -17,11 +17,16 @@ export default function ShareInvoice() {
   useEffect(() => {
     async function load() {
       if (!token) return;
-      const { data: invData, error: invErr } = await supabase
-        .from("invoices")
-        .select("*")
-        .eq("share_token", token)
-        .maybeSingle();
+      // These call SECURITY DEFINER Postgres functions that only ever
+      // return the single row matching this exact token — not a filtered
+      // table query, so there is no way to scan/list other users' shared
+      // invoices. See supabase/migrations/20260707130000_secure_invoice_sharing.sql
+      const { data: invRows, error: invErr } = await supabase.rpc(
+        "get_shared_invoice",
+        { p_token: token }
+      );
+
+      const invData = Array.isArray(invRows) ? invRows[0] : invRows;
 
       if (invErr || !invData) {
         setError("This invoice link is no longer available.");
@@ -32,11 +37,11 @@ export default function ShareInvoice() {
       const inv = invData as Invoice;
       setInvoice(inv);
 
-      const { data: profData } = await supabase
-        .from("profiles")
-        .select("*")
-        .eq("user_id", inv.user_id)
-        .maybeSingle();
+      const { data: profRows } = await supabase.rpc(
+        "get_shared_invoice_profile",
+        { p_token: token }
+      );
+      const profData = Array.isArray(profRows) ? profRows[0] : profRows;
 
       if (profData) {
         setProfile(profData as Profile);
