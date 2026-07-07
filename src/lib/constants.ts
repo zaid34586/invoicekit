@@ -1,33 +1,3 @@
-/**
- * ISO 3166-1 alpha-2 codes, used only to render flag emoji (e.g. on the
- * currency badge). Kept separate from COUNTRY_SETTINGS since it's a purely
- * cosmetic concern, not a currency/tax fact.
- */
-export const COUNTRY_ISO2: Record<string, string> = {
-  Argentina: "AR", Australia: "AU", Austria: "AT", Bangladesh: "BD",
-  Belgium: "BE", Brazil: "BR", Canada: "CA", China: "CN", Denmark: "DK",
-  Egypt: "EG", Finland: "FI", France: "FR", Germany: "DE", "Hong Kong": "HK",
-  India: "IN", Indonesia: "ID", Ireland: "IE", Israel: "IL", Italy: "IT",
-  Japan: "JP", Kenya: "KE", Kuwait: "KW", Malaysia: "MY", Mexico: "MX",
-  Netherlands: "NL", "New Zealand": "NZ", Nigeria: "NG", Norway: "NO",
-  Oman: "OM", Pakistan: "PK", Philippines: "PH", Poland: "PL",
-  Portugal: "PT", Qatar: "QA", "Saudi Arabia": "SA", Singapore: "SG",
-  "South Africa": "ZA", "South Korea": "KR", Spain: "ES", "Sri Lanka": "LK",
-  Sweden: "SE", Switzerland: "CH", Thailand: "TH", Turkey: "TR", UAE: "AE",
-  "United Kingdom": "GB", "United States": "US", Vietnam: "VN",
-};
-
-/** Converts a country name to its flag emoji (e.g. "UAE" -> "🇦🇪"). Returns "" if unknown. */
-export function getCountryFlag(countryName: string | null | undefined): string {
-  const iso2 = countryName ? COUNTRY_ISO2[countryName] : undefined;
-  if (!iso2) return "";
-  return iso2
-    .toUpperCase()
-    .split("")
-    .map((ch) => String.fromCodePoint(0x1f1e6 + (ch.charCodeAt(0) - 65)))
-    .join("");
-}
-
 export const INDIAN_STATES: string[] = [
   "Andhra Pradesh",
   "Arunachal Pradesh",
@@ -325,7 +295,7 @@ export const COUNTRIES: CountryData[] = [
 
 export const FREE_PLAN_LIMIT = 3;
 export const PRO_PLAN_PRICE = 399;
-export const ADMIN_EMAIL = "admin@invoicekit.app";
+export const ADMIN_EMAIL = "mz7123272@gmail.com";
 
 export function formatINR(amount: number): string {
   const rounded = Math.round(amount * 100) / 100;
