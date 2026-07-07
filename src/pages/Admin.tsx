@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../context/AuthContext";
 import { ADMIN_EMAIL, formatDate } from "../lib/constants";
@@ -6,163 +7,728 @@ import { formatMoney } from "../lib/currency";
 import type { Profile, Invoice } from "../lib/types";
 import StatusBadge from "../components/StatusBadge";
 
-type TeamMember = {
-  id: string; email: string; name: string | null; role: string; status: string;
-  temporary_password: string | null; notes: string | null; created_at: string;
+type AdminSection =
+  | "dashboard"
+  | "users"
+  | "credits"
+  | "team"
+  | "tasks"
+  | "finance"
+  | "invoices"
+  | "analytics"
+  | "support"
+  | "audit"
+  | "settings";
+
+type AdminTeamMember = {
+  id: string;
+  auth_user_id: string | null;
+  email: string;
+  name: string | null;
+  role: "full_access" | "limited" | "support" | "finance" | "viewer";
+  status: "active" | "disabled";
+  temporary_password: string | null;
+  notes: string | null;
+  created_at: string;
 };
 
-type Task = {
-  id: string; title: string; description: string | null; assigned_to: string | null;
-  priority: string; status: string; due_date: string | null; created_at: string;
+type AdminTask = {
+  id: string;
+  title: string;
+  description: string | null;
+  assigned_to: string | null;
+  priority: "low" | "medium" | "high" | "urgent";
+  status: "pending" | "in_progress" | "done" | "blocked";
+  due_date: string | null;
+  created_at: string;
 };
 
-type FinanceEntry = {
-  id: string; entry_date: string; type: "income" | "expense" | "receivable";
-  source: string; amount: number; currency: string; status: string; title: string; notes: string | null;
+type AdminFinanceEntry = {
+  id: string;
+  entry_date: string;
+  type: "income" | "expense" | "receivable";
+  source: "subscription" | "ads" | "manual" | "invoice" | "other";
+  amount: number;
+  currency: string;
+  status: "received" | "pending" | "spent";
+  title: string;
+  notes: string | null;
+  created_at: string;
 };
 
-const emptyTeam = { email: "", password: "", name: "", role: "limited", notes: "" };
-const emptyTask = { title: "", description: "", assigned_to: "", priority: "medium", due_date: "" };
-const emptyFinance = { title: "", amount: "", currency: "INR", type: "income", source: "manual", status: "received", notes: "" };
+type AdminAuditLog = {
+  id: string;
+  action: string;
+  target_type: string | null;
+  target_id: string | null;
+  details: Record<string, unknown> | null;
+  created_at: string;
+};
+
+type AdminSupportTicket = {
+  id: string;
+  user_id: string | null;
+  subject: string;
+  message: string | null;
+  status: "open" | "pending" | "resolved" | "closed";
+  priority: "low" | "medium" | "high" | "urgent";
+  created_at: string;
+};
+
+const sections: { id: AdminSection; label: string; icon: string; group: string }[] = [
+  { id: "dashboard", label: "Dashboard", icon: "📊", group: "Overview" },
+  { id: "users", label: "Users", icon: "👥", group: "Users" },
+  { id: "credits", label: "Credits & Plans", icon: "💳", group: "Users" },
+  { id: "team", label: "Team Members", icon: "👨‍💼", group: "Operations" },
+  { id: "tasks", label: "Tasks", icon: "📋", group: "Operations" },
+  { id: "finance", label: "Revenue & Finance", icon: "💰", group: "Money" },
+  { id: "invoices", label: "All Invoices", icon: "📄", group: "Money" },
+  { id: "analytics", label: "Analytics", icon: "📈", group: "Insights" },
+  { id: "support", label: "Support Tickets", icon: "🎫", group: "Insights" },
+  { id: "audit", label: "Audit Logs", icon: "📝", group: "Security" },
+  { id: "settings", label: "Admin Settings", icon: "⚙️", group: "Security" },
+];
+
+function cx(...classes: Array<string | false | null | undefined>) {
+  return classes.filter(Boolean).join(" ");
+}
+
+function statusClass(status: string) {
+  const map: Record<string, string> = {
+    active: "bg-green-50 text-green-700 border-green-200",
+    disabled: "bg-red-50 text-red-700 border-red-200",
+    pending: "bg-amber-50 text-amber-700 border-amber-200",
+    in_progress: "bg-blue-50 text-blue-700 border-blue-200",
+    done: "bg-green-50 text-green-700 border-green-200",
+    blocked: "bg-red-50 text-red-700 border-red-200",
+    received: "bg-green-50 text-green-700 border-green-200",
+    spent: "bg-red-50 text-red-700 border-red-200",
+    open: "bg-blue-50 text-blue-700 border-blue-200",
+    resolved: "bg-green-50 text-green-700 border-green-200",
+    closed: "bg-slate-100 text-slate-600 border-slate-200",
+  };
+  return map[status] ?? "bg-slate-100 text-slate-600 border-slate-200";
+}
+
+function Pill({ children, className }: { children: React.ReactNode; className?: string }) {
+  return (
+    <span className={cx("inline-flex px-2.5 py-1 rounded-full text-xs font-medium border capitalize", className)}>
+      {children}
+    </span>
+  );
+}
+
+function Card({ children, className = "" }: { children: React.ReactNode; className?: string }) {
+  return <div className={cx("card", className)}>{children}</div>;
+}
+
+function SectionHeader({ title, subtitle }: { title: string; subtitle: string }) {
+  return (
+    <div>
+      <h1 className="text-2xl font-bold text-slate-900">{title}</h1>
+      <p className="text-sm text-slate-500 mt-0.5">{subtitle}</p>
+    </div>
+  );
+}
+
+function emptyFormFinance(): Omit<AdminFinanceEntry, "id" | "created_at"> {
+  return {
+    entry_date: new Date().toISOString().slice(0, 10),
+    type: "income",
+    source: "manual",
+    amount: 0,
+    currency: "INR",
+    status: "received",
+    title: "",
+    notes: "",
+  };
+}
 
 export default function Admin() {
   const { user, loading } = useAuth();
+  const [active, setActive] = useState<AdminSection>("dashboard");
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
-  const [team, setTeam] = useState<TeamMember[]>([]);
-  const [tasks, setTasks] = useState<Task[]>([]);
-  const [finance, setFinance] = useState<FinanceEntry[]>([]);
+  const [team, setTeam] = useState<AdminTeamMember[]>([]);
+  const [tasks, setTasks] = useState<AdminTask[]>([]);
+  const [finance, setFinance] = useState<AdminFinanceEntry[]>([]);
+  const [auditLogs, setAuditLogs] = useState<AdminAuditLog[]>([]);
+  const [supportTickets, setSupportTickets] = useState<AdminSupportTicket[]>([]);
   const [dataLoading, setDataLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const [selectedUserId, setSelectedUserId] = useState<string>("");
+  const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
   const [userSearch, setUserSearch] = useState("");
-  const [teamForm, setTeamForm] = useState(emptyTeam);
-  const [taskForm, setTaskForm] = useState(emptyTask);
-  const [financeForm, setFinanceForm] = useState(emptyFinance);
+  const [invoiceSearch, setInvoiceSearch] = useState("");
+  const [teamForm, setTeamForm] = useState({ name: "", email: "", password: "", role: "limited", notes: "" });
+  const [taskForm, setTaskForm] = useState({ title: "", description: "", assigned_to: "", priority: "medium", due_date: "" });
+  const [financeForm, setFinanceForm] = useState(emptyFormFinance());
 
   const isAdmin = user?.email?.toLowerCase() === ADMIN_EMAIL.toLowerCase();
 
-  async function load() {
-    if (!user || !isAdmin) return;
-    setDataLoading(true); setError(null);
+  async function logAction(action: string, targetType?: string, targetId?: string, details?: Record<string, unknown>) {
     try {
-      const [profRes, invRes, teamRes, taskRes, finRes] = await Promise.all([
+      await supabase.from("admin_audit_logs").insert({
+        action,
+        target_type: targetType ?? null,
+        target_id: targetId ?? null,
+        details: details ?? {},
+        actor_user_id: user?.id ?? null,
+      });
+    } catch {
+      // Audit logging should never block the admin action.
+    }
+  }
+
+  async function load() {
+    if (!user || !isAdmin) {
+      setDataLoading(false);
+      return;
+    }
+
+    setDataLoading(true);
+    setError(null);
+    try {
+      const [profRes, invRes, teamRes, taskRes, financeRes, auditRes, supportRes] = await Promise.all([
         supabase.from("profiles").select("*").order("created_at", { ascending: false }),
         supabase.from("invoices").select("*").order("created_at", { ascending: false }),
         supabase.from("admin_team_members").select("*").order("created_at", { ascending: false }),
         supabase.from("admin_tasks").select("*").order("created_at", { ascending: false }),
         supabase.from("admin_finance_entries").select("*").order("entry_date", { ascending: false }),
+        supabase.from("admin_audit_logs").select("*").order("created_at", { ascending: false }).limit(50),
+        supabase.from("admin_support_tickets").select("*").order("created_at", { ascending: false }).limit(50),
       ]);
+
       if (profRes.error) throw profRes.error;
       if (invRes.error) throw invRes.error;
       if (teamRes.error) throw teamRes.error;
       if (taskRes.error) throw taskRes.error;
-      if (finRes.error) throw finRes.error;
+      if (financeRes.error) throw financeRes.error;
+      if (auditRes.error) throw auditRes.error;
+      if (supportRes.error) throw supportRes.error;
+
       setProfiles((profRes.data as Profile[]) ?? []);
       setInvoices((invRes.data as Invoice[]) ?? []);
-      setTeam((teamRes.data as TeamMember[]) ?? []);
-      setTasks((taskRes.data as Task[]) ?? []);
-      setFinance((finRes.data as FinanceEntry[]) ?? []);
-      if (!selectedUserId && profRes.data?.[0]) setSelectedUserId((profRes.data[0] as Profile).user_id);
+      setTeam((teamRes.data as AdminTeamMember[]) ?? []);
+      setTasks((taskRes.data as AdminTask[]) ?? []);
+      setFinance((financeRes.data as AdminFinanceEntry[]) ?? []);
+      setAuditLogs((auditRes.data as AdminAuditLog[]) ?? []);
+      setSupportTickets((supportRes.data as AdminSupportTicket[]) ?? []);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load admin data. Run the new admin migration first.");
-    } finally { setDataLoading(false); }
+      setError(err instanceof Error ? err.message : "Failed to load admin data");
+    } finally {
+      setDataLoading(false);
+    }
   }
 
-  useEffect(() => { load(); }, [user, isAdmin]);
+  useEffect(() => {
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id, isAdmin]);
 
-  const selectedUser = profiles.find((p) => p.user_id === selectedUserId) ?? profiles[0];
-  const selectedInvoices = invoices.filter((i) => i.user_id === selectedUser?.user_id);
-  const filteredUsers = profiles.filter((p) => {
-    const q = userSearch.toLowerCase();
-    return !q || (p.email ?? "").toLowerCase().includes(q) || (p.business_name ?? "").toLowerCase().includes(q) || (p.phone ?? "").toLowerCase().includes(q);
-  });
+  const selectedUser = profiles.find((p) => p.id === selectedUserId) ?? profiles[0] ?? null;
+  const selectedUserInvoices = selectedUser ? invoices.filter((i) => i.user_id === selectedUser.user_id) : [];
 
-  const stats = useMemo(() => {
-    const paid = invoices.filter((i) => i.status === "paid");
-    const income = finance.filter((f) => f.type === "income" && f.status === "received").reduce((s, f) => s + Number(f.amount), 0);
-    const pending = finance.filter((f) => f.status === "pending" || f.type === "receivable").reduce((s, f) => s + Number(f.amount), 0);
-    const expense = finance.filter((f) => f.type === "expense" || f.status === "spent").reduce((s, f) => s + Number(f.amount), 0);
-    return [
-      ["Total Users", profiles.length], ["Pro Users", profiles.filter((p) => p.is_pro).length],
-      ["Banned Users", profiles.filter((p) => p.is_banned).length], ["Invoices", invoices.length],
-      ["Paid Invoices", paid.length], ["Team Members", team.length],
-      ["Received", formatMoney(income, "INR")], ["Pending/Baki", formatMoney(pending, "INR")], ["Expenses", formatMoney(expense, "INR")],
-    ];
-  }, [profiles, invoices, team, finance]);
+  const filteredProfiles = useMemo(() => {
+    const q = userSearch.trim().toLowerCase();
+    if (!q) return profiles;
+    return profiles.filter((p) =>
+      [p.business_name, p.email, p.gstin, p.phone, p.country, p.plan]
+        .filter(Boolean)
+        .some((value) => String(value).toLowerCase().includes(q))
+    );
+  }, [profiles, userSearch]);
 
-  async function updateProfile(userId: string, patch: Record<string, unknown>, msg: string) {
-    setError(null); setNotice(null);
-    const { error } = await supabase.from("profiles").update(patch).eq("user_id", userId);
-    if (error) return setError(error.message);
-    setNotice(msg); await load();
+  const filteredInvoices = useMemo(() => {
+    const q = invoiceSearch.trim().toLowerCase();
+    if (!q) return invoices;
+    return invoices.filter((i) =>
+      [i.invoice_number, i.client_name, i.client_email, i.status, i.invoice_currency, i.base_currency]
+        .filter(Boolean)
+        .some((value) => String(value).toLowerCase().includes(q))
+    );
+  }, [invoices, invoiceSearch]);
+
+  const metrics = useMemo(() => {
+    const proUsers = profiles.filter((p) => p.is_pro || p.plan === "pro" || p.plan === "business").length;
+    const freeUsers = profiles.length - proUsers;
+    const paidInvoices = invoices.filter((i) => i.status === "paid").length;
+    const overdueInvoices = invoices.filter((i) => i.status === "overdue").length;
+    const invoiceRevenue = invoices
+      .filter((i) => i.status === "paid")
+      .reduce((sum, i) => sum + Number(i.base_total ?? i.total ?? 0), 0);
+    const receivedFinance = finance
+      .filter((entry) => entry.type === "income" && entry.status === "received")
+      .reduce((sum, entry) => sum + Number(entry.amount), 0);
+    const expenses = finance
+      .filter((entry) => entry.type === "expense")
+      .reduce((sum, entry) => sum + Number(entry.amount), 0);
+    const receivable = finance
+      .filter((entry) => entry.type === "receivable" || entry.status === "pending")
+      .reduce((sum, entry) => sum + Number(entry.amount), 0);
+    const adsRevenue = finance
+      .filter((entry) => entry.source === "ads" && entry.status === "received")
+      .reduce((sum, entry) => sum + Number(entry.amount), 0);
+
+    return { proUsers, freeUsers, paidInvoices, overdueInvoices, invoiceRevenue, receivedFinance, expenses, receivable, adsRevenue };
+  }, [profiles, invoices, finance]);
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-50">
+        <div className="w-10 h-10 border-4 border-primary-200 border-t-primary-600 rounded-full animate-spin" />
+      </div>
+    );
   }
 
-  async function createTeamMember(e: React.FormEvent) {
-    e.preventDefault(); setError(null); setNotice(null);
-    const { data, error } = await supabase.functions.invoke("create-team-member", { body: teamForm });
-    if (error || data?.error) return setError(data?.error ?? error?.message ?? "Failed to create team member");
-    setNotice("Team member login created successfully."); setTeamForm(emptyTeam); await load();
+  if (!isAdmin) {
+    return (
+      <div className="max-w-md mx-auto py-16 px-4">
+        <Card className="p-8 text-center">
+          <div className="w-14 h-14 bg-red-50 rounded-full flex items-center justify-center mx-auto mb-4">
+            <svg className="w-7 h-7 text-red-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+            </svg>
+          </div>
+          <h1 className="text-lg font-bold text-slate-900 mb-2">Access Denied</h1>
+          <p className="text-sm text-slate-500 mb-4">You do not have permission to access the admin dashboard.</p>
+          <p className="text-xs text-slate-400 mb-6">Admin access is restricted to {ADMIN_EMAIL}</p>
+          <Link to="/" className="btn-primary">Back to Dashboard</Link>
+        </Card>
+      </div>
+    );
   }
 
-  async function createTask(e: React.FormEvent) {
-    e.preventDefault(); setError(null); setNotice(null);
-    const { error } = await supabase.from("admin_tasks").insert({ ...taskForm, assigned_to: taskForm.assigned_to || null, due_date: taskForm.due_date || null, created_by: user?.id });
-    if (error) return setError(error.message);
-    setNotice("Task added."); setTaskForm(emptyTask); await load();
+  async function updateProfile(profileId: string, updates: Partial<Profile> & Record<string, unknown>, action: string) {
+    setError(null);
+    setNotice(null);
+    const { error: updateError } = await supabase.from("profiles").update(updates).eq("id", profileId);
+    if (updateError) {
+      setError(updateError.message);
+      return;
+    }
+    await logAction(action, "profile", profileId, updates);
+    setNotice("User updated successfully.");
+    await load();
   }
 
-  async function createFinance(e: React.FormEvent) {
-    e.preventDefault(); setError(null); setNotice(null);
-    const { error } = await supabase.from("admin_finance_entries").insert({ ...financeForm, amount: Number(financeForm.amount), created_by: user?.id });
-    if (error) return setError(error.message);
-    setNotice("Finance entry saved."); setFinanceForm(emptyFinance); await load();
+  async function handleBan(profile: Profile) {
+    const reason = window.prompt("Ban reason?", "Violation of platform rules");
+    if (reason === null) return;
+    await updateProfile(profile.id, { is_banned: true, ban_reason: reason, banned_at: new Date().toISOString() }, "ban_user");
   }
 
-  if (loading || dataLoading) return <div className="p-10 text-center text-slate-500">Loading admin data...</div>;
+  async function handleUnban(profile: Profile) {
+    await updateProfile(profile.id, { is_banned: false, ban_reason: null, banned_at: null }, "unban_user");
+  }
+
+  async function handleGiveCredits(profile: Profile) {
+    const amount = Number(window.prompt("Credits add karne ke liye number daalo", "10"));
+    if (!Number.isFinite(amount) || amount <= 0) return;
+    const current = Number((profile as unknown as { credits?: number }).credits ?? 0);
+    await updateProfile(profile.id, { credits: current + amount }, "give_credits");
+  }
+
+  async function handleFreePro(profile: Profile) {
+    const days = Number(window.prompt("Free Pro kitne din ke liye?", "30"));
+    if (!Number.isFinite(days) || days <= 0) return;
+    const until = new Date();
+    until.setDate(until.getDate() + days);
+    await updateProfile(profile.id, { is_pro: true, plan: "pro", free_pro_until: until.toISOString() }, "give_free_pro");
+  }
+
+  async function handleAddTeam(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+    setNotice(null);
+
+    if (!teamForm.email || !teamForm.password) {
+      setError("Email and password required.");
+      return;
+    }
+
+    try {
+      const { data, error: fnError } = await supabase.functions.invoke("create-team-member", {
+        body: teamForm,
+      });
+
+      if (fnError) {
+        const { error: insertError } = await supabase.from("admin_team_members").insert({
+          email: teamForm.email.toLowerCase(),
+          name: teamForm.name || null,
+          role: teamForm.role,
+          temporary_password: teamForm.password,
+          notes: teamForm.notes || "Edge Function not deployed yet. Deploy create-team-member for real Auth login.",
+          created_by: user?.id ?? null,
+        });
+        if (insertError) throw insertError;
+        setNotice("Team record created. Edge Function deploy karne ke baad real login create hoga.");
+      } else {
+        setNotice(data?.message ?? "Team member login created.");
+      }
+
+      await logAction("create_team_member", "admin_team_members", teamForm.email, { role: teamForm.role });
+      setTeamForm({ name: "", email: "", password: "", role: "limited", notes: "" });
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to create team member");
+    }
+  }
+
+  async function toggleTeamStatus(member: AdminTeamMember) {
+    const next = member.status === "active" ? "disabled" : "active";
+    const { error: updateError } = await supabase.from("admin_team_members").update({ status: next }).eq("id", member.id);
+    if (updateError) return setError(updateError.message);
+    await logAction("update_team_status", "admin_team_members", member.id, { status: next });
+    await load();
+  }
+
+  async function handleAddTask(e: React.FormEvent) {
+    e.preventDefault();
+    const { error: insertError } = await supabase.from("admin_tasks").insert({
+      title: taskForm.title,
+      description: taskForm.description || null,
+      assigned_to: taskForm.assigned_to || null,
+      priority: taskForm.priority,
+      status: "pending",
+      due_date: taskForm.due_date || null,
+      created_by: user?.id ?? null,
+    });
+    if (insertError) return setError(insertError.message);
+    await logAction("create_task", "admin_tasks", taskForm.title);
+    setTaskForm({ title: "", description: "", assigned_to: "", priority: "medium", due_date: "" });
+    setNotice("Task created.");
+    await load();
+  }
+
+  async function updateTaskStatus(task: AdminTask, status: AdminTask["status"]) {
+    const { error: updateError } = await supabase.from("admin_tasks").update({ status }).eq("id", task.id);
+    if (updateError) return setError(updateError.message);
+    await logAction("update_task_status", "admin_tasks", task.id, { status });
+    await load();
+  }
+
+  async function handleAddFinance(e: React.FormEvent) {
+    e.preventDefault();
+    const { error: insertError } = await supabase.from("admin_finance_entries").insert({
+      ...financeForm,
+      amount: Number(financeForm.amount),
+      created_by: user?.id ?? null,
+    });
+    if (insertError) return setError(insertError.message);
+    await logAction("create_finance_entry", "admin_finance_entries", financeForm.title, { amount: financeForm.amount });
+    setFinanceForm(emptyFormFinance());
+    setNotice("Finance entry added.");
+    await load();
+  }
+
+  const groupedSections = sections.reduce<Record<string, typeof sections>>((acc, item) => {
+    acc[item.group] = acc[item.group] ?? [];
+    acc[item.group].push(item);
+    return acc;
+  }, {});
 
   return (
-    <div className="max-w-7xl mx-auto space-y-8 animate-fade-in">
-      <section id="dashboard" className="space-y-4">
-        <div><h1 className="text-2xl font-bold text-slate-900">Admin Dashboard</h1><p className="text-sm text-slate-500">Full internal control panel for InvoiceKit.</p></div>
+    <div className="grid lg:grid-cols-[260px_1fr] gap-6 animate-fade-in">
+      <aside className="lg:sticky lg:top-6 h-fit">
+        <Card className="p-3 overflow-hidden">
+          <div className="px-3 py-3 border-b border-slate-100 mb-2">
+            <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide">Admin Control</p>
+            <p className="text-sm font-bold text-slate-900 mt-1">SaaS Management</p>
+          </div>
+          <nav className="space-y-4">
+            {Object.entries(groupedSections).map(([group, items]) => (
+              <div key={group}>
+                <p className="px-3 mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">{group}</p>
+                <div className="space-y-1">
+                  {items.map((item) => (
+                    <button
+                      key={item.id}
+                      onClick={() => setActive(item.id)}
+                      className={cx(
+                        "w-full flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition text-left",
+                        active === item.id ? "bg-slate-900 text-white shadow-sm" : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
+                      )}
+                    >
+                      <span>{item.icon}</span>
+                      {item.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </nav>
+        </Card>
+      </aside>
+
+      <main className="space-y-6 min-w-0">
         {error && <div className="rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">{error}</div>}
         {notice && <div className="rounded-lg bg-green-50 border border-green-200 px-4 py-3 text-sm text-green-700">{notice}</div>}
-        <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">{stats.map(([label, value]) => <div key={String(label)} className="card p-5"><p className="text-xs font-medium text-slate-500 uppercase tracking-wide">{label}</p><p className="text-xl font-bold text-slate-900 mt-1">{value}</p></div>)}</div>
-      </section>
+        {dataLoading ? <div className="card p-10 text-center text-sm text-slate-500">Loading admin data...</div> : null}
 
-      <section id="users" className="card">
-        <div className="p-5 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3"><div><h2 className="text-lg font-semibold">Users</h2><p className="text-sm text-slate-500">User list, details, invoices, ban/unban.</p></div><input className="input sm:w-80" placeholder="Search user..." value={userSearch} onChange={(e)=>setUserSearch(e.target.value)} /></div>
-        <div className="grid lg:grid-cols-3 divide-y lg:divide-y-0 lg:divide-x divide-slate-100">
-          <div className="max-h-[520px] overflow-auto">{filteredUsers.map((p)=><button key={p.user_id} onClick={()=>setSelectedUserId(p.user_id)} className={`w-full text-left p-4 border-b border-slate-100 hover:bg-slate-50 ${selectedUser?.user_id===p.user_id ? "bg-primary-50" : ""}`}><p className="font-medium text-slate-900">{p.business_name || "Unnamed"}</p><p className="text-xs text-slate-500">{p.email || "No email"}</p><div className="flex gap-2 mt-2"><span className="text-xs rounded-full bg-slate-100 px-2 py-0.5">{p.is_pro ? "Pro" : "Free"}</span>{p.is_banned && <span className="text-xs rounded-full bg-red-100 text-red-700 px-2 py-0.5">Banned</span>}</div></button>)}</div>
-          <div className="lg:col-span-2 p-5 space-y-5">
-            {selectedUser ? <><div className="grid sm:grid-cols-2 gap-3 text-sm"><Info label="Business" value={selectedUser.business_name}/><Info label="Email" value={selectedUser.email}/><Info label="Phone" value={selectedUser.phone}/><Info label="Country" value={selectedUser.country}/><Info label="GST/Tax ID" value={selectedUser.gstin}/><Info label="Joined" value={formatDate(selectedUser.created_at)}/></div>
-            <div className="flex flex-wrap gap-2">
-              <button className="btn-secondary" onClick={()=>updateProfile(selectedUser.user_id,{ is_banned: !selectedUser.is_banned, banned_at: selectedUser.is_banned ? null : new Date().toISOString(), ban_reason: selectedUser.is_banned ? null : "Admin blocked" }, selectedUser.is_banned ? "User unbanned." : "User banned.")}>{selectedUser.is_banned ? "Unban user" : "Ban user"}</button>
-              <button className="btn-secondary" onClick={()=>updateProfile(selectedUser.user_id,{ is_pro: true, plan: "pro", subscription_status: "active", free_pro_until: new Date(Date.now()+30*86400000).toISOString() }, "30 days free Pro given.")}>Give 30 days Pro</button>
-              <button className="btn-secondary" onClick={()=>updateProfile(selectedUser.user_id,{ credits: (selectedUser.credits ?? 0) + 10 }, "10 credits added.")}>Add 10 credits</button>
+        {active === "dashboard" && (
+          <section className="space-y-6">
+            <SectionHeader title="Admin Dashboard" subtitle="Overview of users, plans, invoices, team work, and revenue" />
+            <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
+              {[
+                ["Total Users", profiles.length, "👥", "text-primary-600 bg-primary-50"],
+                ["Pro Users", metrics.proUsers, "⭐", "text-amber-600 bg-amber-50"],
+                ["Banned Users", profiles.filter((p) => (p as unknown as { is_banned?: boolean }).is_banned).length, "🚫", "text-red-600 bg-red-50"],
+                ["Total Invoices", invoices.length, "📄", "text-blue-600 bg-blue-50"],
+                ["Paid Invoices", metrics.paidInvoices, "✅", "text-green-600 bg-green-50"],
+                ["Overdue", metrics.overdueInvoices, "⚠️", "text-red-600 bg-red-50"],
+                ["Manual Revenue", formatMoney(metrics.receivedFinance, "INR"), "💰", "text-green-600 bg-green-50"],
+                ["Expenses", formatMoney(metrics.expenses, "INR"), "💸", "text-slate-600 bg-slate-100"],
+              ].map(([label, value, icon, color]) => (
+                <Card key={String(label)} className="p-5">
+                  <span className={cx("inline-flex w-10 h-10 rounded-xl items-center justify-center text-base font-bold mb-3", String(color))}>{icon}</span>
+                  <p className="text-xs font-medium text-slate-500 uppercase tracking-wide">{label}</p>
+                  <p className="text-xl font-bold text-slate-900 mt-1">{String(value)}</p>
+                </Card>
+              ))}
             </div>
-            <div><h3 className="font-semibold mb-2">User invoices</h3><div className="overflow-x-auto"><table className="w-full text-sm"><tbody>{selectedInvoices.slice(0,8).map((i)=><tr key={i.id} className="border-t"><td className="py-2">{i.invoice_number}</td><td>{i.client_name}</td><td>{formatMoney(i.invoice_total ?? Number(i.total), i.invoice_currency ?? i.base_currency ?? "INR")}</td><td><StatusBadge status={i.status}/></td></tr>)}</tbody></table></div></div></> : <p>No user selected.</p>}
-          </div>
-        </div>
-      </section>
 
-      <section id="team" className="grid lg:grid-cols-2 gap-6">
-        <div className="card p-5"><h2 className="text-lg font-semibold mb-4">Manage Team Members</h2><form onSubmit={createTeamMember} className="space-y-3"><input className="input" placeholder="Name" value={teamForm.name} onChange={e=>setTeamForm({...teamForm,name:e.target.value})}/><input className="input" type="email" required placeholder="Team email" value={teamForm.email} onChange={e=>setTeamForm({...teamForm,email:e.target.value})}/><input className="input" required minLength={8} placeholder="Password (min 8 chars)" value={teamForm.password} onChange={e=>setTeamForm({...teamForm,password:e.target.value})}/><select className="input" value={teamForm.role} onChange={e=>setTeamForm({...teamForm,role:e.target.value})}><option value="full_access">Full Access</option><option value="limited">Limited</option><option value="support">Support</option><option value="finance">Finance</option><option value="viewer">Viewer</option></select><textarea className="input" placeholder="Notes" value={teamForm.notes} onChange={e=>setTeamForm({...teamForm,notes:e.target.value})}/><button className="btn-primary w-full">Create Login</button></form></div>
-        <div className="card p-5"><h2 className="text-lg font-semibold mb-4">Team List</h2><div className="space-y-3">{team.map(m=><div key={m.id} className="border rounded-lg p-3"><p className="font-medium">{m.name || m.email}</p><p className="text-xs text-slate-500">{m.email} • {m.role} • {m.status}</p>{m.temporary_password && <p className="text-xs mt-1 text-amber-700">Temp password saved: {m.temporary_password}</p>}</div>)}</div></div>
-      </section>
+            <div className="grid xl:grid-cols-2 gap-6">
+              <Card>
+                <div className="p-5 border-b border-slate-100 flex justify-between items-center">
+                  <h2 className="text-lg font-semibold text-slate-900">Recent Users</h2>
+                  <button className="text-sm text-primary-600 font-medium" onClick={() => setActive("users")}>Manage users</button>
+                </div>
+                <div className="divide-y divide-slate-100">
+                  {profiles.slice(0, 5).map((p) => (
+                    <div key={p.id} className="p-4 flex items-center justify-between gap-3">
+                      <div>
+                        <p className="font-medium text-slate-900">{p.business_name || p.email || "Unnamed"}</p>
+                        <p className="text-xs text-slate-500">{p.country || "No country"} · {formatDate(p.created_at)}</p>
+                      </div>
+                      <Pill className={(p as unknown as { is_banned?: boolean }).is_banned ? statusClass("disabled") : p.is_pro ? "bg-amber-50 text-amber-700 border-amber-200" : statusClass("closed")}>
+                        {(p as unknown as { is_banned?: boolean }).is_banned ? "Banned" : p.is_pro ? "Pro" : "Free"}
+                      </Pill>
+                    </div>
+                  ))}
+                </div>
+              </Card>
 
-      <section id="credits" className="card p-5"><h2 className="text-lg font-semibold mb-4">Credits & Plans</h2><p className="text-sm text-slate-500 mb-3">Select user from Users section, then use Add Credits / Give Free Pro. Current selected user: <b>{selectedUser?.email ?? "none"}</b></p>{selectedUser && <div className="grid sm:grid-cols-3 gap-3"><Info label="Plan" value={selectedUser.is_pro ? "Pro" : "Free"}/><Info label="Credits" value={String(selectedUser.credits ?? 0)}/><Info label="Free Pro Until" value={selectedUser.free_pro_until ? formatDate(selectedUser.free_pro_until) : "—"}/></div>}</section>
+              <Card>
+                <div className="p-5 border-b border-slate-100 flex justify-between items-center">
+                  <h2 className="text-lg font-semibold text-slate-900">Task Tracker</h2>
+                  <button className="text-sm text-primary-600 font-medium" onClick={() => setActive("tasks")}>Open tasks</button>
+                </div>
+                <div className="divide-y divide-slate-100">
+                  {tasks.length === 0 ? <p className="p-6 text-sm text-slate-500">No tasks yet.</p> : tasks.slice(0, 5).map((task) => (
+                    <div key={task.id} className="p-4 flex items-center justify-between gap-3">
+                      <div>
+                        <p className="font-medium text-slate-900">{task.title}</p>
+                        <p className="text-xs text-slate-500">{task.priority} priority {task.due_date ? `· Due ${task.due_date}` : ""}</p>
+                      </div>
+                      <Pill className={statusClass(task.status)}>{task.status.replace("_", " ")}</Pill>
+                    </div>
+                  ))}
+                </div>
+              </Card>
+            </div>
+          </section>
+        )}
 
-      <section id="invoices" className="card"><div className="p-5 border-b"><h2 className="text-lg font-semibold">All Invoices</h2></div><div className="overflow-x-auto"><table className="w-full text-sm"><thead className="bg-slate-50"><tr><th className="text-left p-3">Invoice</th><th className="text-left p-3">Client</th><th className="text-left p-3">Amount</th><th className="text-left p-3">Status</th><th className="text-left p-3">Date</th></tr></thead><tbody>{invoices.map(i=><tr key={i.id} className="border-t"><td className="p-3 font-medium">{i.invoice_number}</td><td className="p-3">{i.client_name}</td><td className="p-3">{formatMoney(i.invoice_total ?? Number(i.total), i.invoice_currency ?? i.base_currency ?? "INR")}</td><td className="p-3"><StatusBadge status={i.status}/></td><td className="p-3 text-slate-500">{formatDate(i.created_at)}</td></tr>)}</tbody></table></div></section>
+        {active === "users" && (
+          <section className="space-y-6">
+            <SectionHeader title="User Management" subtitle="Users ki full detail dekho, ban/unban karo, plan aur credits manage karo" />
+            <div className="grid xl:grid-cols-[1fr_420px] gap-6">
+              <Card>
+                <div className="p-5 border-b border-slate-100 flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between">
+                  <h2 className="text-lg font-semibold text-slate-900">All Users</h2>
+                  <input className="input sm:w-72" placeholder="Search user, email, GSTIN..." value={userSearch} onChange={(e) => setUserSearch(e.target.value)} />
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead>
+                      <tr className="border-b border-slate-100 bg-slate-50/50">
+                        <th className="text-left text-xs font-semibold text-slate-500 uppercase px-5 py-3">Business</th>
+                        <th className="text-left text-xs font-semibold text-slate-500 uppercase px-5 py-3">Plan</th>
+                        <th className="text-left text-xs font-semibold text-slate-500 uppercase px-5 py-3 hidden md:table-cell">Credits</th>
+                        <th className="text-left text-xs font-semibold text-slate-500 uppercase px-5 py-3 hidden lg:table-cell">Joined</th>
+                        <th className="text-right text-xs font-semibold text-slate-500 uppercase px-5 py-3">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {filteredProfiles.map((p) => {
+                        const isBanned = Boolean((p as unknown as { is_banned?: boolean }).is_banned);
+                        return (
+                          <tr key={p.id} className={cx("hover:bg-slate-50/50 transition", selectedUser?.id === p.id && "bg-primary-50/50")}>
+                            <td className="px-5 py-3.5">
+                              <p className="font-medium text-slate-900">{p.business_name || "Unnamed"}</p>
+                              <p className="text-xs text-slate-500">{p.email || "No email"}</p>
+                            </td>
+                            <td className="px-5 py-3.5"><Pill className={isBanned ? statusClass("disabled") : p.is_pro ? "bg-amber-50 text-amber-700 border-amber-200" : statusClass("closed")}>{isBanned ? "Banned" : p.is_pro ? "Pro" : "Free"}</Pill></td>
+                            <td className="px-5 py-3.5 text-sm text-slate-600 hidden md:table-cell">{Number((p as unknown as { credits?: number }).credits ?? 0)}</td>
+                            <td className="px-5 py-3.5 text-sm text-slate-500 hidden lg:table-cell">{formatDate(p.created_at)}</td>
+                            <td className="px-5 py-3.5 text-right">
+                              <button className="btn-secondary text-xs py-1.5 px-3" onClick={() => setSelectedUserId(p.id)}>Details</button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </Card>
 
-      <section id="finance" className="grid lg:grid-cols-2 gap-6"><div className="card p-5"><h2 className="text-lg font-semibold mb-4">Revenue & Finance Entry</h2><form onSubmit={createFinance} className="space-y-3"><input className="input" required placeholder="Title e.g. Ads revenue, Razorpay payout" value={financeForm.title} onChange={e=>setFinanceForm({...financeForm,title:e.target.value})}/><input className="input" required type="number" placeholder="Amount" value={financeForm.amount} onChange={e=>setFinanceForm({...financeForm,amount:e.target.value})}/><div className="grid grid-cols-2 gap-3"><select className="input" value={financeForm.type} onChange={e=>setFinanceForm({...financeForm,type:e.target.value})}><option value="income">Income</option><option value="expense">Expense</option><option value="receivable">Receivable/Baki</option></select><select className="input" value={financeForm.source} onChange={e=>setFinanceForm({...financeForm,source:e.target.value})}><option value="subscription">Subscription</option><option value="ads">Ads</option><option value="invoice">Invoice</option><option value="manual">Manual</option><option value="other">Other</option></select></div><div className="grid grid-cols-2 gap-3"><input className="input" value={financeForm.currency} onChange={e=>setFinanceForm({...financeForm,currency:e.target.value.toUpperCase()})}/><select className="input" value={financeForm.status} onChange={e=>setFinanceForm({...financeForm,status:e.target.value})}><option value="received">Received</option><option value="pending">Pending</option><option value="spent">Spent</option></select></div><textarea className="input" placeholder="Notes" value={financeForm.notes} onChange={e=>setFinanceForm({...financeForm,notes:e.target.value})}/><button className="btn-primary w-full">Save Finance Entry</button></form></div><div className="card p-5"><h2 className="text-lg font-semibold mb-4">Finance Ledger</h2><div className="space-y-3 max-h-96 overflow-auto">{finance.map(f=><div key={f.id} className="border rounded-lg p-3"><div className="flex justify-between"><p className="font-medium">{f.title}</p><p className="font-semibold">{formatMoney(Number(f.amount), f.currency)}</p></div><p className="text-xs text-slate-500">{f.type} • {f.source} • {f.status} • {formatDate(f.entry_date)}</p></div>)}</div></div></section>
+              <Card className="p-5 h-fit">
+                <h2 className="text-lg font-semibold text-slate-900 mb-4">User Detail</h2>
+                {selectedUser ? (
+                  <div className="space-y-4">
+                    <div>
+                      <p className="text-xl font-bold text-slate-900">{selectedUser.business_name || "Unnamed Business"}</p>
+                      <p className="text-sm text-slate-500">{selectedUser.email || "No email"}</p>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3 text-sm">
+                      <Info label="Country" value={selectedUser.country || "—"} />
+                      <Info label="Phone" value={selectedUser.phone || "—"} />
+                      <Info label="GSTIN" value={selectedUser.gstin || "—"} />
+                      <Info label="Currency" value={selectedUser.currency || "—"} />
+                      <Info label="Invoices" value={String(selectedUserInvoices.length)} />
+                      <Info label="Credits" value={String(Number((selectedUser as unknown as { credits?: number }).credits ?? 0))} />
+                    </div>
+                    {(selectedUser as unknown as { ban_reason?: string | null }).ban_reason && (
+                      <div className="rounded-lg bg-red-50 border border-red-200 p-3 text-sm text-red-700">
+                        Ban reason: {(selectedUser as unknown as { ban_reason?: string | null }).ban_reason}
+                      </div>
+                    )}
+                    <div className="grid grid-cols-2 gap-2">
+                      <button className="btn-secondary" onClick={() => handleGiveCredits(selectedUser)}>Give Credits</button>
+                      <button className="btn-secondary" onClick={() => handleFreePro(selectedUser)}>Free Pro</button>
+                      {(selectedUser as unknown as { is_banned?: boolean }).is_banned ? (
+                        <button className="btn-primary col-span-2" onClick={() => handleUnban(selectedUser)}>Unban User</button>
+                      ) : (
+                        <button className="col-span-2 rounded-lg bg-red-600 text-white px-4 py-2 text-sm font-semibold hover:bg-red-700" onClick={() => handleBan(selectedUser)}>Ban User</button>
+                      )}
+                    </div>
+                    <div>
+                      <p className="text-sm font-semibold text-slate-900 mb-2">Latest invoices</p>
+                      <div className="space-y-2">
+                        {selectedUserInvoices.slice(0, 4).map((inv) => (
+                          <div key={inv.id} className="rounded-lg border border-slate-100 p-3 flex justify-between items-center">
+                            <div>
+                              <p className="text-sm font-medium text-slate-900">{inv.invoice_number}</p>
+                              <p className="text-xs text-slate-500">{inv.client_name}</p>
+                            </div>
+                            <p className="text-sm font-semibold">{formatMoney(Number(inv.invoice_total ?? inv.total), inv.invoice_currency || selectedUser.currency || "INR")}</p>
+                          </div>
+                        ))}
+                        {selectedUserInvoices.length === 0 && <p className="text-sm text-slate-500">No invoices.</p>}
+                      </div>
+                    </div>
+                  </div>
+                ) : <p className="text-sm text-slate-500">Select a user.</p>}
+              </Card>
+            </div>
+          </section>
+        )}
 
-      <section id="tasks" className="grid lg:grid-cols-2 gap-6"><div className="card p-5"><h2 className="text-lg font-semibold mb-4">Assign Task</h2><form onSubmit={createTask} className="space-y-3"><input className="input" required placeholder="Task title" value={taskForm.title} onChange={e=>setTaskForm({...taskForm,title:e.target.value})}/><textarea className="input" placeholder="Description" value={taskForm.description} onChange={e=>setTaskForm({...taskForm,description:e.target.value})}/><select className="input" value={taskForm.assigned_to} onChange={e=>setTaskForm({...taskForm,assigned_to:e.target.value})}><option value="">Unassigned</option>{team.map(m=><option key={m.id} value={m.id}>{m.name || m.email}</option>)}</select><div className="grid grid-cols-2 gap-3"><select className="input" value={taskForm.priority} onChange={e=>setTaskForm({...taskForm,priority:e.target.value})}><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option><option value="urgent">Urgent</option></select><input className="input" type="date" value={taskForm.due_date} onChange={e=>setTaskForm({...taskForm,due_date:e.target.value})}/></div><button className="btn-primary w-full">Add Task</button></form></div><div className="card p-5"><h2 className="text-lg font-semibold mb-4">Task Board</h2><div className="space-y-3">{tasks.map(t=><div key={t.id} className="border rounded-lg p-3"><div className="flex justify-between gap-3"><p className="font-medium">{t.title}</p><span className="text-xs rounded-full bg-slate-100 px-2 py-1">{t.status}</span></div><p className="text-xs text-slate-500 mt-1">{t.priority} priority {t.due_date ? `• due ${formatDate(t.due_date)}` : ""}</p>{t.description && <p className="text-sm text-slate-600 mt-2">{t.description}</p>}</div>)}</div></div></section>
+        {active === "credits" && (
+          <section className="space-y-6">
+            <SectionHeader title="Credits & Plans" subtitle="Manual credits, free Pro access aur plan override yahan se control karo" />
+            <Card>
+              <div className="p-5 border-b border-slate-100"><h2 className="text-lg font-semibold text-slate-900">Quick Actions</h2></div>
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead><tr className="border-b border-slate-100 bg-slate-50/50"><th className="text-left text-xs font-semibold text-slate-500 uppercase px-5 py-3">User</th><th className="text-left text-xs font-semibold text-slate-500 uppercase px-5 py-3">Plan</th><th className="text-left text-xs font-semibold text-slate-500 uppercase px-5 py-3">Credits</th><th className="text-right text-xs font-semibold text-slate-500 uppercase px-5 py-3">Actions</th></tr></thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {profiles.map((p) => <tr key={p.id}><td className="px-5 py-3.5"><p className="font-medium text-slate-900">{p.business_name || "Unnamed"}</p><p className="text-xs text-slate-500">{p.email}</p></td><td className="px-5 py-3.5"><Pill className={p.is_pro ? "bg-amber-50 text-amber-700 border-amber-200" : statusClass("closed")}>{p.is_pro ? "Pro" : "Free"}</Pill></td><td className="px-5 py-3.5 font-semibold">{Number((p as unknown as { credits?: number }).credits ?? 0)}</td><td className="px-5 py-3.5 text-right space-x-2"><button className="btn-secondary text-xs py-1.5 px-3" onClick={() => handleGiveCredits(p)}>Add Credits</button><button className="btn-primary text-xs py-1.5 px-3" onClick={() => handleFreePro(p)}>Give Free Pro</button></td></tr>)}
+                  </tbody>
+                </table>
+              </div>
+            </Card>
+          </section>
+        )}
+
+        {active === "team" && (
+          <section className="space-y-6">
+            <SectionHeader title="Manage Team Members" subtitle="Team ke liye email/password create karo, role assign karo, access disable karo" />
+            <div className="grid xl:grid-cols-[420px_1fr] gap-6">
+              <Card className="p-5 h-fit">
+                <h2 className="text-lg font-semibold text-slate-900 mb-4">Create Team Login</h2>
+                <form onSubmit={handleAddTeam} className="space-y-3">
+                  <input className="input" placeholder="Name" value={teamForm.name} onChange={(e) => setTeamForm({ ...teamForm, name: e.target.value })} />
+                  <input className="input" type="email" placeholder="Email" value={teamForm.email} onChange={(e) => setTeamForm({ ...teamForm, email: e.target.value })} />
+                  <input className="input" type="text" placeholder="Temporary password" value={teamForm.password} onChange={(e) => setTeamForm({ ...teamForm, password: e.target.value })} />
+                  <select className="input" value={teamForm.role} onChange={(e) => setTeamForm({ ...teamForm, role: e.target.value })}>
+                    <option value="limited">Limited</option><option value="full_access">Full Access</option><option value="support">Support</option><option value="finance">Finance</option><option value="viewer">Viewer</option>
+                  </select>
+                  <textarea className="input min-h-24" placeholder="Notes" value={teamForm.notes} onChange={(e) => setTeamForm({ ...teamForm, notes: e.target.value })} />
+                  <button className="btn-primary w-full" type="submit">Create Team Member</button>
+                </form>
+                <p className="text-xs text-slate-500 mt-3">Real auth login ke liye Supabase Edge Function <b>create-team-member</b> deploy karna zaroori hai.</p>
+              </Card>
+              <Card>
+                <div className="p-5 border-b border-slate-100"><h2 className="text-lg font-semibold text-slate-900">Team Members</h2></div>
+                <div className="overflow-x-auto"><table className="w-full"><thead><tr className="border-b border-slate-100 bg-slate-50/50"><th className="text-left text-xs font-semibold text-slate-500 uppercase px-5 py-3">Member</th><th className="text-left text-xs font-semibold text-slate-500 uppercase px-5 py-3">Role</th><th className="text-left text-xs font-semibold text-slate-500 uppercase px-5 py-3">Status</th><th className="text-right text-xs font-semibold text-slate-500 uppercase px-5 py-3">Action</th></tr></thead><tbody className="divide-y divide-slate-100">{team.length === 0 ? <tr><td colSpan={4} className="p-8 text-center text-sm text-slate-500">No team members yet.</td></tr> : team.map((m) => <tr key={m.id}><td className="px-5 py-3.5"><p className="font-medium text-slate-900">{m.name || m.email}</p><p className="text-xs text-slate-500">{m.email}</p></td><td className="px-5 py-3.5"><Pill className="bg-slate-100 text-slate-600 border-slate-200">{m.role.replace("_", " ")}</Pill></td><td className="px-5 py-3.5"><Pill className={statusClass(m.status)}>{m.status}</Pill></td><td className="px-5 py-3.5 text-right"><button className="btn-secondary text-xs py-1.5 px-3" onClick={() => toggleTeamStatus(m)}>{m.status === "active" ? "Disable" : "Enable"}</button></td></tr>)}</tbody></table></div>
+              </Card>
+            </div>
+          </section>
+        )}
+
+        {active === "tasks" && (
+          <section className="space-y-6">
+            <SectionHeader title="Tasks" subtitle="Team ko kaam assign karo aur status track karo" />
+            <div className="grid xl:grid-cols-[420px_1fr] gap-6">
+              <Card className="p-5 h-fit"><h2 className="text-lg font-semibold text-slate-900 mb-4">Assign New Task</h2><form onSubmit={handleAddTask} className="space-y-3"><input className="input" required placeholder="Task title" value={taskForm.title} onChange={(e) => setTaskForm({ ...taskForm, title: e.target.value })} /><textarea className="input min-h-24" placeholder="Description" value={taskForm.description} onChange={(e) => setTaskForm({ ...taskForm, description: e.target.value })} /><select className="input" value={taskForm.assigned_to} onChange={(e) => setTaskForm({ ...taskForm, assigned_to: e.target.value })}><option value="">Unassigned</option>{team.map((m) => <option key={m.id} value={m.id}>{m.name || m.email}</option>)}</select><select className="input" value={taskForm.priority} onChange={(e) => setTaskForm({ ...taskForm, priority: e.target.value })}><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option><option value="urgent">Urgent</option></select><input className="input" type="date" value={taskForm.due_date} onChange={(e) => setTaskForm({ ...taskForm, due_date: e.target.value })} /><button className="btn-primary w-full" type="submit">Create Task</button></form></Card>
+              <Card><div className="p-5 border-b border-slate-100"><h2 className="text-lg font-semibold text-slate-900">Task Board</h2></div><div className="grid md:grid-cols-2 xl:grid-cols-4 gap-4 p-4">{(["pending", "in_progress", "blocked", "done"] as AdminTask["status"][]).map((status) => <div key={status} className="rounded-xl bg-slate-50 border border-slate-100 p-3"><p className="text-sm font-bold text-slate-700 capitalize mb-3">{status.replace("_", " ")}</p><div className="space-y-2">{tasks.filter((t) => t.status === status).map((task) => <div key={task.id} className="rounded-lg bg-white border border-slate-100 p-3"><p className="font-medium text-sm text-slate-900">{task.title}</p><p className="text-xs text-slate-500 mt-1">{task.priority} {task.due_date ? `· ${task.due_date}` : ""}</p><select className="input mt-2 text-xs py-1.5" value={task.status} onChange={(e) => updateTaskStatus(task, e.target.value as AdminTask["status"])}><option value="pending">Pending</option><option value="in_progress">In Progress</option><option value="blocked">Blocked</option><option value="done">Done</option></select></div>)}{tasks.filter((t) => t.status === status).length === 0 && <p className="text-xs text-slate-400">No tasks</p>}</div></div>)}</div></Card>
+            </div>
+          </section>
+        )}
+
+        {active === "finance" && (
+          <section className="space-y-6">
+            <SectionHeader title="Revenue & Finance" subtitle="Manual revenue, ads income, expenses, receivables aur balance track karo" />
+            <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
+              <Metric title="Received" value={formatMoney(metrics.receivedFinance, "INR")} icon="💰" />
+              <Metric title="Ads Revenue" value={formatMoney(metrics.adsRevenue, "INR")} icon="📢" />
+              <Metric title="Pending/Receivable" value={formatMoney(metrics.receivable, "INR")} icon="⏳" />
+              <Metric title="Net Balance" value={formatMoney(metrics.receivedFinance - metrics.expenses, "INR")} icon="🏦" />
+            </div>
+            <div className="grid xl:grid-cols-[420px_1fr] gap-6">
+              <Card className="p-5 h-fit"><h2 className="text-lg font-semibold text-slate-900 mb-4">Add Finance Entry</h2><form onSubmit={handleAddFinance} className="space-y-3"><input className="input" type="date" value={financeForm.entry_date} onChange={(e) => setFinanceForm({ ...financeForm, entry_date: e.target.value })} /><input className="input" required placeholder="Title" value={financeForm.title} onChange={(e) => setFinanceForm({ ...financeForm, title: e.target.value })} /><div className="grid grid-cols-2 gap-2"><select className="input" value={financeForm.type} onChange={(e) => setFinanceForm({ ...financeForm, type: e.target.value as AdminFinanceEntry["type"] })}><option value="income">Income</option><option value="expense">Expense</option><option value="receivable">Receivable</option></select><select className="input" value={financeForm.source} onChange={(e) => setFinanceForm({ ...financeForm, source: e.target.value as AdminFinanceEntry["source"] })}><option value="manual">Manual</option><option value="subscription">Subscription</option><option value="ads">Ads</option><option value="invoice">Invoice</option><option value="other">Other</option></select></div><div className="grid grid-cols-[1fr_90px] gap-2"><input className="input" type="number" min="0" step="0.01" value={financeForm.amount} onChange={(e) => setFinanceForm({ ...financeForm, amount: Number(e.target.value) })} /><input className="input" value={financeForm.currency} onChange={(e) => setFinanceForm({ ...financeForm, currency: e.target.value.toUpperCase() })} /></div><select className="input" value={financeForm.status} onChange={(e) => setFinanceForm({ ...financeForm, status: e.target.value as AdminFinanceEntry["status"] })}><option value="received">Received</option><option value="pending">Pending</option><option value="spent">Spent</option></select><textarea className="input min-h-20" placeholder="Notes" value={financeForm.notes ?? ""} onChange={(e) => setFinanceForm({ ...financeForm, notes: e.target.value })} /><button className="btn-primary w-full" type="submit">Add Entry</button></form></Card>
+              <Card><div className="p-5 border-b border-slate-100"><h2 className="text-lg font-semibold text-slate-900">Finance Ledger</h2></div><div className="overflow-x-auto"><table className="w-full"><thead><tr className="border-b border-slate-100 bg-slate-50/50"><th className="text-left text-xs font-semibold text-slate-500 uppercase px-5 py-3">Date</th><th className="text-left text-xs font-semibold text-slate-500 uppercase px-5 py-3">Title</th><th className="text-left text-xs font-semibold text-slate-500 uppercase px-5 py-3">Source</th><th className="text-right text-xs font-semibold text-slate-500 uppercase px-5 py-3">Amount</th></tr></thead><tbody className="divide-y divide-slate-100">{finance.length === 0 ? <tr><td colSpan={4} className="p-8 text-center text-sm text-slate-500">No finance entries yet.</td></tr> : finance.map((entry) => <tr key={entry.id}><td className="px-5 py-3.5 text-sm text-slate-500">{entry.entry_date}</td><td className="px-5 py-3.5"><p className="font-medium text-slate-900">{entry.title}</p><Pill className={statusClass(entry.status)}>{entry.status}</Pill></td><td className="px-5 py-3.5 text-sm text-slate-600 capitalize">{entry.source}</td><td className={cx("px-5 py-3.5 text-right font-bold", entry.type === "expense" ? "text-red-600" : "text-green-600")}>{entry.type === "expense" ? "-" : "+"}{formatMoney(Number(entry.amount), entry.currency)}</td></tr>)}</tbody></table></div></Card>
+            </div>
+          </section>
+        )}
+
+        {active === "invoices" && (
+          <section className="space-y-6">
+            <SectionHeader title="All Invoices" subtitle="Saare users ki invoices search/filter karo" />
+            <Card>
+              <div className="p-5 border-b border-slate-100 flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between"><h2 className="text-lg font-semibold text-slate-900">Invoices</h2><input className="input sm:w-80" placeholder="Search invoice, client, status..." value={invoiceSearch} onChange={(e) => setInvoiceSearch(e.target.value)} /></div>
+              <div className="overflow-x-auto"><table className="w-full"><thead><tr className="border-b border-slate-100 bg-slate-50/50"><th className="text-left text-xs font-semibold text-slate-500 uppercase px-5 py-3">Invoice #</th><th className="text-left text-xs font-semibold text-slate-500 uppercase px-5 py-3">Client</th><th className="text-left text-xs font-semibold text-slate-500 uppercase px-5 py-3">Amount</th><th className="text-left text-xs font-semibold text-slate-500 uppercase px-5 py-3">Status</th><th className="text-left text-xs font-semibold text-slate-500 uppercase px-5 py-3">Date</th></tr></thead><tbody className="divide-y divide-slate-100">{filteredInvoices.length === 0 ? <tr><td colSpan={5} className="p-8 text-center text-sm text-slate-500">No invoices found</td></tr> : filteredInvoices.map((inv) => <tr key={inv.id} className="hover:bg-slate-50/50 transition"><td className="px-5 py-3.5 font-medium text-slate-900">{inv.invoice_number}</td><td className="px-5 py-3.5 text-sm text-slate-700">{inv.client_name}</td><td className="px-5 py-3.5 text-sm font-semibold text-slate-900">{formatMoney(Number(inv.invoice_total ?? inv.total), inv.invoice_currency || inv.base_currency || "INR")}</td><td className="px-5 py-3.5"><StatusBadge status={inv.status} /></td><td className="px-5 py-3.5 text-sm text-slate-500">{formatDate(inv.created_at)}</td></tr>)}</tbody></table></div>
+            </Card>
+          </section>
+        )}
+
+        {active === "analytics" && (
+          <Placeholder title="Analytics" subtitle="Growth, invoices, revenue aur user activity insights" items={["User growth tracking", "Invoice status breakdown", "Revenue source summary", "Plan conversion monitoring"]} />
+        )}
+        {active === "support" && (
+          <section className="space-y-6"><SectionHeader title="Support Tickets" subtitle="User complaints/issues yahan track honge" /><Card><div className="p-5 border-b border-slate-100"><h2 className="text-lg font-semibold text-slate-900">Tickets</h2></div><div className="divide-y divide-slate-100">{supportTickets.length === 0 ? <p className="p-8 text-center text-sm text-slate-500">No support tickets yet. Table ready hai, frontend form next phase me user side pe add hoga.</p> : supportTickets.map((t) => <div key={t.id} className="p-5 flex items-center justify-between"><div><p className="font-medium text-slate-900">{t.subject}</p><p className="text-sm text-slate-500">{t.message || "No message"}</p></div><Pill className={statusClass(t.status)}>{t.status}</Pill></div>)}</div></Card></section>
+        )}
+        {active === "audit" && (
+          <section className="space-y-6"><SectionHeader title="Audit Logs" subtitle="Admin actions ka security history" /><Card><div className="overflow-x-auto"><table className="w-full"><thead><tr className="border-b border-slate-100 bg-slate-50/50"><th className="text-left text-xs font-semibold text-slate-500 uppercase px-5 py-3">Time</th><th className="text-left text-xs font-semibold text-slate-500 uppercase px-5 py-3">Action</th><th className="text-left text-xs font-semibold text-slate-500 uppercase px-5 py-3">Target</th></tr></thead><tbody className="divide-y divide-slate-100">{auditLogs.length === 0 ? <tr><td colSpan={3} className="p-8 text-center text-sm text-slate-500">No audit logs yet.</td></tr> : auditLogs.map((log) => <tr key={log.id}><td className="px-5 py-3.5 text-sm text-slate-500">{formatDate(log.created_at)}</td><td className="px-5 py-3.5 font-medium text-slate-900">{log.action}</td><td className="px-5 py-3.5 text-sm text-slate-600">{log.target_type || "—"} {log.target_id || ""}</td></tr>)}</tbody></table></div></Card></section>
+        )}
+        {active === "settings" && (
+          <Placeholder title="Admin Settings" subtitle="Owner email, permissions aur platform controls" items={[`Owner admin: ${ADMIN_EMAIL}`, "Reserved admin email signup block active", "Team roles: Full Access, Limited, Support, Finance, Viewer", "Future: Razorpay/Stripe keys, ads settings, plan limits"]} />
+        )}
+      </main>
     </div>
   );
 }
 
-function Info({ label, value }: { label: string; value?: string | null }) {
-  return <div className="rounded-lg bg-slate-50 border border-slate-100 p-3"><p className="text-xs text-slate-500 uppercase font-semibold">{label}</p><p className="text-sm text-slate-900 mt-1 break-words">{value || "—"}</p></div>;
+function Info({ label, value }: { label: string; value: string }) {
+  return <div className="rounded-lg bg-slate-50 border border-slate-100 p-3"><p className="text-xs text-slate-500">{label}</p><p className="font-semibold text-slate-900 break-words">{value}</p></div>;
+}
+
+function Metric({ title, value, icon }: { title: string; value: string; icon: string }) {
+  return <Card className="p-5"><span className="inline-flex w-10 h-10 rounded-xl items-center justify-center text-base bg-primary-50 text-primary-700 mb-3">{icon}</span><p className="text-xs font-medium text-slate-500 uppercase tracking-wide">{title}</p><p className="text-xl font-bold text-slate-900 mt-1">{value}</p></Card>;
+}
+
+function Placeholder({ title, subtitle, items }: { title: string; subtitle: string; items: string[] }) {
+  return <section className="space-y-6"><SectionHeader title={title} subtitle={subtitle} /><Card className="p-6"><div className="grid md:grid-cols-2 gap-4">{items.map((item) => <div key={item} className="rounded-xl border border-slate-100 bg-slate-50 p-4"><p className="font-medium text-slate-900">{item}</p><p className="text-sm text-slate-500 mt-1">Ready for next production phase.</p></div>)}</div></Card></section>;
 }

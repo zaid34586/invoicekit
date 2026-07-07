@@ -1,64 +1,83 @@
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
+const ADMIN_EMAIL = "mz7123272@gmail.com";
+
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
-const OWNER_EMAIL = "mz7123272@gmail.com";
+function json(data: unknown, status = 200) {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
+  });
+}
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
-  try {
-    const authHeader = req.headers.get("Authorization") ?? "";
-    const supabaseUrl = Deno.env.get("SUPABASE_URL");
-    const serviceRoleKey = Deno.env.get("SERVICE_ROLE_KEY");
-    const anonKey = Deno.env.get("SUPABASE_ANON_KEY");
-    if (!supabaseUrl || !serviceRoleKey || !anonKey) {
-      return Response.json({ error: "Server configuration missing." }, { status: 500, headers: corsHeaders });
-    }
+  if (req.method !== "POST") return json({ error: "Method not allowed" }, 405);
 
-    const userClient = createClient(supabaseUrl, anonKey, { global: { headers: { Authorization: authHeader } } });
-    const { data: userData } = await userClient.auth.getUser();
-    if (userData.user?.email?.toLowerCase() !== OWNER_EMAIL) {
-      return Response.json({ error: "Not allowed." }, { status: 403, headers: corsHeaders });
-    }
+  const supabaseUrl = Deno.env.get("SUPABASE_URL");
+  const serviceKey = Deno.env.get("SERVICE_ROLE_KEY");
 
-    const { email, password, name, role = "limited", notes } = await req.json();
-    if (!email || !password) {
-      return Response.json({ error: "Email and password are required." }, { status: 400, headers: corsHeaders });
-    }
-    if (String(password).length < 8) {
-      return Response.json({ error: "Password must be at least 8 characters." }, { status: 400, headers: corsHeaders });
-    }
-
-    const admin = createClient(supabaseUrl, serviceRoleKey);
-    const normalizedEmail = String(email).trim().toLowerCase();
-
-    const { data: created, error: createError } = await admin.auth.admin.createUser({
-      email: normalizedEmail,
-      password: String(password),
-      email_confirm: true,
-      user_metadata: { role: "team_member", name: name ?? null },
-    });
-    if (createError) return Response.json({ error: createError.message }, { status: 400, headers: corsHeaders });
-
-    const { error: insertError } = await admin.from("admin_team_members").upsert({
-      auth_user_id: created.user.id,
-      email: normalizedEmail,
-      name: name ?? null,
-      role,
-      status: "active",
-      temporary_password: String(password),
-      notes: notes ?? null,
-      created_by: userData.user.id,
-    }, { onConflict: "email" });
-    if (insertError) return Response.json({ error: insertError.message }, { status: 400, headers: corsHeaders });
-
-    return Response.json({ ok: true, user_id: created.user.id }, { headers: corsHeaders });
-  } catch (_e) {
-    return Response.json({ error: "Invalid request." }, { status: 400, headers: corsHeaders });
+  if (!supabaseUrl || !serviceKey) {
+    return json({ error: "Server configuration missing" }, 500);
   }
+
+  const admin = createClient(supabaseUrl, serviceKey);
+
+  const authHeader = req.headers.get("Authorization");
+  if (!authHeader) return json({ error: "Unauthorized" }, 401);
+
+  const token = authHeader.replace("Bearer ", "");
+  const { data: caller, error: callerError } = await admin.auth.getUser(token);
+
+  if (callerError || caller.user?.email?.toLowerCase() !== ADMIN_EMAIL) {
+    return json({ error: "Admin access only" }, 403);
+  }
+
+  const body = await req.json();
+  const email = String(body.email ?? "").trim().toLowerCase();
+  const password = String(body.password ?? "");
+  const name = String(body.name ?? "").trim() || null;
+  const role = String(body.role ?? "limited");
+  const notes = String(body.notes ?? "").trim() || null;
+
+  if (!email || !password) return json({ error: "Email and password are required" }, 400);
+  if (password.length < 6) return json({ error: "Password must be at least 6 characters" }, 400);
+
+  const { data: created, error: createError } = await admin.auth.admin.createUser({
+    email,
+    password,
+    email_confirm: true,
+    user_metadata: { name, role, team_member: true },
+  });
+
+  if (createError) return json({ error: createError.message }, 400);
+
+  const { error: insertError } = await admin.from("admin_team_members").upsert({
+    auth_user_id: created.user.id,
+    email,
+    name,
+    role,
+    status: "active",
+    temporary_password: password,
+    notes,
+    created_by: caller.user.id,
+  }, { onConflict: "email" });
+
+  if (insertError) return json({ error: insertError.message }, 400);
+
+  await admin.from("admin_audit_logs").insert({
+    actor_user_id: caller.user.id,
+    action: "create_team_member_login",
+    target_type: "admin_team_members",
+    target_id: email,
+    details: { role, name },
+  });
+
+  return json({ success: true, message: "Team member login created successfully", user_id: created.user.id });
 });
