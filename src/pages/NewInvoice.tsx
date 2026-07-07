@@ -18,7 +18,6 @@ import {
   getCurrencyForCountry,
   getCurrencySymbol,
   formatMoney,
-  convertCurrency,
 } from "../lib/currency";
 import { decideTax } from "../lib/tax";
 
@@ -244,12 +243,37 @@ export default function NewInvoice() {
     });
   }, [taxDecision.taxRate, profile?.country]);
 
-  // Converted amounts for display when invoice currency differs from base
-  const displaySubtotal = isForeignCurrency ? convertCurrency(calc.subtotal, exchangeRate) : calc.subtotal;
-  const displayCgst     = isForeignCurrency ? convertCurrency(calc.cgst, exchangeRate)     : calc.cgst;
-  const displaySgst     = isForeignCurrency ? convertCurrency(calc.sgst, exchangeRate)     : calc.sgst;
-  const displayIgst     = isForeignCurrency ? convertCurrency(calc.igst, exchangeRate)     : calc.igst;
-  const displayTotal    = isForeignCurrency ? convertCurrency(calc.total, exchangeRate)    : calc.total;
+  // ── Currency bug fix (Priority 8) ───────────────────────────────────────
+  // The "Rate" field on each line item is entered directly in INVOICE
+  // currency (the input shows the invoice-currency symbol, e.g. "₩", and is
+  // labelled "Rate (₩)" below) — so `calc` (built purely from qty × rate via
+  // calculateInvoice/lineAmount in gst.ts) is ALREADY an invoice-currency
+  // amount. It is NOT a base-currency amount.
+  //
+  // The old code here re-multiplied calc.* by `exchangeRate` again, treating
+  // it as if it were still in base currency and converting it "to" invoice
+  // currency a second time. For a South Korea invoice (rate ≈1530.8) that
+  // inflated a real ₩2,820,766 subtotal into a displayed/saved
+  // ₩4,318,036,474 — off by exactly the exchange rate factor.
+  //
+  // Fix: display values ARE calc.* directly, no conversion. The base-currency
+  // equivalent (shown separately below Grand Total) is calc.total DIVIDED by
+  // the rate, not multiplied.
+  const displaySubtotal = calc.subtotal;
+  const displayCgst     = calc.cgst;
+  const displaySgst     = calc.sgst;
+  const displayIgst     = calc.igst;
+  const displayTotal    = calc.total;
+
+  // True base-currency equivalents — used for the "≈ ... (base USD)" line
+  // and for what gets saved to subtotal/total/base_total (see handleSave),
+  // which Reports.tsx/Dashboard.tsx sum across invoices in different
+  // invoice currencies and therefore MUST be in base currency.
+  const baseSubtotal = isForeignCurrency ? calc.subtotal / exchangeRate : calc.subtotal;
+  const baseCgst     = isForeignCurrency ? calc.cgst / exchangeRate     : calc.cgst;
+  const baseSgst     = isForeignCurrency ? calc.sgst / exchangeRate     : calc.sgst;
+  const baseIgst     = isForeignCurrency ? calc.igst / exchangeRate     : calc.igst;
+  const baseTotal    = isForeignCurrency ? calc.total / exchangeRate    : calc.total;
 
   function updateItem(id: string, patch: Partial<LineItem>) {
     setItems((prev) =>
@@ -349,12 +373,16 @@ export default function NewInvoice() {
         client_state: clientState || null,
         client_gstin: clientGstin.trim().toUpperCase() || null,
         items,
-        // GST fields always stored in base currency (INR) — unchanged
-        subtotal: calc.subtotal,
-        cgst: calc.cgst,
-        sgst: calc.sgst,
-        igst: calc.igst,
-        total: calc.total,
+        // GST fields always stored in base currency — these MUST be
+        // base-currency amounts (not invoice-currency) because Reports.tsx
+        // and Dashboard.tsx sum `total`/`subtotal` across invoices that can
+        // each be in a different invoice currency. calc.* is in invoice
+        // currency (see note above), so we divide by the rate here.
+        subtotal: baseSubtotal,
+        cgst: baseCgst,
+        sgst: baseSgst,
+        igst: baseIgst,
+        total: baseTotal,
         status,
         notes: notes.trim() || null,
         invoice_date: invoiceDate,
@@ -362,7 +390,7 @@ export default function NewInvoice() {
         // ── Currency fields (locked at save time) ──
         invoice_currency: invoiceCurrency,
         exchange_rate: isForeignCurrency ? exchangeRate : 1,
-        base_total: calc.total,  // always in base currency
+        base_total: baseTotal,  // always in base currency
 
         // ── Self-contained snapshot fields ──────────────────────────
         // Everything an invoice needs so Preview/PDF/Reports never have to
@@ -382,7 +410,7 @@ export default function NewInvoice() {
         tax_label: taxDecision.taxLabel,
         tax_note: taxDecision.taxNote,
 
-        base_subtotal: calc.subtotal,
+        base_subtotal: baseSubtotal,
         invoice_subtotal: displaySubtotal,
         invoice_total: displayTotal,
       })
@@ -796,12 +824,7 @@ export default function NewInvoice() {
                     )}
                   </div>
                   <div className="col-span-12 text-right text-sm font-medium text-slate-700">
-                    Amount: {formatMoney(
-                      isForeignCurrency
-                        ? convertCurrency(lineAmount(item), exchangeRate)
-                        : lineAmount(item),
-                      invoiceCurrency
-                    )}
+                    Amount: {formatMoney(lineAmount(item), invoiceCurrency)}
                   </div>
                 </div>
               ))}
@@ -895,16 +918,10 @@ export default function NewInvoice() {
                         <tr key={b.rate} className="text-slate-600">
                           <td className="py-1">{b.rate}%</td>
                           <td className="text-right py-1">
-                            {formatMoney(
-                              isForeignCurrency ? convertCurrency(b.taxable, exchangeRate) : b.taxable,
-                              invoiceCurrency
-                            )}
+                            {formatMoney(b.taxable, invoiceCurrency)}
                           </td>
                           <td className="text-right py-1">
-                            {formatMoney(
-                              isForeignCurrency ? convertCurrency(b.tax, exchangeRate) : b.tax,
-                              invoiceCurrency
-                            )}
+                            {formatMoney(b.tax, invoiceCurrency)}
                           </td>
                         </tr>
                       ))}
@@ -923,7 +940,7 @@ export default function NewInvoice() {
               {/* Show base equivalent when foreign currency is used */}
               {isForeignCurrency && (
                 <p className="text-xs text-slate-400 text-right">
-                  ≈ {formatMoney(calc.total, baseCurrency)} (base {baseCurrency})
+                  ≈ {formatMoney(baseTotal, baseCurrency)} (base {baseCurrency})
                 </p>
               )}
             </div>

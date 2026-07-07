@@ -2,7 +2,7 @@ import jsPDF from "jspdf";
 import type { Invoice, Profile } from "./types";
 import { formatDate } from "./constants";
 import { lineAmount } from "./gst";
-import { getCurrencySymbol, getCurrencyDecimals, convertCurrency } from "./currency";
+import { getCurrencySymbol, getCurrencyDecimals } from "./currency";
 
 // Computed once in InvoicePreview.tsx and passed in here, so the PDF NEVER
 // recalculates currency/tax independently — it only renders numbers and
@@ -202,8 +202,8 @@ export function generateInvoicePDF(
   y += 12;
   if (extras.isForeignCurrency) {
     const rateLine = extras.exchangeRateDate
-      ? `Exchange Rate: 1 ${extras.invoiceCurrency} = ${pdfMoney(1 / extras.exchangeRate, extras.baseCurrency)}   Rate Date: ${formatDate(extras.exchangeRateDate)}`
-      : `Exchange Rate: 1 ${extras.invoiceCurrency} = ${pdfMoney(1 / extras.exchangeRate, extras.baseCurrency)}`;
+      ? `Exchange Rate: 1 ${extras.baseCurrency} = ${pdfMoney(extras.exchangeRate, extras.invoiceCurrency)}   Rate Date: ${formatDate(extras.exchangeRateDate)}`
+      : `Exchange Rate: 1 ${extras.baseCurrency} = ${pdfMoney(extras.exchangeRate, extras.invoiceCurrency)}`;
     doc.text(rateLine, margin, y);
     y += 12;
   }
@@ -247,14 +247,12 @@ export function generateInvoicePDF(
     doc.text(pdfMoney(item.rate, extras.invoiceCurrency), tableX + colDesc + colHsn + colQty + 8, y + 14);
     doc.text(`${item.gstRate}%`, tableX + colDesc + colHsn + colQty + colRate + 8, y + 14);
     const rawAmount = lineAmount(item);
-    // Routed through convertCurrency (same helper Preview uses) instead of a
-    // raw multiply, so PDF line amounts match Preview exactly, rounding
-    // included.
-    const displayAmount = extras.isForeignCurrency
-      ? convertCurrency(rawAmount, extras.exchangeRate)
-      : rawAmount;
+    // item.rate is entered directly in invoice currency (same as on-screen
+    // "Rate (₩)" field), so rawAmount is already an invoice-currency amount.
+    // Previously this was multiplied by exchangeRate a second time, which is
+    // what caused a South Korea invoice's PDF total to be inflated ~1530x.
     doc.text(
-      pdfMoney(displayAmount, extras.invoiceCurrency),
+      pdfMoney(rawAmount, extras.invoiceCurrency),
       tableX + tableW - 8,
       y + 14,
       { align: "right" }

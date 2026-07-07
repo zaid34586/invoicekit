@@ -444,7 +444,7 @@ invoice.client_country ?? "United States",
           <div>
             <span className="text-slate-500 block text-xs uppercase tracking-wide">Exchange Rate</span>
             <span className="font-medium text-slate-900">
-              1 {invoiceCurrency} = {formatMoney(1 / exchangeRate, baseCurrency)}
+              1 {baseCurrency} = {formatMoney(exchangeRate, invoiceCurrency)}
             </span>
           </div>
         )}
@@ -594,12 +594,7 @@ invoice.client_country ?? "United States",
                       {item.gstRate}%
                     </td>
                     <td className="px-4 py-3 text-sm font-medium text-slate-900 text-right">
-                      {formatMoney(
-                        isForeignCurrency
-                          ? convertCurrency(lineAmount(item), exchangeRate)
-                          : lineAmount(item),
-                        invoiceCurrency
-                      )}
+                      {formatMoney(lineAmount(item), invoiceCurrency)}
                     </td>
                   </tr>
                 ))}
@@ -620,8 +615,8 @@ invoice.client_country ?? "United States",
                     const rawTax = (rawTaxable * it.gstRate) / 100;
                     return {
                       rate: it.gstRate,
-                      taxable: isForeignCurrency ? convertCurrency(rawTaxable, exchangeRate) : rawTaxable,
-                      tax: isForeignCurrency ? convertCurrency(rawTax, exchangeRate) : rawTax,
+                      taxable: rawTaxable,
+                      tax: rawTax,
                     };
                   })}
                   type="igst"
@@ -635,8 +630,8 @@ invoice.client_country ?? "United States",
                     const rawTax = (rawTaxable * it.gstRate) / 100;
                     return {
                       rate: it.gstRate,
-                      taxable: isForeignCurrency ? convertCurrency(rawTaxable, exchangeRate) : rawTaxable,
-                      tax: isForeignCurrency ? convertCurrency(rawTax, exchangeRate) : rawTax,
+                      taxable: rawTaxable,
+                      tax: rawTax,
                     };
                   })}
                   type="cgstsgst"
