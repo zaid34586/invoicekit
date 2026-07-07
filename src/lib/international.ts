@@ -1,4 +1,4 @@
-import { COUNTRIES } from "./constants";
+import { COUNTRIES, COUNTRY_SETTINGS, getCountrySetting } from "./constants";
 
 export type CountrySettings = {
   name: string;
@@ -8,76 +8,45 @@ export type CountrySettings = {
   taxLabel: string;
 };
 
-export const COUNTRY_SETTINGS: Record<string, CountrySettings> = {
-  India: {
-    name: "India",
-    phoneCode: "+91",
-    currency: "INR",
-    symbol: "₹",
-    taxLabel: "GSTIN",
-  },
+// Kept for any existing callers that iterate this directly. Previously this
+// was its own separate, stale 8-country object that fell back to INDIA for
+// any country not in it — meaning a German or Japanese invoice's tax-ID
+// label (e.g. in InvoicePreview.tsx / pdf.ts) would silently show "GSTIN".
+// Now derived from constants.ts's COUNTRY_SETTINGS, which covers every
+// country in the COUNTRIES list.
+export const COUNTRY_SETTINGS_FULL: Record<string, CountrySettings> = Object.fromEntries(
+  COUNTRIES.map((c) => {
+    const setting = COUNTRY_SETTINGS[c.name];
+    return [
+      c.name,
+      {
+        name: c.name,
+        phoneCode: c.code,
+        currency: setting?.currency ?? "USD",
+        symbol: setting?.symbol ?? "$",
+        taxLabel: setting?.taxLabel ?? "Tax ID",
+      },
+    ];
+  })
+);
 
-  "United States": {
-    name: "United States",
-    phoneCode: "+1",
-    currency: "USD",
-    symbol: "$",
-    taxLabel: "Tax ID",
-  },
-
-  "United Kingdom": {
-    name: "United Kingdom",
-    phoneCode: "+44",
-    currency: "GBP",
-    symbol: "£",
-    taxLabel: "VAT Number",
-  },
-
-  UAE: {
-    name: "UAE",
-    phoneCode: "+971",
-    currency: "AED",
-    symbol: "AED",
-    taxLabel: "TRN",
-  },
-
-  Canada: {
-    name: "Canada",
-    phoneCode: "+1",
-    currency: "CAD",
-    symbol: "C$",
-    taxLabel: "GST/HST",
-  },
-
-  Australia: {
-    name: "Australia",
-    phoneCode: "+61",
-    currency: "AUD",
-    symbol: "A$",
-    taxLabel: "ABN",
-  },
-
-  Singapore: {
-    name: "Singapore",
-    phoneCode: "+65",
-    currency: "SGD",
-    symbol: "S$",
-    taxLabel: "GST Registration",
-  },
-
-  "South Korea": {
-    name: "South Korea",
-    phoneCode: "+82",
-    currency: "KRW",
-    symbol: "₩",
-    taxLabel: "Business Registration Number",
-  },
-};
-
-export function getCountrySettings(countryName?: string | null) {
-  if (!countryName) return COUNTRY_SETTINGS.India;
-
-  return COUNTRY_SETTINGS[countryName] ?? COUNTRY_SETTINGS.India;
+export function getCountrySettings(countryName?: string | null): CountrySettings {
+  if (!countryName) {
+    return { name: "United States", phoneCode: "+1", currency: "USD", symbol: "$", taxLabel: "Tax ID" };
+  }
+  const found = COUNTRY_SETTINGS_FULL[countryName];
+  if (found) return found;
+  // Neutral fallback — NOT India, NOT any specific country — so an
+  // unrecognised country never silently inherits another country's tax
+  // label/currency.
+  const setting = getCountrySetting(countryName);
+  return {
+    name: countryName,
+    phoneCode: COUNTRIES.find((c) => c.name === countryName)?.code ?? "+1",
+    currency: setting.currency,
+    symbol: setting.symbol,
+    taxLabel: setting.taxLabel,
+  };
 }
 
 export function getCountryPhoneCode(countryName?: string | null) {

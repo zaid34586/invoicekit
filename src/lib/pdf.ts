@@ -32,6 +32,11 @@ export interface InvoicePDFExtras {
   taxNote: string;
   isInterState: boolean;
   isZeroRated: boolean;
+  // Country-aware labels for the GSTIN/HSN-style fields (see comment at the
+  // call site in InvoicePreview.tsx for why these are needed).
+  businessTaxLabel: string;
+  clientTaxLabel: string;
+  isIndiaLineItemLabels: boolean;
 }
 
 // jsPDF's built-in helvetica font does not render the ₹ glyph reliably,
@@ -92,7 +97,7 @@ export function generateInvoicePDF(
   doc.text(businessLocation, margin + 72, addrY);
   addrY += 12;
   if (profile.gstin) {
-    doc.text(`GSTIN: ${profile.gstin}`, margin + 72, addrY);
+    doc.text(`${extras.businessTaxLabel}: ${profile.gstin}`, margin + 72, addrY);
     addrY += 12;
   }
   if (profile.phone) {
@@ -158,7 +163,7 @@ export function generateInvoicePDF(
   doc.setFontSize(9);
   doc.setTextColor(...gray);
   if (invoice.client_gstin) {
-    doc.text(`GSTIN: ${invoice.client_gstin}`, margin, y);
+    doc.text(`${extras.clientTaxLabel}: ${invoice.client_gstin}`, margin, y);
     y += 12;
   }
   if (invoice.client_address) {
@@ -218,10 +223,10 @@ export function generateInvoicePDF(
   doc.setFontSize(9);
   doc.setTextColor(255, 255, 255);
   doc.text("Description", tableX + 8, y + 16);
-  doc.text("HSN/SAC", tableX + colDesc + 8, y + 16);
+  doc.text(extras.isIndiaLineItemLabels ? "HSN/SAC" : "Tax Code", tableX + colDesc + 8, y + 16);
   doc.text("Qty", tableX + colDesc + colHsn + 8, y + 16);
   doc.text("Rate", tableX + colDesc + colHsn + colQty + 8, y + 16);
-  doc.text("GST", tableX + colDesc + colHsn + colQty + colRate + 8, y + 16);
+  doc.text(extras.isIndiaLineItemLabels ? "GST" : "Tax %", tableX + colDesc + colHsn + colQty + colRate + 8, y + 16);
   doc.text("Amount", tableX + tableW - 8, y + 16, { align: "right" });
   y += 24;
 

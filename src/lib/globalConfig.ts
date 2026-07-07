@@ -1,80 +1,37 @@
-export const GLOBAL_COUNTRIES = {
-  "United States": {
-    currency: "USD",
-    symbol: "$",
-    phoneCode: "+1",
-    locale: "en-US",
-    taxLabel: "Sales Tax",
-    timezone: "America/New_York",
-    dateFormat: "MM/DD/YYYY",
-    states: [],
-  },
-  "United Kingdom": {
-    currency: "GBP",
-    symbol: "£",
-    phoneCode: "+44",
-    locale: "en-GB",
-    taxLabel: "VAT",
-    timezone: "Europe/London",
-    dateFormat: "DD/MM/YYYY",
-    states: [],
-  },
-  Australia: {
-    currency: "AUD",
-    symbol: "A$",
-    phoneCode: "+61",
-    locale: "en-AU",
-    taxLabel: "GST",
-    timezone: "Australia/Sydney",
-    dateFormat: "DD/MM/YYYY",
-    states: [],
-  },
-  Japan: {
-  currency: "JPY",
-  symbol: "¥",
-  phoneCode: "+81",
-  locale: "ja-JP",
-  timezone: "Asia/Tokyo",
-  taxLabel: "Consumption Tax",
-  dateFormat: "YYYY/MM/DD",
-  states: ["Tokyo"],
-},
-  Singapore: {
-    currency: "SGD",
-    symbol: "S$",
-    phoneCode: "+65",
-    locale: "en-SG",
-    taxLabel: "GST",
-    timezone: "Asia/Singapore",
-    dateFormat: "DD/MM/YYYY",
-    states: [],
-  },
-  UAE: {
-    currency: "AED",
-    symbol: "AED",
-    phoneCode: "+971",
-    locale: "en-AE",
-    taxLabel: "VAT",
-    timezone: "Asia/Dubai",
-    dateFormat: "DD/MM/YYYY",
-    states: [],
-  },
-  Canada: {
-    currency: "CAD",
-    symbol: "C$",
-    phoneCode: "+1",
-    locale: "en-CA",
-    taxLabel: "GST/HST",
-    timezone: "America/Toronto",
-    dateFormat: "DD/MM/YYYY",
-    states: [],
-  },
-} as const;
+import { COUNTRIES, COUNTRY_SETTINGS } from "./constants";
+
+// Previously this file had its own separate, stale 7-country list (US, UK,
+// Australia, Japan, Singapore, UAE, Canada only — not even India!) and fell
+// back to "United States" for anything else. That meant BusinessSetup.tsx
+// (the mandatory onboarding step for new users) only ever offered 7
+// countries to choose from, and Account.tsx would silently show USD for
+// any of the other ~41 countries now in the main COUNTRIES list. Both now
+// derive from constants.ts, which covers every supported country.
+export const GLOBAL_COUNTRIES = Object.fromEntries(
+  COUNTRIES.map((c) => {
+    const s = COUNTRY_SETTINGS[c.name];
+    return [
+      c.name,
+      {
+        currency: s?.currency ?? "USD",
+        symbol: s?.symbol ?? "$",
+        phoneCode: c.code,
+        taxLabel: s?.taxLabel ?? "Tax ID",
+        timezone: s?.timezone ?? "UTC",
+        dateFormat: s?.dateFormat ?? "DD/MM/YYYY",
+        states: c.states,
+      },
+    ];
+  })
+);
 
 export type GlobalCountry = keyof typeof GLOBAL_COUNTRIES;
 
 export function getGlobalCountryConfig(country: string) {
-  return GLOBAL_COUNTRIES[country as GlobalCountry] ?? GLOBAL_COUNTRIES["United States"];
+  return (
+    GLOBAL_COUNTRIES[country as GlobalCountry] ??
+    GLOBAL_COUNTRIES["United States"]
+  );
 }
 
 export function getGlobalCountries() {

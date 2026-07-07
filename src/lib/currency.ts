@@ -2,32 +2,20 @@
 // This file is the single source of truth for currency logic.
 // It is intentionally kept separate from subscription/billing concerns.
 import { getGlobalCountryConfig } from "./globalConfig";
+import { COUNTRY_SETTINGS } from "./constants";
 
+// Built from constants.ts's COUNTRY_SETTINGS so every currency used by any
+// supported country has a symbol/decimals entry — previously this was a
+// hand-picked list of 8 currencies, so any of the ~30 other currencies now
+// in use (EUR, CHF, MXN, ZAR, etc.) fell back to showing the raw currency
+// code instead of a symbol (e.g. "EUR 100.00" instead of "€100.00").
+const CURRENCY_SYMBOL: Record<string, string> = Object.fromEntries(
+  Object.values(COUNTRY_SETTINGS).map((s) => [s.currency, s.symbol])
+);
 
-
-const CURRENCY_SYMBOL: Record<string, string> = {
-  INR: "₹",
-  USD: "$",
-  GBP: "£",
-  AED: "AED",
-  CAD: "C$",
-  AUD: "A$",
-  SGD: "S$",
-  JPY: "¥",
-};
-
-// Most currencies use 2 decimal places; add exceptions here if needed.
-// JPY has no minor unit in everyday use.
-const CURRENCY_DECIMALS: Record<string, number> = {
-  INR: 2,
-  USD: 2,
-  GBP: 2,
-  AED: 2,
-  CAD: 2,
-  AUD: 2,
-  SGD: 2,
-  JPY: 0,
-};
+const CURRENCY_DECIMALS: Record<string, number> = Object.fromEntries(
+  Object.values(COUNTRY_SETTINGS).map((s) => [s.currency, s.decimals])
+);
 
 /** Returns the ISO 4217 currency code for a given country name. */
 export function getCurrencyForCountry(country: string): string {

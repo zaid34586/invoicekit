@@ -1,11 +1,19 @@
 import { useEffect, useState, useRef, type FormEvent } from "react";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../context/AuthContext";
-import { COUNTRIES } from "../lib/constants";
+import { COUNTRIES, getCountrySetting } from "../lib/constants";
 
 // ── Per-country auto-derived settings ────────────────────────────────────────
 // When businessCountry changes, these values update automatically.
 // They are saved to the DB so every other module can read them from profile.
+//
+// NOTE: this used to be its own hand-picked 8-country map that fell back to
+// India's config for anything else — so selecting e.g. Germany would
+// silently save INR/Kolkata-timezone into the business profile, and every
+// invoice created afterwards inherited that wrong currency. It's now derived
+// from constants.ts's COUNTRY_SETTINGS, which covers every country in the
+// COUNTRIES dropdown, with a neutral (not-India) fallback that should never
+// actually trigger.
 interface CountryConfig {
   currency: string;
   symbol: string;
@@ -16,53 +24,18 @@ interface CountryConfig {
   dateFormat: string;
 }
 
-const BUSINESS_COUNTRY_CONFIG: Record<string, CountryConfig> = {
-  India: {
-    currency: "INR", symbol: "₹", code: "+91",
-    taxLabel: "GSTIN", taxPlaceholder: "22AAAAA0000A1Z5",
-    timezone: "Asia/Kolkata", dateFormat: "DD/MM/YYYY",
-  },
-  "United States": {
-    currency: "USD", symbol: "$", code: "+1",
-    taxLabel: "EIN / Tax ID", taxPlaceholder: "12-3456789",
-    timezone: "America/New_York", dateFormat: "MM/DD/YYYY",
-  },
-  "United Kingdom": {
-    currency: "GBP", symbol: "£", code: "+44",
-    taxLabel: "VAT Number", taxPlaceholder: "GB123456789",
-    timezone: "Europe/London", dateFormat: "DD/MM/YYYY",
-  },
-  Australia: {
-    currency: "AUD", symbol: "A$", code: "+61",
-    taxLabel: "ABN", taxPlaceholder: "12 345 678 901",
-    timezone: "Australia/Sydney", dateFormat: "DD/MM/YYYY",
-  },
-  UAE: {
-    currency: "AED", symbol: "AED", code: "+971",
-    taxLabel: "TRN", taxPlaceholder: "100123456700003",
-    timezone: "Asia/Dubai", dateFormat: "DD/MM/YYYY",
-  },
-  Canada: {
-    currency: "CAD", symbol: "C$", code: "+1",
-    taxLabel: "GST / HST Number", taxPlaceholder: "123456789RT0001",
-    timezone: "America/Toronto", dateFormat: "DD/MM/YYYY",
-  },
-  Singapore: {
-    currency: "SGD", symbol: "S$", code: "+65",
-    taxLabel: "GST Registration No.", taxPlaceholder: "M90312345A",
-    timezone: "Asia/Singapore", dateFormat: "DD/MM/YYYY",
-  },
-  "South Korea": {
-    currency: "KRW", symbol: "₩", code: "+82",
-    taxLabel: "Business Registration Number", taxPlaceholder: "000-00-00000",
-    timezone: "Asia/Seoul", dateFormat: "YYYY/MM/DD",
-  },
-};
-
-const DEFAULT_CONFIG = BUSINESS_COUNTRY_CONFIG["India"];
-
 function getConfig(country: string): CountryConfig {
-  return BUSINESS_COUNTRY_CONFIG[country] ?? DEFAULT_CONFIG;
+  const setting = getCountrySetting(country);
+  const dial = COUNTRIES.find((c) => c.name === country)?.code ?? "+1";
+  return {
+    currency: setting.currency,
+    symbol: setting.symbol,
+    code: dial,
+    taxLabel: setting.taxLabel,
+    taxPlaceholder: setting.taxPlaceholder,
+    timezone: setting.timezone,
+    dateFormat: setting.dateFormat,
+  };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

@@ -10,6 +10,7 @@ import { buildWhatsAppLink } from "../lib/whatsapp";
 import StatusBadge from "../components/StatusBadge";
 import { decideTax, type TaxDecision } from "../lib/tax";
 import { formatMoney, convertCurrency } from "../lib/currency";
+import { getTaxLabel } from "../lib/international";
 
 const STATUS_OPTIONS: { value: InvoiceStatus; label: string }[] = [
   { value: "draft", label: "Draft" },
@@ -156,6 +157,9 @@ export default function InvoicePreview() {
       taxNote: effectiveTaxNote,
       isInterState,
       isZeroRated: effectiveIsZeroRated,
+      businessTaxLabel,
+      clientTaxLabel,
+      isIndiaLineItemLabels,
     };
     generateInvoicePDF(invoice, profile, extras);
   }
@@ -234,6 +238,16 @@ export default function InvoicePreview() {
   // a country the client did not actually have at invoice time. ────────────
   const isLegacyClientCountry = invoice.client_country == null;
   const clientCountry = invoice.client_country ?? "Not recorded (legacy invoice)";
+
+  // ── Tax-ID / HSN labelling: these are country-specific concepts (GSTIN,
+  // HSN/SAC, and the "GST" rate column only really make sense for India).
+  // Elsewhere (US, UK, Germany, etc.) the same underlying fields are used
+  // generically as "Tax ID"/"VAT Number"/etc and "Tax Code" — this mirrors
+  // the labelling used in the New Invoice form so a saved invoice matches
+  // what was shown while creating it.
+  const businessTaxLabel = getTaxLabel(businessCountry);
+  const clientTaxLabel = getTaxLabel(clientCountry);
+  const isIndiaLineItemLabels = businessCountry === "India";
 
   // ── Currency: base/invoice currency come from the LOCKED invoice snapshot.
   // Profile is only a fallback for legacy invoices missing base_currency. ───
@@ -464,7 +478,7 @@ invoice.client_country ?? "United States",
               </p>
               {profile?.gstin && (
                 <p className="text-sm text-slate-500 mt-1">
-                  GSTIN: {profile.gstin}
+                  {businessTaxLabel}: {profile.gstin}
                 </p>
               )}
               {profile?.phone && (
@@ -504,7 +518,7 @@ invoice.client_country ?? "United States",
           </p>
           {invoice.client_gstin && (
             <p className="text-sm text-slate-500 mt-1">
-              GSTIN: {invoice.client_gstin}
+              {clientTaxLabel}: {invoice.client_gstin}
             </p>
           )}
           {invoice.client_address && (
@@ -533,7 +547,7 @@ invoice.client_country ?? "United States",
                     Description
                   </th>
                   <th className="text-center text-xs font-semibold uppercase tracking-wide px-4 py-3">
-                    HSN/SAC
+                    {isIndiaLineItemLabels ? "HSN/SAC" : "Tax Code"}
                   </th>
                   <th className="text-center text-xs font-semibold uppercase tracking-wide px-4 py-3">
                     Qty
@@ -542,7 +556,7 @@ invoice.client_country ?? "United States",
                     Rate
                   </th>
                   <th className="text-center text-xs font-semibold uppercase tracking-wide px-4 py-3">
-                    GST
+                    {isIndiaLineItemLabels ? "GST" : "Tax %"}
                   </th>
                   <th className="text-right text-xs font-semibold uppercase tracking-wide px-4 py-3 rounded-r-lg">
                     Amount

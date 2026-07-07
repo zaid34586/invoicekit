@@ -62,7 +62,7 @@ function getTaxPlaceholder(country: string): string {
 }
 
 export default function NewInvoice() {
-  const { user, profile } = useAuth();
+  const { user, profile, loading: authLoading } = useAuth();
   const { openUpgrade } = useUpgrade();
   const navigate = useNavigate();
   const businessState = profile?.state ?? null;
@@ -196,10 +196,22 @@ export default function NewInvoice() {
     loadClients();
   }, [user]);
 
-  // GST calc stays in base currency (INR) — this never changes
+  // Actual tax math — MUST receive business/client country, otherwise
+  // calculateInvoice() silently defaults both to "India" (see gst.ts) and
+  // runs India's CGST/SGST/IGST split for every invoice regardless of the
+  // real countries selected. This was previously missing here, which meant
+  // the tax LABEL shown (from taxDecision below) could say "VAT"/"Sales Tax"
+  // while the actual charged amount was still India GST math underneath.
   const calc = useMemo(
-    () => calculateInvoice(items, businessState, clientState || null),
-    [items, businessState, clientState]
+    () =>
+      calculateInvoice(
+        items,
+        businessState,
+        clientState || null,
+        profile?.country ?? "India",
+        clientCountry
+      ),
+    [items, businessState, clientState, profile?.country, clientCountry]
   );
 
   // Tax decision — determines label, note, and tax type for display.
@@ -207,7 +219,7 @@ export default function NewInvoice() {
   const taxDecision = useMemo(
     () =>
       decideTax({
-        businessCountry: profile?.country ?? null,
+        businessCountry: profile?.country ?? "India",
         businessState: businessState,
         clientCountry: clientCountry,
         clientState: clientState || null,
@@ -388,6 +400,20 @@ export default function NewInvoice() {
     if (data) {
       navigate(`/invoice/${data.id}`);
     }
+  }
+
+  // Without this, the form (and its tax calculations) could render before
+  // `profile` finishes loading — and profile?.country being briefly
+  // undefined made the tax engine silently assume "India" as the business
+  // country (see gst.ts/tax.ts fallbacks), showing wrong rates/labels for a
+  // moment for every other country. Waiting for auth to finish loading
+  // removes that race entirely.
+  if (authLoading) {
+    return (
+      <div className="max-w-7xl mx-auto flex items-center justify-center py-24 text-slate-400 text-sm">
+        Loading…
+      </div>
+    );
   }
 
   return (
@@ -657,13 +683,13 @@ export default function NewInvoice() {
                   </div>
                   <div className="col-span-6 sm:col-span-2">
                     <label className="text-xs text-slate-500 sm:hidden">
-                      {clientCountry === "India" ? "HSN/SAC" : "Tax Code"}
+                      {profile?.country === "India" ? "HSN/SAC" : "Tax Code"}
                     </label>
                     <input
                       value={item.hsnSac}
                       onChange={(e) => updateItem(item.id, { hsnSac: e.target.value.toUpperCase() })}
                       className="input"
-                      placeholder={clientCountry === "India" ? "HSN / SAC" : "Tax Code"}
+                      placeholder={profile?.country === "India" ? "HSN / SAC" : "Tax Code"}
                     />
                   </div>
                   <div className="col-span-4 sm:col-span-2">

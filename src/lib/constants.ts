@@ -37,57 +37,99 @@ export const INDIAN_STATES: string[] = [
   "Puducherry",
 ];
 
-// NEW: country -> dial code + states list, used for the Country/State/Phone-code fields
-export const COUNTRY_SETTINGS = {
-  Argentina: { currency: "ARS", symbol: "$", taxLabel: "CUIT" },
-  Australia: { currency: "AUD", symbol: "A$", taxLabel: "ABN" },
-  Austria: { currency: "EUR", symbol: "€", taxLabel: "VAT Number" },
-  Bangladesh: { currency: "BDT", symbol: "৳", taxLabel: "BIN" },
-  Belgium: { currency: "EUR", symbol: "€", taxLabel: "VAT Number" },
-  Brazil: { currency: "BRL", symbol: "R$", taxLabel: "CNPJ" },
-  Canada: { currency: "CAD", symbol: "C$", taxLabel: "GST/HST" },
-  China: { currency: "CNY", symbol: "¥", taxLabel: "Tax ID" },
-  Denmark: { currency: "DKK", symbol: "kr", taxLabel: "VAT Number" },
-  Egypt: { currency: "EGP", symbol: "E£", taxLabel: "Tax ID" },
-  Finland: { currency: "EUR", symbol: "€", taxLabel: "VAT Number" },
-  France: { currency: "EUR", symbol: "€", taxLabel: "VAT Number" },
-  Germany: { currency: "EUR", symbol: "€", taxLabel: "VAT Number" },
-  "Hong Kong": { currency: "HKD", symbol: "HK$", taxLabel: "Business Registration No." },
-  India: { currency: "INR", symbol: "₹", taxLabel: "GSTIN" },
-  Indonesia: { currency: "IDR", symbol: "Rp", taxLabel: "NPWP" },
-  Ireland: { currency: "EUR", symbol: "€", taxLabel: "VAT Number" },
-  Israel: { currency: "ILS", symbol: "₪", taxLabel: "VAT Number" },
-  Italy: { currency: "EUR", symbol: "€", taxLabel: "VAT Number" },
-  Japan: { currency: "JPY", symbol: "¥", taxLabel: "Corporate Number" },
-  Kenya: { currency: "KES", symbol: "KSh", taxLabel: "PIN" },
-  Kuwait: { currency: "KWD", symbol: "KD", taxLabel: "Tax ID" },
-  Malaysia: { currency: "MYR", symbol: "RM", taxLabel: "SST Registration No." },
-  Mexico: { currency: "MXN", symbol: "MX$", taxLabel: "RFC" },
-  Netherlands: { currency: "EUR", symbol: "€", taxLabel: "VAT Number" },
-  "New Zealand": { currency: "NZD", symbol: "NZ$", taxLabel: "GST Number" },
-  Nigeria: { currency: "NGN", symbol: "₦", taxLabel: "TIN" },
-  Norway: { currency: "NOK", symbol: "kr", taxLabel: "VAT Number" },
-  Oman: { currency: "OMR", symbol: "OMR", taxLabel: "VAT Number" },
-  Pakistan: { currency: "PKR", symbol: "₨", taxLabel: "NTN" },
-  Philippines: { currency: "PHP", symbol: "₱", taxLabel: "TIN" },
-  Poland: { currency: "PLN", symbol: "zł", taxLabel: "VAT Number" },
-  Portugal: { currency: "EUR", symbol: "€", taxLabel: "VAT Number" },
-  Qatar: { currency: "QAR", symbol: "QR", taxLabel: "Tax ID" },
-  "Saudi Arabia": { currency: "SAR", symbol: "SR", taxLabel: "VAT Number" },
-  Singapore: { currency: "SGD", symbol: "S$", taxLabel: "GST" },
-  "South Africa": { currency: "ZAR", symbol: "R", taxLabel: "VAT Number" },
-  "South Korea": { currency: "KRW", symbol: "₩", taxLabel: "Business Registration Number" },
-  Spain: { currency: "EUR", symbol: "€", taxLabel: "VAT Number" },
-  "Sri Lanka": { currency: "LKR", symbol: "Rs", taxLabel: "VAT Number" },
-  Sweden: { currency: "SEK", symbol: "kr", taxLabel: "VAT Number" },
-  Switzerland: { currency: "CHF", symbol: "CHF", taxLabel: "VAT Number" },
-  Thailand: { currency: "THB", symbol: "฿", taxLabel: "Tax ID" },
-  Turkey: { currency: "TRY", symbol: "₺", taxLabel: "Tax Number" },
-  UAE: { currency: "AED", symbol: "AED", taxLabel: "TRN" },
-  "United Kingdom": { currency: "GBP", symbol: "£", taxLabel: "VAT Number" },
-  "United States": { currency: "USD", symbol: "$", taxLabel: "Tax ID" },
-  Vietnam: { currency: "VND", symbol: "₫", taxLabel: "Tax Code" },
+// Single source of truth for everything currency/tax-ID/locale related, per
+// country. Previously this data was duplicated (and inconsistently kept up
+// to date) across four different files — constants.ts (this file, currency+
+// symbol+taxLabel only), international.ts (a stale 8-country copy that fell
+// back to India for anything else), globalConfig.ts (a stale 7-country copy
+// that fell back to United States for anything else), and Settings.tsx (an
+// 8-country copy that also fell back to India). Any country not in one of
+// those smaller lists would silently get another country's currency/tax
+// label/timezone — e.g. selecting Germany would silently save India's INR
+// currency into the business profile. All four now import from here instead.
+export interface CountrySetting {
+  currency: string;
+  symbol: string;
+  /** Decimal places to show for this currency (JPY has none in everyday use). */
+  decimals: number;
+  taxLabel: string;
+  taxPlaceholder: string;
+  timezone: string;
+  /** "MM/DD/YYYY" | "DD/MM/YYYY" | "YYYY/MM/DD" */
+  dateFormat: string;
+}
+
+export const COUNTRY_SETTINGS: Record<string, CountrySetting> = {
+  Argentina: { currency: "ARS", symbol: "$", decimals: 2, taxLabel: "CUIT", taxPlaceholder: "20-12345678-9", timezone: "America/Argentina/Buenos_Aires", dateFormat: "DD/MM/YYYY" },
+  Australia: { currency: "AUD", symbol: "A$", decimals: 2, taxLabel: "ABN", taxPlaceholder: "12 345 678 901", timezone: "Australia/Sydney", dateFormat: "DD/MM/YYYY" },
+  Austria: { currency: "EUR", symbol: "€", decimals: 2, taxLabel: "VAT Number", taxPlaceholder: "ATU12345678", timezone: "Europe/Vienna", dateFormat: "DD/MM/YYYY" },
+  Bangladesh: { currency: "BDT", symbol: "৳", decimals: 2, taxLabel: "BIN", taxPlaceholder: "000000000-0000", timezone: "Asia/Dhaka", dateFormat: "DD/MM/YYYY" },
+  Belgium: { currency: "EUR", symbol: "€", decimals: 2, taxLabel: "VAT Number", taxPlaceholder: "BE0123456789", timezone: "Europe/Brussels", dateFormat: "DD/MM/YYYY" },
+  Brazil: { currency: "BRL", symbol: "R$", decimals: 2, taxLabel: "CNPJ", taxPlaceholder: "12.345.678/0001-95", timezone: "America/Sao_Paulo", dateFormat: "DD/MM/YYYY" },
+  Canada: { currency: "CAD", symbol: "C$", decimals: 2, taxLabel: "GST/HST Number", taxPlaceholder: "123456789RT0001", timezone: "America/Toronto", dateFormat: "DD/MM/YYYY" },
+  China: { currency: "CNY", symbol: "¥", decimals: 2, taxLabel: "Tax ID", taxPlaceholder: "91110000MA01XXXX", timezone: "Asia/Shanghai", dateFormat: "YYYY/MM/DD" },
+  Denmark: { currency: "DKK", symbol: "kr", decimals: 2, taxLabel: "VAT Number", taxPlaceholder: "DK12345678", timezone: "Europe/Copenhagen", dateFormat: "DD/MM/YYYY" },
+  Egypt: { currency: "EGP", symbol: "E£", decimals: 2, taxLabel: "Tax ID", taxPlaceholder: "123-456-789", timezone: "Africa/Cairo", dateFormat: "DD/MM/YYYY" },
+  Finland: { currency: "EUR", symbol: "€", decimals: 2, taxLabel: "VAT Number", taxPlaceholder: "FI12345678", timezone: "Europe/Helsinki", dateFormat: "DD/MM/YYYY" },
+  France: { currency: "EUR", symbol: "€", decimals: 2, taxLabel: "VAT Number", taxPlaceholder: "FR12345678901", timezone: "Europe/Paris", dateFormat: "DD/MM/YYYY" },
+  Germany: { currency: "EUR", symbol: "€", decimals: 2, taxLabel: "VAT Number", taxPlaceholder: "DE123456789", timezone: "Europe/Berlin", dateFormat: "DD/MM/YYYY" },
+  "Hong Kong": { currency: "HKD", symbol: "HK$", decimals: 2, taxLabel: "Business Registration No.", taxPlaceholder: "12345678-000", timezone: "Asia/Hong_Kong", dateFormat: "DD/MM/YYYY" },
+  India: { currency: "INR", symbol: "₹", decimals: 2, taxLabel: "GSTIN", taxPlaceholder: "22AAAAA0000A1Z5", timezone: "Asia/Kolkata", dateFormat: "DD/MM/YYYY" },
+  Indonesia: { currency: "IDR", symbol: "Rp", decimals: 2, taxLabel: "NPWP", taxPlaceholder: "12.345.678.9-012.000", timezone: "Asia/Jakarta", dateFormat: "DD/MM/YYYY" },
+  Ireland: { currency: "EUR", symbol: "€", decimals: 2, taxLabel: "VAT Number", taxPlaceholder: "IE1234567T", timezone: "Europe/Dublin", dateFormat: "DD/MM/YYYY" },
+  Israel: { currency: "ILS", symbol: "₪", decimals: 2, taxLabel: "VAT Number", taxPlaceholder: "123456789", timezone: "Asia/Jerusalem", dateFormat: "DD/MM/YYYY" },
+  Italy: { currency: "EUR", symbol: "€", decimals: 2, taxLabel: "VAT Number", taxPlaceholder: "IT12345678901", timezone: "Europe/Rome", dateFormat: "DD/MM/YYYY" },
+  Japan: { currency: "JPY", symbol: "¥", decimals: 0, taxLabel: "Corporate Number", taxPlaceholder: "1234567890123", timezone: "Asia/Tokyo", dateFormat: "YYYY/MM/DD" },
+  Kenya: { currency: "KES", symbol: "KSh", decimals: 2, taxLabel: "PIN", taxPlaceholder: "P000000000A", timezone: "Africa/Nairobi", dateFormat: "DD/MM/YYYY" },
+  Kuwait: { currency: "KWD", symbol: "KD", decimals: 3, taxLabel: "Tax ID", taxPlaceholder: "000000000", timezone: "Asia/Kuwait", dateFormat: "DD/MM/YYYY" },
+  Malaysia: { currency: "MYR", symbol: "RM", decimals: 2, taxLabel: "SST Registration No.", taxPlaceholder: "W10-1808-32000000", timezone: "Asia/Kuala_Lumpur", dateFormat: "DD/MM/YYYY" },
+  Mexico: { currency: "MXN", symbol: "MX$", decimals: 2, taxLabel: "RFC", taxPlaceholder: "XAXX010101000", timezone: "America/Mexico_City", dateFormat: "DD/MM/YYYY" },
+  Netherlands: { currency: "EUR", symbol: "€", decimals: 2, taxLabel: "VAT Number", taxPlaceholder: "NL123456789B01", timezone: "Europe/Amsterdam", dateFormat: "DD/MM/YYYY" },
+  "New Zealand": { currency: "NZD", symbol: "NZ$", decimals: 2, taxLabel: "GST Number", taxPlaceholder: "123-456-789", timezone: "Pacific/Auckland", dateFormat: "DD/MM/YYYY" },
+  Nigeria: { currency: "NGN", symbol: "₦", decimals: 2, taxLabel: "TIN", taxPlaceholder: "12345678-0001", timezone: "Africa/Lagos", dateFormat: "DD/MM/YYYY" },
+  Norway: { currency: "NOK", symbol: "kr", decimals: 2, taxLabel: "VAT Number", taxPlaceholder: "NO123456789MVA", timezone: "Europe/Oslo", dateFormat: "DD/MM/YYYY" },
+  Oman: { currency: "OMR", symbol: "OMR", decimals: 3, taxLabel: "VAT Number", taxPlaceholder: "OM1234567890123", timezone: "Asia/Muscat", dateFormat: "DD/MM/YYYY" },
+  Pakistan: { currency: "PKR", symbol: "₨", decimals: 2, taxLabel: "NTN", taxPlaceholder: "1234567-8", timezone: "Asia/Karachi", dateFormat: "DD/MM/YYYY" },
+  Philippines: { currency: "PHP", symbol: "₱", decimals: 2, taxLabel: "TIN", taxPlaceholder: "123-456-789-000", timezone: "Asia/Manila", dateFormat: "MM/DD/YYYY" },
+  Poland: { currency: "PLN", symbol: "zł", decimals: 2, taxLabel: "VAT Number", taxPlaceholder: "PL1234567890", timezone: "Europe/Warsaw", dateFormat: "DD/MM/YYYY" },
+  Portugal: { currency: "EUR", symbol: "€", decimals: 2, taxLabel: "VAT Number", taxPlaceholder: "PT123456789", timezone: "Europe/Lisbon", dateFormat: "DD/MM/YYYY" },
+  Qatar: { currency: "QAR", symbol: "QR", decimals: 2, taxLabel: "Tax ID", taxPlaceholder: "12345678901", timezone: "Asia/Qatar", dateFormat: "DD/MM/YYYY" },
+  "Saudi Arabia": { currency: "SAR", symbol: "SR", decimals: 2, taxLabel: "VAT Number", taxPlaceholder: "300000000000003", timezone: "Asia/Riyadh", dateFormat: "DD/MM/YYYY" },
+  Singapore: { currency: "SGD", symbol: "S$", decimals: 2, taxLabel: "GST Registration No.", taxPlaceholder: "M90312345A", timezone: "Asia/Singapore", dateFormat: "DD/MM/YYYY" },
+  "South Africa": { currency: "ZAR", symbol: "R", decimals: 2, taxLabel: "VAT Number", taxPlaceholder: "4123456789", timezone: "Africa/Johannesburg", dateFormat: "DD/MM/YYYY" },
+  "South Korea": { currency: "KRW", symbol: "₩", decimals: 0, taxLabel: "Business Registration Number", taxPlaceholder: "000-00-00000", timezone: "Asia/Seoul", dateFormat: "YYYY/MM/DD" },
+  Spain: { currency: "EUR", symbol: "€", decimals: 2, taxLabel: "VAT Number", taxPlaceholder: "ESB12345678", timezone: "Europe/Madrid", dateFormat: "DD/MM/YYYY" },
+  "Sri Lanka": { currency: "LKR", symbol: "Rs", decimals: 2, taxLabel: "VAT Number", taxPlaceholder: "123456789-7000", timezone: "Asia/Colombo", dateFormat: "DD/MM/YYYY" },
+  Sweden: { currency: "SEK", symbol: "kr", decimals: 2, taxLabel: "VAT Number", taxPlaceholder: "SE123456789001", timezone: "Europe/Stockholm", dateFormat: "DD/MM/YYYY" },
+  Switzerland: { currency: "CHF", symbol: "CHF", decimals: 2, taxLabel: "VAT Number", taxPlaceholder: "CHE-123.456.789", timezone: "Europe/Zurich", dateFormat: "DD/MM/YYYY" },
+  Thailand: { currency: "THB", symbol: "฿", decimals: 2, taxLabel: "Tax ID", taxPlaceholder: "1234567890123", timezone: "Asia/Bangkok", dateFormat: "DD/MM/YYYY" },
+  Turkey: { currency: "TRY", symbol: "₺", decimals: 2, taxLabel: "Tax Number", taxPlaceholder: "1234567890", timezone: "Europe/Istanbul", dateFormat: "DD/MM/YYYY" },
+  UAE: { currency: "AED", symbol: "AED", decimals: 2, taxLabel: "TRN", taxPlaceholder: "100123456700003", timezone: "Asia/Dubai", dateFormat: "DD/MM/YYYY" },
+  "United Kingdom": { currency: "GBP", symbol: "£", decimals: 2, taxLabel: "VAT Number", taxPlaceholder: "GB123456789", timezone: "Europe/London", dateFormat: "DD/MM/YYYY" },
+  "United States": { currency: "USD", symbol: "$", decimals: 2, taxLabel: "EIN / Tax ID", taxPlaceholder: "12-3456789", timezone: "America/New_York", dateFormat: "MM/DD/YYYY" },
+  Vietnam: { currency: "VND", symbol: "₫", decimals: 0, taxLabel: "Tax Code", taxPlaceholder: "0123456789", timezone: "Asia/Ho_Chi_Minh", dateFormat: "DD/MM/YYYY" },
 };
+
+/**
+ * Safe lookup with a clearly-neutral fallback. IMPORTANT: this deliberately
+ * does NOT fall back to India or the United States — a silent wrong-country
+ * fallback (e.g. showing ₹ or $ for a country we don't recognize) is exactly
+ * the bug class this file exists to prevent. In practice this fallback
+ * should never trigger since every entry in COUNTRIES above has a matching
+ * COUNTRY_SETTINGS entry.
+ */
+export function getCountrySetting(country: string | null | undefined): CountrySetting {
+  if (country && COUNTRY_SETTINGS[country]) return COUNTRY_SETTINGS[country];
+  return {
+    currency: "USD",
+    symbol: "$",
+    decimals: 2,
+    taxLabel: "Tax ID",
+    taxPlaceholder: "Enter your tax ID",
+    timezone: "UTC",
+    dateFormat: "DD/MM/YYYY",
+  };
+}
 
 // Shape used by the COUNTRIES array below. Restored so TypeScript can
 // resolve `CountryData` (was referenced but never declared).
