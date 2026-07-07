@@ -81,7 +81,7 @@ interface CountryTaxRule {
 const COUNTRY_TAX_RULES: Record<string, CountryTaxRule> = {
   "United States": {
     label: "Sales Tax",
-    defaultRate: 0,   // Sales tax varies by state — placeholder
+    defaultRate: 0,   // resolved per-state below via US_STATE_SALES_TAX
     note: "Sales tax may apply depending on the destination state. Please verify with your tax advisor.",
   },
   "United Kingdom": {
@@ -100,9 +100,9 @@ const COUNTRY_TAX_RULES: Record<string, CountryTaxRule> = {
     note: "UAE VAT at 5% applies per Federal Tax Authority rules.",
   },
   Canada: {
-    label: "GST / HST",
-    defaultRate: 5,  // Federal GST; provincial HST varies
-    note: "Federal GST at 5% applies. Provincial HST may also apply — verify with your accountant.",
+    label: "GST/HST",
+    defaultRate: 5,  // resolved per-province below via CANADA_PROVINCE_TAX
+    note: "Federal GST at 5% applies. Provincial HST/PST may also apply — verify with your accountant.",
   },
   Singapore: {
     label: "GST",
@@ -114,6 +114,76 @@ const COUNTRY_TAX_RULES: Record<string, CountryTaxRule> = {
     defaultRate: 10,
     note: "Korean VAT at 10% applies.",
   },
+  Japan: {
+    label: "Consumption Tax",
+    defaultRate: 10,
+    note: "Japanese Consumption Tax at 10% applies.",
+  },
+  Germany: { label: "VAT", defaultRate: 19, note: "German VAT (USt) at 19% applies." },
+  France: { label: "VAT", defaultRate: 20, note: "French VAT (TVA) at 20% applies." },
+  Italy: { label: "VAT", defaultRate: 22, note: "Italian VAT (IVA) at 22% applies." },
+  Spain: { label: "VAT", defaultRate: 21, note: "Spanish VAT (IVA) at 21% applies." },
+  Netherlands: { label: "VAT", defaultRate: 21, note: "Dutch VAT (BTW) at 21% applies." },
+  Belgium: { label: "VAT", defaultRate: 21, note: "Belgian VAT at 21% applies." },
+  Austria: { label: "VAT", defaultRate: 20, note: "Austrian VAT at 20% applies." },
+  Ireland: { label: "VAT", defaultRate: 23, note: "Irish VAT at 23% applies." },
+  Portugal: { label: "VAT", defaultRate: 23, note: "Portuguese VAT at 23% applies." },
+  Poland: { label: "VAT", defaultRate: 23, note: "Polish VAT at 23% applies." },
+  Denmark: { label: "VAT", defaultRate: 25, note: "Danish VAT (moms) at 25% applies." },
+  Finland: { label: "VAT", defaultRate: 25.5, note: "Finnish VAT (ALV) at 25.5% applies." },
+  Norway: { label: "VAT", defaultRate: 25, note: "Norwegian VAT (MVA) at 25% applies." },
+  Sweden: { label: "VAT", defaultRate: 25, note: "Swedish VAT (moms) at 25% applies." },
+  Switzerland: { label: "VAT", defaultRate: 8.1, note: "Swiss VAT (MWST) at 8.1% applies." },
+  "New Zealand": { label: "GST", defaultRate: 15, note: "New Zealand GST at 15% applies." },
+  "South Africa": { label: "VAT", defaultRate: 15, note: "South African VAT at 15% applies." },
+  Israel: { label: "VAT", defaultRate: 17, note: "Israeli VAT at 17% applies." },
+  Turkey: { label: "VAT", defaultRate: 20, note: "Turkish VAT (KDV) at 20% applies." },
+  "Saudi Arabia": { label: "VAT", defaultRate: 15, note: "Saudi VAT at 15% applies." },
+  Qatar: { label: "VAT", defaultRate: 0, note: "Qatar currently applies no general VAT." },
+  Kuwait: { label: "VAT", defaultRate: 0, note: "Kuwait currently applies no general VAT." },
+  Oman: { label: "VAT", defaultRate: 5, note: "Omani VAT at 5% applies." },
+  Malaysia: { label: "SST", defaultRate: 6, note: "Malaysian Sales & Service Tax at 6% applies." },
+  Indonesia: { label: "VAT", defaultRate: 11, note: "Indonesian VAT (PPN) at 11% applies." },
+  Thailand: { label: "VAT", defaultRate: 7, note: "Thai VAT at 7% applies." },
+  Philippines: { label: "VAT", defaultRate: 12, note: "Philippine VAT at 12% applies." },
+  Vietnam: { label: "VAT", defaultRate: 10, note: "Vietnamese VAT at 10% applies." },
+  China: { label: "VAT", defaultRate: 13, note: "Chinese VAT at 13% applies (standard rate)." },
+  "Hong Kong": { label: "Tax", defaultRate: 0, note: "Hong Kong applies no general sales tax/VAT." },
+  Mexico: { label: "VAT", defaultRate: 16, note: "Mexican VAT (IVA) at 16% applies." },
+  Brazil: { label: "Tax", defaultRate: 0, note: "Brazilian indirect tax (ICMS/ISS) varies by state/service — verify with your accountant." },
+  Argentina: { label: "VAT", defaultRate: 21, note: "Argentine VAT (IVA) at 21% applies." },
+  Egypt: { label: "VAT", defaultRate: 14, note: "Egyptian VAT at 14% applies." },
+  Nigeria: { label: "VAT", defaultRate: 7.5, note: "Nigerian VAT at 7.5% applies." },
+  Kenya: { label: "VAT", defaultRate: 16, note: "Kenyan VAT at 16% applies." },
+  Pakistan: { label: "Sales Tax", defaultRate: 18, note: "Pakistani Sales Tax at 18% applies." },
+  Bangladesh: { label: "VAT", defaultRate: 15, note: "Bangladeshi VAT at 15% applies." },
+  "Sri Lanka": { label: "VAT", defaultRate: 18, note: "Sri Lankan VAT at 18% applies." },
+};
+
+// Approximate combined average state + local sales tax rate (%). Real-world
+// rates vary by city/county; these are reasonable state-level defaults a
+// user can still see and verify before sending the invoice.
+const US_STATE_SALES_TAX: Record<string, number> = {
+  Alabama: 9.29, Alaska: 1.76, Arizona: 8.4, Arkansas: 9.48, California: 8.82,
+  Colorado: 7.81, Connecticut: 6.35, Delaware: 0, Florida: 7.02, Georgia: 7.4,
+  Hawaii: 4.44, Idaho: 6.03, Illinois: 8.86, Indiana: 7, Iowa: 6.94,
+  Kansas: 8.7, Kentucky: 6, Louisiana: 9.55, Maine: 5.5, Maryland: 6,
+  Massachusetts: 6.25, Michigan: 6, Minnesota: 7.49, Mississippi: 7.07,
+  Missouri: 8.39, Montana: 0, Nebraska: 6.94, Nevada: 8.23,
+  "New Hampshire": 0, "New Jersey": 6.6, "New Mexico": 7.83, "New York": 8.52,
+  "North Carolina": 6.98, "North Dakota": 6.96, Ohio: 7.24, Oklahoma: 8.98,
+  Oregon: 0, Pennsylvania: 6.34, "Rhode Island": 7, "South Carolina": 7.46,
+  "South Dakota": 6.4, Tennessee: 9.55, Texas: 8.2, Utah: 7.19,
+  Vermont: 6.24, Virginia: 5.75, Washington: 8.86, "West Virginia": 6.5,
+  Wisconsin: 5.43, Wyoming: 5.36,
+};
+
+// Combined federal GST + provincial HST/PST (%), by province.
+const CANADA_PROVINCE_TAX: Record<string, number> = {
+  Alberta: 5, "British Columbia": 12, Manitoba: 12, "New Brunswick": 15,
+  "Newfoundland and Labrador": 15, "Nova Scotia": 15, Ontario: 13,
+  "Prince Edward Island": 15, Quebec: 14.975, Saskatchewan: 11,
+  "Northwest Territories": 5, Nunavut: 5, Yukon: 5,
 };
 
 // ── Main decision function ────────────────────────────────────────────────────
@@ -215,14 +285,39 @@ export function decideTax(input: TaxDecisionInput): TaxDecision {
         bCountry === "Singapore" ? "sg_gst" :
         bCountry === "United States" ? "sales_tax" :
         "vat";
+
+      // US and Canada: resolve the real rate from the client's state/province
+      // when known, instead of the flat country-level placeholder.
+      let effectiveRate = rule.defaultRate;
+      let effectiveNote = rule.note;
+
+      if (bCountry === "United States" && cState) {
+        const stateRate = US_STATE_SALES_TAX[cState];
+        if (stateRate !== undefined) {
+          effectiveRate = stateRate;
+          effectiveNote =
+            stateRate === 0
+              ? `${cState} has no state sales tax.`
+              : `Combined state + local sales tax for ${cState}: approx. ${stateRate}%. Verify with your tax advisor, as local rates vary by city/county.`;
+        }
+      }
+
+      if (bCountry === "Canada" && cState) {
+        const provinceRate = CANADA_PROVINCE_TAX[cState];
+        if (provinceRate !== undefined) {
+          effectiveRate = provinceRate;
+          effectiveNote = `Combined GST/HST/PST for ${cState}: ${provinceRate}%.`;
+        }
+      }
+
       return {
         taxType: type,
         taxLabel: rule.label,
-        taxRate: rule.defaultRate,
+        taxRate: effectiveRate,
         cgst: 0,
         sgst: 0,
         igst: 0,
-        taxNote: rule.note,
+        taxNote: effectiveNote,
         isZeroRated: false,
         isCgstSgst: false,
         isIgst: false,

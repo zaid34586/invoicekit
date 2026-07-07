@@ -25,13 +25,13 @@ function makeId() {
   return Math.random().toString(36).slice(2, 10);
 }
 
-function emptyItem(defaultGstRate: number = 18): LineItem {
+function emptyItem(): LineItem {
   return {
     id: makeId(),
     description: "",
     qty: 1,
     rate: 0,
-    gstRate: defaultGstRate,
+    gstRate: 18,
     hsnSac: "",
   };
 }
@@ -99,49 +99,69 @@ export default function NewInvoice() {
   const isForeignCurrency = invoiceCurrency !== baseCurrency;
 
   // Exchange rate: 1 base unit = exchangeRate invoice units
-  // e.g. base=INR, invoice=USD → rate ≈ 0.012
+  // e.g. base=USD, invoice=CAD → rate ≈ 1.37
+  // Auto-fetched live from exchangeRate.ts (Frankfurter API). Manual override
+  // is available via "Edit rate" for edge cases, but the default experience
+  // is fully automatic — no one should have to look up a rate themselves.
   const [exchangeRate, setExchangeRate] = useState<number>(1);
-  // Tracks whether the rate came from the live API, is loading, failed, or
-  // was overridden by the user — drives the message shown next to the field.
-  const [rateStatus, setRateStatus] = useState<"idle" | "loading" | "auto" | "error" | "manual">("idle");
+  const [rateLoading, setRateLoading] = useState(false);
+  const [rateError, setRateError] = useState<string | null>(null);
+  const [rateManualOverride, setRateManualOverride] = useState(false);
   const [rateUpdatedAt, setRateUpdatedAt] = useState<string | null>(null);
 
-  // Auto-fetch the live rate whenever the currency pair changes
+  // Auto-fetch whenever currency changes, unless the user chose to override manually
   useEffect(() => {
-    let cancelled = false;
-
-    async function loadRate() {
-      if (invoiceCurrency === baseCurrency) {
-        setExchangeRate(1);
-        setRateStatus("idle");
-        setRateUpdatedAt(null);
-        return;
-      }
-
-      setRateStatus("loading");
-
-      try {
-        const result = await getExchangeRate(baseCurrency, invoiceCurrency);
-        if (cancelled) return;
-        setExchangeRate(result.rate);
-        setRateUpdatedAt(result.lastUpdated);
-        setRateStatus("auto");
-      } catch (err) {
-        if (cancelled) return;
-        console.error(err);
-        // Fall back to 1 so totals still render, but flag it clearly so the
-        // user knows this is NOT a fetched rate and should double check it.
-        setExchangeRate(1);
-        setRateStatus("error");
-      }
+  async function loadRate() {
+    if (invoiceCurrency === baseCurrency) {
+      setExchangeRate(1);
+      setRateError(null);
+      setRateManualOverride(false);
+      return;
     }
 
-    loadRate();
+    if (rateManualOverride) return;
 
-    return () => {
-      cancelled = true;
-    };
-  }, [baseCurrency, invoiceCurrency]);
+    setRateLoading(true);
+    setRateError(null);
+
+    try {
+      const result = await getExchangeRate(
+        baseCurrency,
+        invoiceCurrency
+      );
+
+      setExchangeRate(result.rate);
+      setRateUpdatedAt(result.lastUpdated);
+    } catch (err) {
+      console.error(err);
+      setRateError(
+        "Couldn't fetch the live rate automatically. You can enter it manually below."
+      );
+      setRateManualOverride(true);
+    } finally {
+      setRateLoading(false);
+    }
+  }
+
+  loadRate();
+}, [baseCurrency, invoiceCurrency, rateManualOverride]);
+
+  async function handleRefreshRate() {
+    if (invoiceCurrency === baseCurrency) return;
+    setRateLoading(true);
+    setRateError(null);
+    try {
+      const result = await getExchangeRate(baseCurrency, invoiceCurrency);
+      setExchangeRate(result.rate);
+      setRateUpdatedAt(result.lastUpdated);
+      setRateManualOverride(false);
+    } catch (err) {
+      console.error(err);
+      setRateError("Still couldn't fetch the live rate. Try again in a moment.");
+    } finally {
+      setRateLoading(false);
+    }
+  }
 
   const currencySymbol = getCurrencySymbol(invoiceCurrency);
   // ─────────────────────────────────────────────────────────────────────────
@@ -178,26 +198,16 @@ export default function NewInvoice() {
 
   // GST calc stays in base currency (INR) — this never changes
   const calc = useMemo(
-    () =>
-      calculateInvoice(
-        items,
-        businessState,
-        clientState || null,
-        profile?.country ?? "India",
-        clientCountry
-      ),
-    [items, businessState, clientState, profile?.country, clientCountry]
+    () => calculateInvoice(items, businessState, clientState || null),
+    [items, businessState, clientState]
   );
 
-  // Tax decision — determines label, note, tax type, AND (for non-India
-  // invoices) the actual rate applied. For India, items keep their own
-  // manually-picked GST slab (5/12/18/28%) since different products can be
-  // taxed differently — defaultGstRate here just seeds decideTax's own
-  // reasoning and doesn't override anything.
+  // Tax decision — determines label, note, and tax type for display.
+  // Does NOT affect gst.ts calculations; it only drives what the UI shows.
   const taxDecision = useMemo(
     () =>
       decideTax({
-        businessCountry: profile?.country ?? "India", // profile country — extend when Profile adds country field
+        businessCountry: profile?.country ?? null,
         businessState: businessState,
         clientCountry: clientCountry,
         clientState: clientState || null,
@@ -206,20 +216,20 @@ export default function NewInvoice() {
     [businessState, clientCountry, clientState, items]
   );
 
-  // Non-India invoices don't let the user hand-pick a rate per line item —
-  // there's no equivalent to India's GST slabs, so every item's rate is kept
-  // in sync with whatever decideTax() worked out for this business/client
-  // country pair (0% for cross-border/exempt, or the country's standard
-  // rate for domestic). This runs whenever the computed rate or country
-  // changes, and is a no-op for India (where items keep their own rate).
+  // Priority 1: for every country except India, tax is fully automatic —
+  // the rate the tax engine decided IS the rate used in the calculation.
+  // No manual selection. India keeps its existing per-item GST-slab picker,
+  // since real Indian invoices commonly mix multiple HSN/GST rates on one
+  // invoice — that is correct behaviour, not something to automate away.
   useEffect(() => {
-    if (clientCountry === "India") return;
-    setItems((prev) =>
-      prev.every((it) => it.gstRate === taxDecision.taxRate)
-        ? prev
-        : prev.map((it) => ({ ...it, gstRate: taxDecision.taxRate }))
-    );
-  }, [taxDecision.taxRate, clientCountry]);
+    if (profile?.country === "India") return;
+
+    setItems((prev) => {
+      const needsUpdate = prev.some((it) => it.gstRate !== taxDecision.taxRate);
+      if (!needsUpdate) return prev;
+      return prev.map((it) => ({ ...it, gstRate: taxDecision.taxRate }));
+    });
+  }, [taxDecision.taxRate, profile?.country]);
 
   // Converted amounts for display when invoice currency differs from base
   const displaySubtotal = isForeignCurrency ? convertCurrency(calc.subtotal, exchangeRate) : calc.subtotal;
@@ -235,7 +245,7 @@ export default function NewInvoice() {
   }
 
   function addItem() {
-    setItems((prev) => [...prev, emptyItem(taxDecision.taxRate)]);
+    setItems((prev) => [...prev, emptyItem()]);
   }
 
   function deleteItem(id: string) {
@@ -247,11 +257,6 @@ export default function NewInvoice() {
     const country = COUNTRIES.find((c) => c.name === countryName);
     setClientCountryCode(country ? country.code : "");
     setClientState("");
-    // The tax-ID format (GSTIN, VAT Number, ABN, etc.) is country-specific.
-    // Without this reset, a value typed for one country (e.g. an Indian
-    // GSTIN) would silently carry over and get saved/displayed as the tax
-    // ID for a completely different country's client.
-    setClientGstin("");
   }
 
   function selectClient(client: Client) {
@@ -567,40 +572,58 @@ export default function NewInvoice() {
 
             {/* ── Exchange rate row — only visible when invoice currency ≠ base ── */}
             {isForeignCurrency && (
-              <div className="mt-4 p-3 rounded-lg bg-blue-50 border border-blue-100 flex flex-col sm:flex-row sm:items-center gap-3">
-                <div className="flex-1 text-sm text-blue-700">
-                  <span className="font-medium">Invoice currency: {invoiceCurrency}</span>
-                  <span className="text-blue-500 ml-2">
-                    (Base: {baseCurrency})
-                    {rateStatus === "loading" && " — fetching live rate…"}
-                    {rateStatus === "auto" && ` — live rate as of ${rateUpdatedAt ?? "today"}`}
-                    {rateStatus === "manual" && " — manually overridden"}
-                    {rateStatus === "error" && " — couldn't fetch live rate, please enter it manually"}
-                  </span>
+              <div className="mt-4 p-3 rounded-lg bg-blue-50 border border-blue-100">
+                <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+                  <div className="flex-1 text-sm text-blue-700">
+                    <span className="font-medium">Invoice currency: {invoiceCurrency}</span>
+                    <span className="text-blue-500 ml-2">
+                      (Base: {baseCurrency}) — live exchange rate
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <span className="text-sm text-slate-600 whitespace-nowrap">
+                      1 {baseCurrency} =
+                    </span>
+                    {rateManualOverride ? (
+                      <input
+                        type="number"
+                        min={0.000001}
+                        step="any"
+                        value={exchangeRate}
+                        onChange={(e) => setExchangeRate(Number(e.target.value) || 1)}
+                        className="input w-28"
+                        autoFocus
+                      />
+                    ) : (
+                      <span className="font-semibold text-slate-900">
+                        {rateLoading ? "…" : exchangeRate}
+                      </span>
+                    )}
+                    <span className="text-sm text-slate-600">{invoiceCurrency}</span>
+                    {rateLoading && (
+                      <span className="text-xs text-blue-400 animate-pulse">Fetching live rate…</span>
+                    )}
+                  </div>
+                  {!rateLoading && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        rateManualOverride ? handleRefreshRate() : setRateManualOverride(true)
+                      }
+                      className="text-xs text-primary-600 hover:underline shrink-0"
+                    >
+                      {rateManualOverride ? "Use live rate" : "Edit manually"}
+                    </button>
+                  )}
                 </div>
-                <div className="flex items-center gap-2 shrink-0">
-                  <span className="text-sm text-slate-600 whitespace-nowrap">
-                    1 {baseCurrency} =
-                  </span>
-                  <input
-                    type="number"
-                    min={0.000001}
-                    step="any"
-                    value={exchangeRate}
-                    disabled={rateStatus === "loading"}
-                    onChange={(e) => {
-                      setExchangeRate(Number(e.target.value) || 1);
-                      setRateStatus("manual");
-                    }}
-                    className="input w-28 disabled:opacity-50"
-                  />
-                  <span className="text-sm text-slate-600">{invoiceCurrency}</span>
-                </div>
-                <p className="text-xs text-blue-400 sm:hidden">
-                  {rateStatus === "auto"
-                    ? "Rate auto-fetched. You can override it above if needed."
-                    : "Rate will be locked once invoice is saved."}
-                </p>
+                {rateError && (
+                  <p className="text-xs text-red-600 mt-2">{rateError}</p>
+                )}
+                {!rateError && !rateManualOverride && rateUpdatedAt && (
+                  <p className="text-xs text-blue-400 mt-2">
+                    Auto-fetched rate as of {rateUpdatedAt}. Locked once the invoice is saved.
+                  </p>
+                )}
               </div>
             )}
           </div>
@@ -677,9 +700,9 @@ export default function NewInvoice() {
                   </div>
                   <div className="col-span-3 sm:col-span-2">
                     <label className="text-xs text-slate-500 sm:hidden">
-                      {clientCountry === "India" ? "GST %" : "Tax %"}
+                      {profile?.country === "India" ? "GST %" : taxDecision.taxLabel}
                     </label>
-                    {clientCountry === "India" ? (
+                    {profile?.country === "India" ? (
                       <select
                         value={item.gstRate}
                         onChange={(e) => updateItem(item.id, { gstRate: Number(e.target.value) })}
@@ -690,14 +713,11 @@ export default function NewInvoice() {
                         ))}
                       </select>
                     ) : (
-                      // Non-India: the rate isn't a per-item choice the user picks —
-                      // it's whatever the business's country + cross-border rules
-                      // decide (taxDecision.taxRate), kept in sync automatically.
                       <div
-                        className="input flex items-center justify-center bg-slate-100 text-slate-500 cursor-not-allowed select-none"
-                        title="Set automatically based on business/client country"
+                        className="input flex items-center bg-slate-100 text-slate-600 cursor-not-allowed"
+                        title={`${taxDecision.taxLabel} — set automatically from ${clientCountry || "client country"}. Not editable.`}
                       >
-                        {item.gstRate}%
+                        {taxDecision.taxRate}%
                       </div>
                     )}
                   </div>
@@ -772,7 +792,7 @@ export default function NewInvoice() {
                   <span className="text-slate-500">{taxDecision.taxLabel}</span>
                   <span className="font-medium text-slate-900">—</span>
                 </div>
-              ) : (
+              ) : profile?.country === "India" ? (
                 <>
                   <div className="flex justify-between">
                     <span className="text-slate-500">CGST</span>
@@ -787,12 +807,19 @@ export default function NewInvoice() {
                     </span>
                   </div>
                 </>
+              ) : (
+                <div className="flex justify-between">
+                  <span className="text-slate-500">{taxDecision.taxLabel}</span>
+                  <span className="font-medium text-slate-900">
+                    {formatMoney(displayCgst + displaySgst, invoiceCurrency)}
+                  </span>
+                </div>
               )}
 
               {calc.breakup.length > 0 && (
                 <div className="pt-3 mt-3 border-t border-slate-100">
                   <p className="text-xs font-semibold text-slate-500 uppercase mb-2">
-                    {taxDecision.taxLabel} Breakup
+                    {profile?.country === "India" ? "GST Breakup" : `${taxDecision.taxLabel} Breakdown`}
                   </p>
                   <table className="w-full text-xs">
                     <thead>
