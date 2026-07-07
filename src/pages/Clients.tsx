@@ -6,13 +6,54 @@ import { INDIAN_STATES, formatINR, formatDate } from "../lib/constants";
 import StatusBadge from "../components/StatusBadge";
 
 const COUNTRIES = [
-  { name: "India", code: "+91", flag: "IN" },
-  { name: "United States", code: "+1", flag: "US" },
-  { name: "United Kingdom", code: "+44", flag: "GB" },
-  { name: "UAE", code: "+971", flag: "AE" },
-  { name: "Canada", code: "+1", flag: "CA" },
+  { name: "Argentina", code: "+54", flag: "AR" },
   { name: "Australia", code: "+61", flag: "AU" },
+  { name: "Austria", code: "+43", flag: "AT" },
+  { name: "Bangladesh", code: "+880", flag: "BD" },
+  { name: "Belgium", code: "+32", flag: "BE" },
+  { name: "Brazil", code: "+55", flag: "BR" },
+  { name: "Canada", code: "+1", flag: "CA" },
+  { name: "China", code: "+86", flag: "CN" },
+  { name: "Denmark", code: "+45", flag: "DK" },
+  { name: "Egypt", code: "+20", flag: "EG" },
+  { name: "Finland", code: "+358", flag: "FI" },
+  { name: "France", code: "+33", flag: "FR" },
+  { name: "Germany", code: "+49", flag: "DE" },
+  { name: "Hong Kong", code: "+852", flag: "HK" },
+  { name: "India", code: "+91", flag: "IN" },
+  { name: "Indonesia", code: "+62", flag: "ID" },
+  { name: "Ireland", code: "+353", flag: "IE" },
+  { name: "Israel", code: "+972", flag: "IL" },
+  { name: "Italy", code: "+39", flag: "IT" },
+  { name: "Japan", code: "+81", flag: "JP" },
+  { name: "Kenya", code: "+254", flag: "KE" },
+  { name: "Kuwait", code: "+965", flag: "KW" },
+  { name: "Malaysia", code: "+60", flag: "MY" },
+  { name: "Mexico", code: "+52", flag: "MX" },
+  { name: "Netherlands", code: "+31", flag: "NL" },
+  { name: "New Zealand", code: "+64", flag: "NZ" },
+  { name: "Nigeria", code: "+234", flag: "NG" },
+  { name: "Norway", code: "+47", flag: "NO" },
+  { name: "Oman", code: "+968", flag: "OM" },
+  { name: "Pakistan", code: "+92", flag: "PK" },
+  { name: "Philippines", code: "+63", flag: "PH" },
+  { name: "Poland", code: "+48", flag: "PL" },
+  { name: "Portugal", code: "+351", flag: "PT" },
+  { name: "Qatar", code: "+974", flag: "QA" },
+  { name: "Saudi Arabia", code: "+966", flag: "SA" },
   { name: "Singapore", code: "+65", flag: "SG" },
+  { name: "South Africa", code: "+27", flag: "ZA" },
+  { name: "South Korea", code: "+82", flag: "KR" },
+  { name: "Spain", code: "+34", flag: "ES" },
+  { name: "Sri Lanka", code: "+94", flag: "LK" },
+  { name: "Sweden", code: "+46", flag: "SE" },
+  { name: "Switzerland", code: "+41", flag: "CH" },
+  { name: "Thailand", code: "+66", flag: "TH" },
+  { name: "Turkey", code: "+90", flag: "TR" },
+  { name: "UAE", code: "+971", flag: "AE" },
+  { name: "United Kingdom", code: "+44", flag: "GB" },
+  { name: "United States", code: "+1", flag: "US" },
+  { name: "Vietnam", code: "+84", flag: "VN" },
 ];
 
 const US_STATES = [
@@ -55,6 +96,44 @@ const SINGAPORE_REGIONS = [
   "North-East Region", "West Region",
 ];
 
+const GERMANY_STATES = [
+  "Baden-Württemberg", "Bavaria", "Berlin", "Brandenburg", "Bremen",
+  "Hamburg", "Hesse", "Lower Saxony", "Mecklenburg-Vorpommern",
+  "North Rhine-Westphalia", "Rhineland-Palatinate", "Saarland", "Saxony",
+  "Saxony-Anhalt", "Schleswig-Holstein", "Thuringia",
+];
+
+const FRANCE_REGIONS = [
+  "Auvergne-Rhône-Alpes", "Bourgogne-Franche-Comté", "Bretagne",
+  "Centre-Val de Loire", "Corse", "Grand Est", "Hauts-de-France",
+  "Île-de-France", "Normandie", "Nouvelle-Aquitaine", "Occitanie",
+  "Pays de la Loire", "Provence-Alpes-Côte d'Azur",
+];
+
+const BRAZIL_STATES = [
+  "Acre", "Alagoas", "Amapá", "Amazonas", "Bahia", "Ceará",
+  "Distrito Federal", "Espírito Santo", "Goiás", "Maranhão",
+  "Mato Grosso", "Mato Grosso do Sul", "Minas Gerais", "Pará",
+  "Paraíba", "Paraná", "Pernambuco", "Piauí", "Rio de Janeiro",
+  "Rio Grande do Norte", "Rio Grande do Sul", "Rondônia", "Roraima",
+  "Santa Catarina", "São Paulo", "Sergipe", "Tocantins",
+];
+
+const MEXICO_STATES = [
+  "Aguascalientes", "Baja California", "Baja California Sur", "Campeche",
+  "Chiapas", "Chihuahua", "Ciudad de México", "Coahuila", "Colima",
+  "Durango", "Guanajuato", "Guerrero", "Hidalgo", "Jalisco",
+  "México", "Michoacán", "Morelos", "Nayarit", "Nuevo León",
+  "Oaxaca", "Puebla", "Querétaro", "Quintana Roo", "San Luis Potosí",
+  "Sinaloa", "Sonora", "Tabasco", "Tamaulipas", "Tlaxcala",
+  "Veracruz", "Yucatán", "Zacatecas",
+];
+
+const SOUTH_AFRICA_PROVINCES = [
+  "Eastern Cape", "Free State", "Gauteng", "KwaZulu-Natal", "Limpopo",
+  "Mpumalanga", "Northern Cape", "North West", "Western Cape",
+];
+
 function getStatesForCountry(country: string): string[] {
   switch (country) {
     case "India":
@@ -71,6 +150,16 @@ function getStatesForCountry(country: string): string[] {
       return AUSTRALIA_STATES;
     case "Singapore":
       return SINGAPORE_REGIONS;
+    case "Germany":
+      return GERMANY_STATES;
+    case "France":
+      return FRANCE_REGIONS;
+    case "Brazil":
+      return BRAZIL_STATES;
+    case "Mexico":
+      return MEXICO_STATES;
+    case "South Africa":
+      return SOUTH_AFRICA_PROVINCES;
     default:
       return [];
   }
@@ -90,29 +179,40 @@ function getStateLabel(country: string): string {
       return "State / Territory";
     case "Singapore":
       return "Region";
-    default:
+    case "Germany":
+      return "State (Bundesland)";
+    case "France":
+      return "Region";
+    case "Brazil":
+    case "Mexico":
       return "State";
+    case "South Africa":
+      return "Province";
+    default:
+      return "State / Province";
   }
 }
 
-const EMPTY_FORM = {
-  name: "",
-  country: "India",
-  country_code: "+91",
-  phone: "",
-  email: "",
-  address: "",
-  state: "",
-  gstin: "",
-};
+function getEmptyForm(defaultCountry?: string | null, defaultCountryCode?: string | null) {
+  return {
+    name: "",
+    country: defaultCountry ?? "United States",
+    country_code: defaultCountryCode ?? "+1",
+    phone: "",
+    email: "",
+    address: "",
+    state: "",
+    gstin: "",
+  };
+}
 
 export default function Clients() {
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const [clients, setClients] = useState<Client[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [form, setForm] = useState(EMPTY_FORM);
+  const [form, setForm] = useState(() => getEmptyForm(profile?.country, profile?.country_code));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [historyClient, setHistoryClient] = useState<Client | null>(null);
@@ -134,7 +234,7 @@ export default function Clients() {
 
   function openAdd() {
     setEditingId(null);
-    setForm(EMPTY_FORM);
+    setForm(getEmptyForm(profile?.country, profile?.country_code));
     setError(null);
     setShowForm(true);
   }
@@ -143,8 +243,8 @@ export default function Clients() {
     setEditingId(client.id);
     setForm({
       name: client.name,
-      country: client.country ?? "India",
-      country_code: client.country_code ?? "+91",
+      country: client.country ?? profile?.country ?? "United States",
+      country_code: client.country_code ?? profile?.country_code ?? "+1",
       phone: client.phone ?? "",
       email: client.email ?? "",
       address: client.address ?? "",
@@ -159,8 +259,8 @@ export default function Clients() {
     const selected = COUNTRIES.find((c) => c.name === countryName);
     setForm({
       ...form,
-      country: selected?.name ?? "India",
-      country_code: selected?.code ?? "+91",
+      country: selected?.name ?? countryName,
+      country_code: selected?.code ?? form.country_code,
       // Reset state whenever the country changes so a stale value
       // from the previous country can never be submitted.
       state: "",
@@ -449,7 +549,7 @@ export default function Clients() {
                   <h3 className="font-semibold text-slate-900">{client.name}</h3>
                   {client.gstin && (
                     <p className="text-xs text-slate-500 mt-0.5">
-                      GSTIN: {client.gstin}
+                      {client.country === "India" ? "GSTIN" : "Tax ID"}: {client.gstin}
                     </p>
                   )}
                 </div>
@@ -464,7 +564,7 @@ export default function Clients() {
                   <p>Phone: {client.country_code} {client.phone}</p>
                 )}
                 {client.email && <p>Email: {client.email}</p>}
-                {client.state && <p>{getStateLabel(client.country ?? "India")}: {client.state}</p>}
+                {client.state && <p>{getStateLabel(client.country ?? "")}: {client.state}</p>}
                 {client.address && (
                   <p className="whitespace-pre-line">{client.address}</p>
                 )}
