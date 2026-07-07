@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
+import { ADMIN_EMAIL } from "../lib/constants";
 
 type Stage = "form" | "loading" | "success";
 
@@ -16,6 +17,17 @@ export default function Signup() {
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setError(null);
+
+    // The admin account is reserved and must only ever be created directly
+    // in Supabase by the owner — never through this public signup form.
+    // (Real enforcement is Supabase's unique-email constraint once that
+    // account exists; this is just a clear, early error instead of a
+    // confusing "already registered" message.)
+    if (email.trim().toLowerCase() === ADMIN_EMAIL.toLowerCase()) {
+      setError("This email address is reserved and cannot be used to sign up.");
+      return;
+    }
+
     setStage("loading");
 
     const result = await signUp(email, password);
