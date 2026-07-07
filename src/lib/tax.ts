@@ -186,6 +186,16 @@ const CANADA_PROVINCE_TAX: Record<string, number> = {
   "Northwest Territories": 5, Nunavut: 5, Yukon: 5,
 };
 
+// EU member states currently in our country list. Used to detect the
+// intra-EU B2B "reverse charge" scenario, where no VAT is charged on the
+// invoice but the recipient self-accounts for it in their own country —
+// this is legally different from a plain non-EU export, so it gets its
+// own label and note rather than being lumped in with "Export – Exempt".
+const EU_COUNTRIES = new Set([
+  "Austria", "Belgium", "Denmark", "Finland", "France", "Germany",
+  "Ireland", "Italy", "Netherlands", "Poland", "Portugal", "Spain", "Sweden",
+]);
+
 // ── Main decision function ────────────────────────────────────────────────────
 
 export interface TaxDecisionInput {
@@ -328,6 +338,25 @@ export function decideTax(input: TaxDecisionInput): TaxDecision {
 
   // 2b. Cross-border (non-India business, client in different country)
   if (bCountry !== cCountry) {
+    // Intra-EU B2B: reverse charge applies — no VAT on the invoice, but the
+    // recipient self-accounts for it in their own country. This is legally
+    // distinct from a plain export outside the EU.
+    if (EU_COUNTRIES.has(bCountry) && EU_COUNTRIES.has(cCountry)) {
+      return {
+        taxType: "reverse_charge",
+        taxLabel: "Reverse Charge",
+        taxRate: 0,
+        cgst: 0,
+        sgst: 0,
+        igst: 0,
+        taxNote: `Reverse charge applies (EU B2B, ${bCountry} → ${cCountry}). No VAT charged — the recipient accounts for VAT in ${cCountry} under the reverse charge mechanism.`,
+        isZeroRated: true,
+        isCgstSgst: false,
+        isIgst: false,
+        isInternational: true,
+      };
+    }
+
     return {
       taxType: "international_exempt",
       taxLabel: "Export – Exempt",
