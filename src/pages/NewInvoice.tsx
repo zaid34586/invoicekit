@@ -304,6 +304,25 @@ export default function NewInvoice() {
       return;
     }
 
+    // CRITICAL: without this guard, clicking Save while the live exchange
+    // rate is still being fetched (or before it has ever loaded) silently
+    // saves exchangeRate at its default value of 1 — treating e.g. 2,950
+    // AUD as if it were 2,950 USD. That wrong rate then gets PERMANENTLY
+    // locked (see Priority 5), silently corrupting invoice_total/base_total
+    // and poisoning every revenue total that sums across invoices
+    // afterwards. This is not just a display bug — real money math was
+    // wrong. Block the save entirely until we have a real rate.
+    if (isForeignCurrency && rateLoading) {
+      setError("Exchange rate is still loading — please wait a moment and try again.");
+      return;
+    }
+    if (isForeignCurrency && !rateManualOverride && !rateUpdatedAt) {
+      setError(
+        "Exchange rate hasn't loaded yet. Please wait for it to load, or enter it manually below, before saving."
+      );
+      return;
+    }
+
     if (!profile?.is_pro) {
       const { count } = await supabase
         .from("invoices")
@@ -915,10 +934,14 @@ export default function NewInvoice() {
 
             <button
               onClick={handleSave}
-              disabled={saving}
+              disabled={saving || (isForeignCurrency && rateLoading)}
               className="btn-primary w-full mt-5"
             >
-              {saving ? "Saving..." : "Save Invoice"}
+              {saving
+                ? "Saving..."
+                : isForeignCurrency && rateLoading
+                ? "Waiting for exchange rate…"
+                : "Save Invoice"}
             </button>
           </div>
         </div>
