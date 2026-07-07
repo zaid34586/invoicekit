@@ -20,7 +20,10 @@ import Billing from "./pages/Billing";
 import Reports from "./pages/Reports";
 import Settings from "./pages/Settings";
 import Admin from "./pages/Admin";
+import AdminLogin from "./pages/AdminLogin";
+import AdminLayout from "./components/AdminLayout";
 import ShareInvoice from "./pages/ShareInvoice";
+import { ADMIN_EMAIL } from "./lib/constants";
 
 function LoadingScreen() {
   return (
@@ -82,6 +85,22 @@ function ProtectedRoute({ children }: { children: ReactNode }) {
   if (!user.email_confirmed_at) return <Navigate to="/check-email" replace />;
   if (!profile?.country) return <Navigate to="/business-setup" replace />;
   if (!profile?.phone_verified) return <Navigate to="/verify-phone" replace />;
+  return <>{children}</>;
+}
+
+// Admin-only route — deliberately separate from ProtectedRoute above.
+// It does NOT require business-setup/phone-verify (the admin account isn't
+// a real customer business), and it does not accept just any logged-in
+// user — only the one fixed ADMIN_EMAIL account. Anyone else (including a
+// perfectly normal, fully-verified customer) is sent to the admin login
+// page, never to the customer /login (keeping the two flows fully
+// separate, with no signup path here).
+function AdminRoute({ children }: { children: ReactNode }) {
+  const { user, loading } = useAuth();
+  if (loading) return <LoadingScreen />;
+  if (!user || user.email?.toLowerCase() !== ADMIN_EMAIL.toLowerCase()) {
+    return <Navigate to="/admin/login" replace />;
+  }
   return <>{children}</>;
 }
 
@@ -235,11 +254,14 @@ export default function App() {
       <Route
         path="/admin"
         element={
-          <ProtectedRoute>
-            <AppLayout><Admin /></AppLayout>
-          </ProtectedRoute>
+          <AdminRoute>
+            <AdminLayout><Admin /></AdminLayout>
+          </AdminRoute>
         }
       />
+      {/* Deliberately not linked anywhere in the app UI — reached only by
+          typing this exact URL. No signup exists for this account. */}
+      <Route path="/admin/login" element={<AdminLogin />} />
 
       <Route path="/share/:token" element={<ShareInvoice />} />
       <Route path="*" element={<Navigate to="/" replace />} />
