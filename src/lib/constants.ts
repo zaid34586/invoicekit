@@ -1,3 +1,28 @@
+// ISO 3166-1 alpha-2 codes, used only to compute flag emoji below.
+const COUNTRY_ISO2: Record<string, string> = {
+  Argentina: "AR", Australia: "AU", Austria: "AT", Bangladesh: "BD",
+  Belgium: "BE", Brazil: "BR", Canada: "CA", China: "CN", Denmark: "DK",
+  Egypt: "EG", Finland: "FI", France: "FR", Germany: "DE", "Hong Kong": "HK",
+  India: "IN", Indonesia: "ID", Ireland: "IE", Israel: "IL", Italy: "IT",
+  Japan: "JP", Kenya: "KE", Kuwait: "KW", Malaysia: "MY", Mexico: "MX",
+  Netherlands: "NL", "New Zealand": "NZ", Nigeria: "NG", Norway: "NO",
+  Oman: "OM", Pakistan: "PK", Philippines: "PH", Poland: "PL", Portugal: "PT",
+  Qatar: "QA", "Saudi Arabia": "SA", Singapore: "SG", "South Africa": "ZA",
+  "South Korea": "KR", Spain: "ES", "Sri Lanka": "LK", Sweden: "SE",
+  Switzerland: "CH", Thailand: "TH", Turkey: "TR", UAE: "AE",
+  "United Kingdom": "GB", "United States": "US", Vietnam: "VN",
+};
+
+/** Emoji flag for a country name, e.g. getCountryFlag("India") -> "🇮🇳". */
+export function getCountryFlag(country: string | null | undefined): string {
+  const iso2 = country ? COUNTRY_ISO2[country] : undefined;
+  if (!iso2) return "";
+  const codePoints = [...iso2.toUpperCase()].map(
+    (c) => 0x1f1e6 + (c.charCodeAt(0) - 65)
+  );
+  return String.fromCodePoint(...codePoints);
+}
+
 export const INDIAN_STATES: string[] = [
   "Andhra Pradesh",
   "Arunachal Pradesh",
