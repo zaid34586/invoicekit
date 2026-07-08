@@ -823,6 +823,130 @@ export default function Admin() {
     return auditLogs.filter((log) => [log.action, log.target_type, log.target_id, JSON.stringify(log.details ?? {})].some((v) => (v || "").toLowerCase().includes(q)));
   }, [auditLogs, auditSearch]);
 
+
+  const analytics = useMemo(() => {
+    const now = new Date();
+    const currentMonthKey = now.toISOString().slice(0, 7);
+    const previousMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1).toISOString().slice(0, 7);
+    const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+
+    const paidInvoiceRevenue = invoices
+      .filter((invoice) => invoice.status === "paid")
+      .reduce((sum, invoice) => sum + Number(invoice.base_total ?? invoice.total ?? invoice.invoice_total ?? 0), 0);
+    const financeRevenue = finance
+      .filter((entry) => entry.type === "income" && entry.status === "received")
+      .reduce((sum, entry) => sum + Number(entry.amount), 0);
+    const totalRevenue = paidInvoiceRevenue + financeRevenue;
+    const totalExpenses = finance
+      .filter((entry) => entry.type === "expense")
+      .reduce((sum, entry) => sum + Number(entry.amount), 0);
+
+    const monthRevenue = finance
+      .filter((entry) => entry.entry_date?.startsWith(currentMonthKey) && entry.type === "income" && entry.status === "received")
+      .reduce((sum, entry) => sum + Number(entry.amount), 0);
+    const previousMonthRevenue = finance
+      .filter((entry) => entry.entry_date?.startsWith(previousMonth) && entry.type === "income" && entry.status === "received")
+      .reduce((sum, entry) => sum + Number(entry.amount), 0);
+    const revenueGrowth = previousMonthRevenue > 0 ? ((monthRevenue - previousMonthRevenue) / previousMonthRevenue) * 100 : monthRevenue > 0 ? 100 : 0;
+
+    const newUsers7 = profiles.filter((profile) => new Date(profile.created_at) >= sevenDaysAgo).length;
+    const newUsers30 = profiles.filter((profile) => new Date(profile.created_at) >= thirtyDaysAgo).length;
+    const proUsers = profiles.filter((profile) => profile.is_pro || profile.plan === "pro" || profile.plan === "business").length;
+    const conversionRate = profiles.length ? (proUsers / profiles.length) * 100 : 0;
+    const activeUsers = profiles.filter((profile) => !(profile as unknown as { is_banned?: boolean }).is_banned).length;
+
+    const invoiceGrowth = Array.from({ length: 14 }).map((_, index) => {
+      const date = new Date(Date.now() - (13 - index) * 24 * 60 * 60 * 1000);
+      const key = date.toISOString().slice(0, 10);
+      const count = invoices.filter((invoice) => invoice.created_at?.slice(0, 10) === key).length;
+      const revenue = invoices
+        .filter((invoice) => invoice.created_at?.slice(0, 10) === key && invoice.status === "paid")
+        .reduce((sum, invoice) => sum + Number(invoice.base_total ?? invoice.total ?? invoice.invoice_total ?? 0), 0);
+      return { key, label: date.toLocaleDateString(undefined, { day: "2-digit", month: "short" }), count, revenue };
+    });
+
+    const userGrowth = Array.from({ length: 14 }).map((_, index) => {
+      const date = new Date(Date.now() - (13 - index) * 24 * 60 * 60 * 1000);
+      const key = date.toISOString().slice(0, 10);
+      const count = profiles.filter((profile) => profile.created_at?.slice(0, 10) === key).length;
+      return { key, label: date.toLocaleDateString(undefined, { day: "2-digit", month: "short" }), count };
+    });
+
+    const countryCounts = profiles.reduce<Record<string, number>>((acc, profile) => {
+      const country = profile.country || "Unknown";
+      acc[country] = (acc[country] ?? 0) + 1;
+      return acc;
+    }, {});
+    const topCountries = Object.entries(countryCounts)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5);
+
+    const customerRevenue = profiles.map((profile) => {
+      const authId = profile.user_id || profile.id;
+      const userInvoices = invoices.filter((invoice) => invoice.user_id === authId);
+      const revenue = userInvoices
+        .filter((invoice) => invoice.status === "paid")
+        .reduce((sum, invoice) => sum + Number(invoice.base_total ?? invoice.total ?? invoice.invoice_total ?? 0), 0);
+      return {
+        id: profile.id,
+        name: profile.business_name || profile.email || "Unnamed user",
+        email: profile.email || "No email",
+        revenue,
+        invoices: userInvoices.length,
+      };
+    }).sort((a, b) => b.revenue - a.revenue).slice(0, 5);
+
+    const overdueAmount = invoices
+      .filter((invoice) => invoice.status === "overdue")
+      .reduce((sum, invoice) => sum + Number(invoice.base_total ?? invoice.total ?? invoice.invoice_total ?? 0), 0);
+    const pendingFinance = finance
+      .filter((entry) => entry.status === "pending" || entry.type === "receivable")
+      .reduce((sum, entry) => sum + Number(entry.amount), 0);
+
+    const insights = [
+      {
+        title: revenueGrowth >= 0 ? "Revenue growth positive" : "Revenue dropped",
+        body: `This month revenue is ${Math.abs(revenueGrowth).toFixed(1)}% ${revenueGrowth >= 0 ? "up" : "down"} vs previous month.`,
+        tone: revenueGrowth >= 0 ? "green" : "red",
+      },
+      {
+        title: "Free to Pro conversion",
+        body: `${conversionRate.toFixed(1)}% users are on Pro/Business plan.`,
+        tone: conversionRate >= 10 ? "green" : "amber",
+      },
+      {
+        title: "Collection watch",
+        body: `${formatMoney(overdueAmount + pendingFinance, "INR")} is overdue or pending.`,
+        tone: overdueAmount + pendingFinance > 0 ? "amber" : "green",
+      },
+      {
+        title: "User acquisition",
+        body: `${newUsers7} new users in last 7 days and ${newUsers30} in last 30 days.`,
+        tone: newUsers7 > 0 ? "green" : "slate",
+      },
+    ];
+
+    return {
+      totalRevenue,
+      totalExpenses,
+      netProfit: totalRevenue - totalExpenses,
+      monthRevenue,
+      revenueGrowth,
+      newUsers7,
+      newUsers30,
+      activeUsers,
+      conversionRate,
+      invoiceGrowth,
+      userGrowth,
+      topCountries,
+      customerRevenue,
+      overdueAmount,
+      pendingFinance,
+      insights,
+    };
+  }, [profiles, invoices, finance]);
+
   return (
     <div className="grid lg:grid-cols-[260px_1fr] gap-6 animate-fade-in">
       <aside className="lg:sticky lg:top-6 h-fit">
@@ -1510,7 +1634,104 @@ export default function Admin() {
         )}
 
         {active === "analytics" && (
-          <Placeholder title="Analytics" subtitle="Growth, invoices, revenue aur user activity insights" items={["User growth tracking", "Invoice status breakdown", "Revenue source summary", "Plan conversion monitoring"]} />
+          <section className="space-y-6">
+            <div className="flex flex-col lg:flex-row gap-3 lg:items-end lg:justify-between">
+              <SectionHeader title="Analytics & AI Insights" subtitle="Business health, growth, revenue trends aur automatic insights" />
+              <div className="flex gap-2 flex-wrap">
+                <button className="btn-secondary" onClick={() => exportCsv(analytics.customerRevenue as unknown as Record<string, unknown>[], "top-customers-report.csv")}>Export Customers</button>
+                <button className="btn-secondary" onClick={() => exportCsv(analytics.insights as unknown as Record<string, unknown>[], "ai-insights-report.csv")}>Export Insights</button>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
+              <Metric title="Total Revenue" value={formatMoney(analytics.totalRevenue, "INR")} icon="💰" />
+              <Metric title="Net Profit" value={formatMoney(analytics.netProfit, "INR")} icon="📈" />
+              <Metric title="Active Users" value={String(analytics.activeUsers)} icon="✅" />
+              <Metric title="Pro Conversion" value={`${analytics.conversionRate.toFixed(1)}%`} icon="⭐" />
+            </div>
+
+            <div className="grid xl:grid-cols-[1.2fr_0.8fr] gap-6">
+              <Card className="p-5">
+                <div className="flex items-start justify-between gap-4 mb-5">
+                  <div>
+                    <h2 className="text-lg font-semibold text-slate-900">14-Day Growth Trend</h2>
+                    <p className="text-sm text-slate-500">Users, invoices aur paid invoice revenue ka daily view.</p>
+                  </div>
+                  <Pill className={analytics.revenueGrowth >= 0 ? "bg-green-50 text-green-700 border-green-200" : "bg-red-50 text-red-700 border-red-200"}>
+                    {analytics.revenueGrowth >= 0 ? "+" : ""}{analytics.revenueGrowth.toFixed(1)}% month
+                  </Pill>
+                </div>
+                <div className="space-y-5">
+                  <MiniBarChart title="New Users" rows={analytics.userGrowth.map((item) => ({ label: item.label, value: item.count }))} />
+                  <MiniBarChart title="Invoices Created" rows={analytics.invoiceGrowth.map((item) => ({ label: item.label, value: item.count }))} />
+                  <MiniBarChart title="Paid Invoice Revenue" rows={analytics.invoiceGrowth.map((item) => ({ label: item.label, value: item.revenue }))} money />
+                </div>
+              </Card>
+
+              <Card className="p-5">
+                <h2 className="text-lg font-semibold text-slate-900 mb-4">AI Business Insights</h2>
+                <div className="space-y-3">
+                  {analytics.insights.map((insight) => (
+                    <div key={insight.title} className={cx(
+                      "rounded-xl border p-4",
+                      insight.tone === "green" && "bg-green-50 border-green-100",
+                      insight.tone === "amber" && "bg-amber-50 border-amber-100",
+                      insight.tone === "red" && "bg-red-50 border-red-100",
+                      insight.tone === "slate" && "bg-slate-50 border-slate-100"
+                    )}>
+                      <p className="font-semibold text-slate-900">{insight.title}</p>
+                      <p className="text-sm text-slate-600 mt-1">{insight.body}</p>
+                    </div>
+                  ))}
+                </div>
+              </Card>
+            </div>
+
+            <div className="grid xl:grid-cols-3 gap-6">
+              <Card className="p-5">
+                <h2 className="text-lg font-semibold text-slate-900 mb-4">Top Countries</h2>
+                <div className="space-y-3">
+                  {analytics.topCountries.length === 0 ? <p className="text-sm text-slate-500">No country data yet.</p> : analytics.topCountries.map(([country, count]) => (
+                    <div key={country} className="flex items-center justify-between gap-3">
+                      <span className="text-sm font-medium text-slate-700">{country}</span>
+                      <div className="flex items-center gap-2 flex-1 justify-end">
+                        <div className="h-2 rounded-full bg-slate-100 w-28 overflow-hidden"><div className="h-full bg-primary-500" style={{ width: `${Math.max(8, (count / Math.max(1, profiles.length)) * 100)}%` }} /></div>
+                        <span className="text-sm font-semibold text-slate-900 w-8 text-right">{count}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </Card>
+
+              <Card className="p-5 xl:col-span-2">
+                <div className="flex items-center justify-between mb-4">
+                  <h2 className="text-lg font-semibold text-slate-900">Top Customers</h2>
+                  <span className="text-xs text-slate-500">Based on paid invoice revenue</span>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead><tr className="border-b border-slate-100 bg-slate-50/50"><th className="text-left text-xs font-semibold text-slate-500 uppercase px-4 py-3">Customer</th><th className="text-left text-xs font-semibold text-slate-500 uppercase px-4 py-3">Invoices</th><th className="text-right text-xs font-semibold text-slate-500 uppercase px-4 py-3">Revenue</th></tr></thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {analytics.customerRevenue.length === 0 ? <tr><td colSpan={3} className="p-6 text-center text-sm text-slate-500">No customer revenue yet.</td></tr> : analytics.customerRevenue.map((customer) => (
+                        <tr key={customer.id}>
+                          <td className="px-4 py-3"><p className="font-medium text-slate-900">{customer.name}</p><p className="text-xs text-slate-500">{customer.email}</p></td>
+                          <td className="px-4 py-3 text-sm text-slate-600">{customer.invoices}</td>
+                          <td className="px-4 py-3 text-right font-bold text-slate-900">{formatMoney(customer.revenue, "INR")}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </Card>
+            </div>
+
+            <div className="grid md:grid-cols-4 gap-4">
+              <Metric title="New Users 7d" value={String(analytics.newUsers7)} icon="🆕" />
+              <Metric title="New Users 30d" value={String(analytics.newUsers30)} icon="📅" />
+              <Metric title="Overdue Amount" value={formatMoney(analytics.overdueAmount, "INR")} icon="⚠️" />
+              <Metric title="Pending Collection" value={formatMoney(analytics.pendingFinance, "INR")} icon="⏳" />
+            </div>
+          </section>
         )}
         {active === "support" && (
           <section className="space-y-6">
@@ -1614,6 +1835,29 @@ function TimelineItem({ label, date }: { label: string; date: string }) {
 
 function Metric({ title, value, icon }: { title: string; value: string; icon: string }) {
   return <Card className="p-5"><span className="inline-flex w-10 h-10 rounded-xl items-center justify-center text-base bg-primary-50 text-primary-700 mb-3">{icon}</span><p className="text-xs font-medium text-slate-500 uppercase tracking-wide">{title}</p><p className="text-xl font-bold text-slate-900 mt-1">{value}</p></Card>;
+}
+
+
+function MiniBarChart({ title, rows, money = false }: { title: string; rows: { label: string; value: number }[]; money?: boolean }) {
+  const max = Math.max(1, ...rows.map((row) => Number(row.value) || 0));
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-2">
+        <p className="text-sm font-semibold text-slate-800">{title}</p>
+        <p className="text-xs text-slate-500">Peak: {money ? formatMoney(max, "INR") : max}</p>
+      </div>
+      <div className="flex items-end gap-1 h-24 rounded-xl border border-slate-100 bg-slate-50 p-3">
+        {rows.map((row) => (
+          <div key={`${title}-${row.label}`} className="flex-1 h-full flex flex-col justify-end items-center gap-1" title={`${row.label}: ${money ? formatMoney(row.value, "INR") : row.value}`}>
+            <div className="w-full rounded-t bg-primary-500/80 min-h-[4px]" style={{ height: `${Math.max(4, (Number(row.value) / max) * 100)}%` }} />
+          </div>
+        ))}
+      </div>
+      <div className="grid grid-cols-7 gap-1 mt-1 text-[10px] text-slate-400">
+        {rows.filter((_, index) => index % 2 === 0).slice(-7).map((row) => <span key={`${title}-label-${row.label}`} className="truncate">{row.label}</span>)}
+      </div>
+    </div>
+  );
 }
 
 function Placeholder({ title, subtitle, items }: { title: string; subtitle: string; items: string[] }) {
