@@ -18,6 +18,7 @@ type AdminSection =
   | "analytics"
   | "support"
   | "audit"
+  | "system"
   | "settings";
 
 type AdminTeamMember = {
@@ -80,6 +81,34 @@ type AdminSupportTicket = {
   created_at: string;
 };
 
+type AdminSystemSettings = {
+  maintenance_mode: boolean;
+  maintenance_message: string;
+  allow_admin_bypass: boolean;
+  public_signup: boolean;
+  invoice_sharing: boolean;
+  credits_system: boolean;
+  team_portal: boolean;
+  ai_insights: boolean;
+  ads_enabled: boolean;
+  default_currency: string;
+  security_level: "standard" | "strict" | "locked";
+};
+
+const DEFAULT_SYSTEM_SETTINGS: AdminSystemSettings = {
+  maintenance_mode: false,
+  maintenance_message: "We are improving InvoiceKit. Please check back soon.",
+  allow_admin_bypass: true,
+  public_signup: true,
+  invoice_sharing: true,
+  credits_system: true,
+  team_portal: false,
+  ai_insights: true,
+  ads_enabled: false,
+  default_currency: "INR",
+  security_level: "standard",
+};
+
 const sections: { id: AdminSection; label: string; icon: string; group: string }[] = [
   { id: "dashboard", label: "Dashboard", icon: "📊", group: "Overview" },
   { id: "users", label: "Users", icon: "👥", group: "Users" },
@@ -91,6 +120,7 @@ const sections: { id: AdminSection; label: string; icon: string; group: string }
   { id: "analytics", label: "Analytics", icon: "📈", group: "Insights" },
   { id: "support", label: "Support Tickets", icon: "🎫", group: "Insights" },
   { id: "audit", label: "Audit Logs", icon: "📝", group: "Security" },
+  { id: "system", label: "System Center", icon: "🛡️", group: "Security" },
   { id: "settings", label: "Admin Settings", icon: "⚙️", group: "Security" },
 ];
 
@@ -209,6 +239,8 @@ export default function Admin() {
   const [supportStatusFilter, setSupportStatusFilter] = useState<"all" | AdminSupportTicket["status"]>("all");
   const [selectedTicketId, setSelectedTicketId] = useState<string | null>(null);
   const [auditSearch, setAuditSearch] = useState("");
+  const [systemSettings, setSystemSettings] = useState<AdminSystemSettings>(DEFAULT_SYSTEM_SETTINGS);
+  const [savingSystem, setSavingSystem] = useState(false);
 
   const isAdmin = user?.email?.toLowerCase() === ADMIN_EMAIL.toLowerCase();
 
@@ -263,6 +295,15 @@ export default function Admin() {
       setFinance((financeRes.data as AdminFinanceEntry[]) ?? []);
       setAuditLogs((auditRes.data as AdminAuditLog[]) ?? []);
       setSupportTickets((supportRes.data as AdminSupportTicket[]) ?? []);
+
+      const systemRes = await supabase
+        .from("admin_system_settings")
+        .select("value")
+        .eq("key", "platform")
+        .maybeSingle();
+      if (!systemRes.error && systemRes.data?.value) {
+        setSystemSettings({ ...DEFAULT_SYSTEM_SETTINGS, ...(systemRes.data.value as Partial<AdminSystemSettings>) });
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load admin data");
     } finally {
@@ -799,6 +840,25 @@ export default function Admin() {
     await logAction("delete_finance_entry", "admin_finance_entries", entry.id, { title: entry.title, amount: entry.amount });
     setNotice("Finance entry deleted.");
     await load();
+  }
+
+  async function saveSystemSettings() {
+    setSavingSystem(true);
+    setError(null);
+    setNotice(null);
+    const payload = { key: "platform", value: systemSettings, updated_by: user?.id ?? null, updated_at: new Date().toISOString() };
+    const { error: saveError } = await supabase.from("admin_system_settings").upsert(payload, { onConflict: "key" });
+    setSavingSystem(false);
+    if (saveError) {
+      setError(saveError.message + " — Supabase SQL migration 20260708120000_admin_system_center.sql run karo.");
+      return;
+    }
+    await logAction("update_system_settings", "admin_system_settings", "platform", systemSettings as unknown as Record<string, unknown>);
+    setNotice("System settings saved.");
+  }
+
+  function updateSystemSetting<K extends keyof AdminSystemSettings>(key: K, value: AdminSystemSettings[K]) {
+    setSystemSettings((current) => ({ ...current, [key]: value }));
   }
 
   const groupedSections = sections.reduce<Record<string, typeof sections>>((acc, item) => {
@@ -1809,8 +1869,93 @@ export default function Admin() {
             </Card>
           </section>
         )}
+        {active === "system" && (
+          <section className="space-y-6">
+            <SectionHeader title="System Center" subtitle="Maintenance mode, feature flags, permissions aur security controls" />
+            <div className="grid md:grid-cols-2 xl:grid-cols-4 gap-4">
+              <Metric title="DB Tables" value="12+" icon="🗄️" />
+              <Metric title="Edge Functions" value="2" icon="⚡" />
+              <Metric title="Admin Logs" value={String(auditLogs.length)} icon="📝" />
+              <Metric title="Security" value={systemSettings.security_level} icon="🛡️" />
+            </div>
+
+            <div className="grid xl:grid-cols-2 gap-6">
+              <Card className="p-5 space-y-4">
+                <div>
+                  <h2 className="text-lg font-semibold text-slate-900">Maintenance Mode</h2>
+                  <p className="text-sm text-slate-500">Emergency me public site ko pause karne ke liye.</p>
+                </div>
+                <label className="flex items-center justify-between gap-3 rounded-xl border border-slate-100 p-4">
+                  <span><span className="font-medium text-slate-900">Enable maintenance</span><span className="block text-sm text-slate-500">Users ko maintenance message dikhega.</span></span>
+                  <input type="checkbox" checked={systemSettings.maintenance_mode} onChange={(e) => updateSystemSetting("maintenance_mode", e.target.checked)} />
+                </label>
+                <textarea className="input min-h-24" value={systemSettings.maintenance_message} onChange={(e) => updateSystemSetting("maintenance_message", e.target.value)} />
+                <label className="flex items-center gap-2 text-sm text-slate-700"><input type="checkbox" checked={systemSettings.allow_admin_bypass} onChange={(e) => updateSystemSetting("allow_admin_bypass", e.target.checked)} /> Allow owner/admin bypass</label>
+              </Card>
+
+              <Card className="p-5 space-y-4">
+                <div>
+                  <h2 className="text-lg font-semibold text-slate-900">Feature Flags</h2>
+                  <p className="text-sm text-slate-500">Future releases ko safely ON/OFF karo.</p>
+                </div>
+                <div className="grid sm:grid-cols-2 gap-3">
+                  {[
+                    ["public_signup", "Public Signup"],
+                    ["invoice_sharing", "Invoice Sharing"],
+                    ["credits_system", "Credits System"],
+                    ["team_portal", "Team Portal"],
+                    ["ai_insights", "AI Insights"],
+                    ["ads_enabled", "Ads Enabled"],
+                  ].map(([key, label]) => (
+                    <label key={key} className="flex items-center justify-between gap-3 rounded-xl border border-slate-100 p-3 text-sm font-medium text-slate-700">
+                      {label}
+                      <input type="checkbox" checked={Boolean(systemSettings[key as keyof AdminSystemSettings])} onChange={(e) => updateSystemSetting(key as keyof AdminSystemSettings, e.target.checked as never)} />
+                    </label>
+                  ))}
+                </div>
+              </Card>
+            </div>
+
+            <div className="grid xl:grid-cols-[1.2fr_0.8fr] gap-6">
+              <Card className="p-5">
+                <h2 className="text-lg font-semibold text-slate-900 mb-4">Role & Permission Matrix</h2>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead><tr className="border-b border-slate-100 bg-slate-50"><th className="text-left px-4 py-3">Role</th><th className="text-left px-4 py-3">Access</th><th className="text-left px-4 py-3">Risk</th></tr></thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {Object.entries(roleAccess).map(([role, access]) => (
+                        <tr key={role}>
+                          <td className="px-4 py-3 font-semibold text-slate-900">{roleLabels[role as AdminTeamMember["role"]]}</td>
+                          <td className="px-4 py-3 text-slate-600">{access.join(", ")}</td>
+                          <td className="px-4 py-3"><Pill className={role === "full_access" ? statusClass("urgent") : role === "finance" ? statusClass("pending") : statusClass("closed")}>{role === "full_access" ? "High" : role === "finance" ? "Medium" : "Low"}</Pill></td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </Card>
+
+              <Card className="p-5 space-y-4">
+                <h2 className="text-lg font-semibold text-slate-900">Security Controls</h2>
+                <select className="input" value={systemSettings.security_level} onChange={(e) => updateSystemSetting("security_level", e.target.value as AdminSystemSettings["security_level"])}>
+                  <option value="standard">Standard</option>
+                  <option value="strict">Strict</option>
+                  <option value="locked">Locked</option>
+                </select>
+                <input className="input" value={systemSettings.default_currency} onChange={(e) => updateSystemSetting("default_currency", e.target.value.toUpperCase())} placeholder="Default currency" />
+                <div className="rounded-xl bg-slate-50 border border-slate-100 p-4 text-sm text-slate-600 space-y-2">
+                  <p><strong>Owner:</strong> {ADMIN_EMAIL}</p>
+                  <p><strong>Reserved signup:</strong> active</p>
+                  <p><strong>Audit logging:</strong> enabled</p>
+                  <p><strong>RLS:</strong> admin policies required</p>
+                </div>
+                <button className="btn-primary w-full" onClick={saveSystemSettings} disabled={savingSystem}>{savingSystem ? "Saving..." : "Save System Settings"}</button>
+              </Card>
+            </div>
+          </section>
+        )}
         {active === "settings" && (
-          <Placeholder title="Admin Settings" subtitle="Owner email, permissions aur platform controls" items={[`Owner admin: ${ADMIN_EMAIL}`, "Reserved admin email signup block active", "Team roles: Full Access, Limited, Support, Finance, Viewer", "Future: Razorpay/Stripe keys, ads settings, plan limits"]} />
+          <Placeholder title="Admin Settings" subtitle="Owner email, permissions aur platform controls" items={[`Owner admin: ${ADMIN_EMAIL}`, "System Center added for maintenance, flags and security", "Team roles: Full Access, Limited, Support, Finance, Viewer", "Next: production audit and bug fixing"]} />
         )}
       </main>
     </div>
