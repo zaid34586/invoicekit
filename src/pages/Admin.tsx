@@ -556,6 +556,18 @@ export default function Admin() {
     return { visible, income, expenses, pending, todayRevenue, monthlyRevenue, subscriptionRevenue, adsRevenue, net: income - expenses, trend };
   }, [finance, financeRange, financeSearch, financeSourceFilter, financeStatusFilter]);
 
+  const financeCommand = useMemo(() => {
+    const grossRevenue = financeReport.income;
+    const gatewayFee = grossRevenue * 0.02;
+    const estimatedTax = Math.max(0, grossRevenue - financeReport.expenses - gatewayFee) * 0.18;
+    const operatingCost = financeReport.expenses;
+    const netSettlement = grossRevenue - gatewayFee - estimatedTax - operatingCost;
+    const pendingPayout = financeReport.pending;
+    const manualRevenue = Math.max(0, grossRevenue - financeReport.subscriptionRevenue - financeReport.adsRevenue);
+
+    return { grossRevenue, gatewayFee, estimatedTax, operatingCost, netSettlement, pendingPayout, manualRevenue };
+  }, [financeReport]);
+
 
   if (loading) {
     return (
@@ -1764,21 +1776,43 @@ export default function Admin() {
 
         {active === "finance" && (
           <section className="space-y-6">
-            <SectionHeader title="Revenue & Finance" subtitle="Revenue, ads income, expenses, receivables, balance aur reports track karo" />
+            <SectionHeader title="Revenue & Finance Command Center" subtitle="Track gross revenue, gateway fees, tax, expenses, pending payouts and real net settlement." />
             <div className="grid grid-cols-2 xl:grid-cols-6 gap-4">
-              <Metric title="Total Revenue" value={formatMoney(financeReport.income, "INR")} icon="💰" />
+              <Metric title="Gross Revenue" value={formatMoney(financeReport.income, "INR")} icon="💰" />
               <Metric title="This Month" value={formatMoney(financeReport.monthlyRevenue, "INR")} icon="📅" />
               <Metric title="Today" value={formatMoney(financeReport.todayRevenue, "INR")} icon="📈" />
-              <Metric title="Pending" value={formatMoney(financeReport.pending, "INR")} icon="⏳" />
-              <Metric title="Expenses" value={formatMoney(financeReport.expenses, "INR")} icon="💸" />
-              <Metric title="Net Profit" value={formatMoney(financeReport.net, "INR")} icon="🏦" />
+              <Metric title="Pending Payout" value={formatMoney(financeCommand.pendingPayout, "INR")} icon="⏳" />
+              <Metric title="Total Expenses" value={formatMoney(financeCommand.operatingCost, "INR")} icon="💸" />
+              <Metric title="Net Settlement" value={formatMoney(financeCommand.netSettlement, "INR")} icon="🏦" />
             </div>
+
+            <Card className="p-5 bg-gradient-to-br from-slate-950 via-slate-900 to-slate-800 text-white border-0 shadow-xl">
+              <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-5">
+                <div>
+                  <p className="text-xs uppercase tracking-[0.2em] text-slate-300 font-semibold">Finance Command Center</p>
+                  <h2 className="mt-2 text-2xl font-bold">Revenue, deductions and settlement view</h2>
+                  <p className="mt-2 text-sm text-slate-300 max-w-2xl">Use this panel to understand where money comes from and how much remains after gateway fees, tax estimates and operating costs.</p>
+                </div>
+                <div className="rounded-2xl bg-white/10 border border-white/10 p-4 min-w-[240px]">
+                  <p className="text-sm text-slate-300">Estimated amount credited</p>
+                  <p className="text-3xl font-black mt-1">{formatMoney(financeCommand.netSettlement, "INR")}</p>
+                  <p className="text-xs text-slate-400 mt-1">Gateway/tax percentages are estimates until Razorpay/Stripe integration is live.</p>
+                </div>
+              </div>
+              <div className="grid md:grid-cols-5 gap-3 mt-6">
+                <div className="rounded-xl bg-white/10 border border-white/10 p-4"><p className="text-xs text-slate-300">Gross</p><p className="font-bold text-lg">{formatMoney(financeCommand.grossRevenue, "INR")}</p></div>
+                <div className="rounded-xl bg-white/10 border border-white/10 p-4"><p className="text-xs text-slate-300">Gateway Fee</p><p className="font-bold text-lg">-{formatMoney(financeCommand.gatewayFee, "INR")}</p></div>
+                <div className="rounded-xl bg-white/10 border border-white/10 p-4"><p className="text-xs text-slate-300">Estimated Tax</p><p className="font-bold text-lg">-{formatMoney(financeCommand.estimatedTax, "INR")}</p></div>
+                <div className="rounded-xl bg-white/10 border border-white/10 p-4"><p className="text-xs text-slate-300">Operating Cost</p><p className="font-bold text-lg">-{formatMoney(financeCommand.operatingCost, "INR")}</p></div>
+                <div className="rounded-xl bg-emerald-400/20 border border-emerald-300/20 p-4"><p className="text-xs text-emerald-100">Net</p><p className="font-bold text-lg">{formatMoney(financeCommand.netSettlement, "INR")}</p></div>
+              </div>
+            </Card>
 
             <div className="grid xl:grid-cols-[420px_1fr] gap-6">
               <div className="space-y-6">
                 <Card className="p-5 h-fit">
                   <h2 className="text-lg font-semibold text-slate-900 mb-1">Add Finance Entry</h2>
-                  <p className="text-sm text-slate-500 mb-4">Subscription, ads, manual income, expenses aur pending payments add karo.</p>
+                  <p className="text-sm text-slate-500 mb-4">Add subscriptions, ads revenue, manual income, expenses and pending receivables.</p>
                   <form onSubmit={handleAddFinance} className="space-y-3">
                     <input className="input" type="date" value={financeForm.entry_date} onChange={(e) => setFinanceForm({ ...financeForm, entry_date: e.target.value })} />
                     <input className="input" required placeholder="Title e.g. July Pro Subscription" value={financeForm.title} onChange={(e) => setFinanceForm({ ...financeForm, title: e.target.value })} />
@@ -1856,7 +1890,7 @@ export default function Admin() {
                     <div className="flex flex-col xl:flex-row xl:items-center xl:justify-between gap-3">
                       <div>
                         <h2 className="text-lg font-semibold text-slate-900">Finance Ledger</h2>
-                        <p className="text-sm text-slate-500">Income, expense, ads aur pending entries manage karo.</p>
+                        <p className="text-sm text-slate-500">Manage income, expenses, ads revenue and pending entries.</p>
                       </div>
                       <div className="grid sm:grid-cols-4 gap-2 xl:w-[720px]">
                         <input className="input" placeholder="Search ledger..." value={financeSearch} onChange={(e) => setFinanceSearch(e.target.value)} />
@@ -1933,7 +1967,7 @@ export default function Admin() {
         {active === "analytics" && (
           <section className="space-y-6">
             <div className="flex flex-col lg:flex-row gap-3 lg:items-end lg:justify-between">
-              <SectionHeader title="Analytics & AI Insights" subtitle="Business health, growth, revenue trends aur automatic insights" />
+              <SectionHeader title="Analytics & Business Intelligence" subtitle="Growth, revenue trends, customer mix, traffic readiness and business health insights." />
               <div className="flex gap-2 flex-wrap">
                 <button className="btn-secondary" onClick={() => exportCsv(analytics.customerRevenue as unknown as Record<string, unknown>[], "top-customers-report.csv")}>Export Customers</button>
                 <button className="btn-secondary" onClick={() => exportCsv(analytics.insights as unknown as Record<string, unknown>[], "ai-insights-report.csv")}>Export Insights</button>
@@ -1945,6 +1979,13 @@ export default function Admin() {
               <Metric title="Net Profit" value={formatMoney(analytics.netProfit, "INR")} icon="📈" />
               <Metric title="Active Users" value={String(analytics.activeUsers)} icon="✅" />
               <Metric title="Pro Conversion" value={`${analytics.conversionRate.toFixed(1)}%`} icon="⭐" />
+            </div>
+
+            <div className="grid lg:grid-cols-4 gap-4">
+              <Card className="p-5"><p className="text-xs font-semibold uppercase text-slate-400">Subscription Revenue</p><p className="text-2xl font-black text-slate-900 mt-1">{formatMoney(financeReport.subscriptionRevenue, "INR")}</p><p className="text-xs text-slate-500 mt-2">Revenue source: paid plans and manual subscription entries.</p></Card>
+              <Card className="p-5"><p className="text-xs font-semibold uppercase text-slate-400">Ads Revenue</p><p className="text-2xl font-black text-slate-900 mt-1">{formatMoney(financeReport.adsRevenue, "INR")}</p><p className="text-xs text-slate-500 mt-2">Track ad network income separately from subscriptions.</p></Card>
+              <Card className="p-5"><p className="text-xs font-semibold uppercase text-slate-400">Direct / Manual Revenue</p><p className="text-2xl font-black text-slate-900 mt-1">{formatMoney(financeCommand.manualRevenue, "INR")}</p><p className="text-xs text-slate-500 mt-2">Manual payments, invoice income and other sources.</p></Card>
+              <Card className="p-5"><p className="text-xs font-semibold uppercase text-slate-400">Traffic Tracking</p><p className="text-2xl font-black text-slate-900 mt-1">Ready</p><p className="text-xs text-slate-500 mt-2">Connect analytics events later for organic, ads, direct and referral traffic.</p></Card>
             </div>
 
             <div className="grid xl:grid-cols-[1.2fr_0.8fr] gap-6">
