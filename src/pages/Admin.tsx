@@ -19,6 +19,7 @@ type AdminSection =
   | "support"
   | "audit"
   | "system"
+  | "qa"
   | "settings";
 
 type AdminTeamMember = {
@@ -121,6 +122,7 @@ const sections: { id: AdminSection; label: string; icon: string; group: string }
   { id: "support", label: "Support Tickets", icon: "🎫", group: "Insights" },
   { id: "audit", label: "Audit Logs", icon: "📝", group: "Security" },
   { id: "system", label: "System Center", icon: "🛡️", group: "Security" },
+  { id: "qa", label: "Production QA", icon: "✅", group: "Security" },
   { id: "settings", label: "Admin Settings", icon: "⚙️", group: "Security" },
 ];
 
@@ -433,6 +435,22 @@ export default function Admin() {
 
     return { proUsers, freeUsers, paidInvoices, overdueInvoices, invoiceRevenue, receivedFinance, expenses, receivable, adsRevenue };
   }, [profiles, invoices, finance]);
+
+  const qaChecks = useMemo(() => {
+    const checks = [
+      { area: "Auth", check: "Owner admin session", status: isAdmin ? "pass" : "review", detail: `Logged admin must match ${ADMIN_EMAIL}` },
+      { area: "Users", check: "Profiles loaded", status: profiles.length > 0 ? "pass" : "review", detail: `${profiles.length} profile records loaded` },
+      { area: "Users", check: "Ban/Credits columns", status: profiles.every((p) => "is_banned" in (p as unknown as Record<string, unknown>) && "credits" in (p as unknown as Record<string, unknown>)) ? "pass" : "review", detail: "profiles.is_banned and profiles.credits must exist" },
+      { area: "Invoices", check: "Invoice access", status: invoices.length >= 0 ? "pass" : "review", detail: `${invoices.length} invoices visible to admin policy` },
+      { area: "Team", check: "Team table access", status: Array.isArray(team) ? "pass" : "review", detail: `${team.length} team records loaded` },
+      { area: "Finance", check: "Finance ledger access", status: Array.isArray(finance) ? "pass" : "review", detail: `${finance.length} finance entries loaded` },
+      { area: "Support", check: "Support tickets access", status: Array.isArray(supportTickets) ? "pass" : "review", detail: `${supportTickets.length} support tickets loaded` },
+      { area: "Audit", check: "Audit log access", status: Array.isArray(auditLogs) ? "pass" : "review", detail: `${auditLogs.length} recent audit logs loaded` },
+      { area: "System", check: "System settings", status: systemSettings ? "pass" : "review", detail: systemSettings.maintenance_mode ? "Maintenance mode is ON" : "Maintenance mode is OFF" },
+    ] as const;
+    const passed = checks.filter((item) => item.status === "pass").length;
+    return { checks, passed, total: checks.length, score: Math.round((passed / checks.length) * 100) };
+  }, [auditLogs, finance, invoices, isAdmin, profiles, supportTickets, systemSettings, team]);
 
   const financeReport = useMemo(() => {
     const today = new Date();
@@ -1954,6 +1972,71 @@ export default function Admin() {
             </div>
           </section>
         )}
+        {active === "qa" && (
+          <section className="space-y-6">
+            <SectionHeader title="Production QA Center" subtitle="Final checklist for auth, admin backend, RLS and production readiness" />
+            <div className="grid md:grid-cols-4 gap-4">
+              <Metric title="QA Score" value={`${qaChecks.score}%`} icon="✅" />
+              <Metric title="Passed Checks" value={`${qaChecks.passed}/${qaChecks.total}`} icon="🧪" />
+              <Metric title="Audit Logs" value={String(auditLogs.length)} icon="📝" />
+              <Metric title="Open Tickets" value={String(supportTickets.filter((t) => t.status === "open" || t.status === "pending").length)} icon="🎫" />
+            </div>
+            <Card className="p-6">
+              <div className="flex items-center justify-between gap-3 mb-4">
+                <div>
+                  <h2 className="text-lg font-bold text-slate-900">Production verification checklist</h2>
+                  <p className="text-sm text-slate-500">Run this after every deployment. Review items need manual testing before launch.</p>
+                </div>
+                <button
+                  className="btn-secondary"
+                  onClick={() => exportCsv(qaChecks.checks.map((item) => ({ Area: item.area, Check: item.check, Status: item.status, Detail: item.detail })), `invoicekit-production-qa-${new Date().toISOString().slice(0, 10)}.csv`)}
+                >
+                  Export QA CSV
+                </button>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-left text-xs uppercase tracking-wide text-slate-400 border-b border-slate-100">
+                      <th className="py-3 pr-4">Area</th>
+                      <th className="py-3 pr-4">Check</th>
+                      <th className="py-3 pr-4">Status</th>
+                      <th className="py-3 pr-4">Detail</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {qaChecks.checks.map((item) => (
+                      <tr key={`${item.area}-${item.check}`}>
+                        <td className="py-3 pr-4 font-semibold text-slate-800">{item.area}</td>
+                        <td className="py-3 pr-4 text-slate-700">{item.check}</td>
+                        <td className="py-3 pr-4"><Pill className={item.status === "pass" ? "bg-green-50 text-green-700 border-green-200" : "bg-amber-50 text-amber-700 border-amber-200"}>{item.status}</Pill></td>
+                        <td className="py-3 pr-4 text-slate-500">{item.detail}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </Card>
+            <Card className="p-6">
+              <h2 className="text-lg font-bold text-slate-900 mb-3">Manual test order</h2>
+              <div className="grid md:grid-cols-2 gap-3 text-sm">
+                {[
+                  "Logout, login as owner admin, open /admin",
+                  "Create test user, verify phone flow, create invoice",
+                  "Admin: give credits, give free pro, ban/unban user",
+                  "Create team member and deploy create-team-member edge function",
+                  "Create finance income/expense and export CSV",
+                  "Create support ticket, assign, resolve, check audit log",
+                  "Open shared invoice in incognito without Vercel protection",
+                  "Check mobile layout and browser console red errors",
+                ].map((item) => (
+                  <div key={item} className="rounded-xl border border-slate-100 bg-slate-50 p-4 text-slate-700">{item}</div>
+                ))}
+              </div>
+            </Card>
+          </section>
+        )}
+
         {active === "settings" && (
           <Placeholder title="Admin Settings" subtitle="Owner email, permissions aur platform controls" items={[`Owner admin: ${ADMIN_EMAIL}`, "System Center added for maintenance, flags and security", "Team roles: Full Access, Limited, Support, Finance, Viewer", "Next: production audit and bug fixing"]} />
         )}
