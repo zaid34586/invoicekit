@@ -2032,63 +2032,102 @@ export default function Admin() {
         )}
         {active === "support" && (
           <section className="space-y-6">
-            <SectionHeader title="Support Center" subtitle="Tickets create, assign, resolve aur track karo" />
+            <SectionHeader title="Support Command Center" subtitle="Manage customer issues, assign agents, track priority, and close tickets from one professional workspace." />
             <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
-              <Metric title="Open" value={String(supportTickets.filter((t) => t.status === "open").length)} icon="🎫" />
-              <Metric title="Pending" value={String(supportTickets.filter((t) => t.status === "pending").length)} icon="⏳" />
+              <Metric title="Open Tickets" value={String(supportTickets.filter((t) => t.status === "open").length)} icon="🎫" />
+              <Metric title="Pending Review" value={String(supportTickets.filter((t) => t.status === "pending").length)} icon="⏳" />
               <Metric title="Resolved" value={String(supportTickets.filter((t) => t.status === "resolved").length)} icon="✅" />
               <Metric title="Urgent" value={String(supportTickets.filter((t) => t.priority === "urgent").length)} icon="🚨" />
             </div>
+
             <div className="grid xl:grid-cols-[420px_1fr] gap-6">
-              <Card className="p-5 h-fit">
-                <h2 className="text-lg font-semibold text-slate-900 mb-4">Create Ticket</h2>
-                <form onSubmit={handleCreateSupportTicket} className="space-y-3">
-                  <select className="input" value={supportForm.user_id} onChange={(e) => setSupportForm({ ...supportForm, user_id: e.target.value })}>
-                    <option value="">No user selected</option>{profiles.map((p) => <option key={p.id} value={p.id}>{p.business_name || p.email || p.id}</option>)}
-                  </select>
-                  <input className="input" required placeholder="Subject" value={supportForm.subject} onChange={(e) => setSupportForm({ ...supportForm, subject: e.target.value })} />
-                  <textarea className="input min-h-24" placeholder="User message / issue" value={supportForm.message} onChange={(e) => setSupportForm({ ...supportForm, message: e.target.value })} />
-                  <div className="grid grid-cols-2 gap-2">
-                    <select className="input" value={supportForm.priority} onChange={(e) => setSupportForm({ ...supportForm, priority: e.target.value })}><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option><option value="urgent">Urgent</option></select>
-                    <select className="input" value={supportForm.assigned_to} onChange={(e) => setSupportForm({ ...supportForm, assigned_to: e.target.value })}><option value="">Unassigned</option>{supportAgents.map((m) => <option key={m.id} value={m.id}>{m.name || m.email}</option>)}</select>
+              <div className="space-y-6">
+                <Card className="p-5">
+                  <div className="flex items-start justify-between gap-3 mb-4">
+                    <div>
+                      <h2 className="text-lg font-semibold text-slate-900">Create Support Ticket</h2>
+                      <p className="text-sm text-slate-500">Use this only when a user issue is reported by email, chat, phone, or manual admin review.</p>
+                    </div>
+                    <span className="h-10 w-10 rounded-2xl bg-primary-50 text-primary-700 grid place-items-center">🎧</span>
                   </div>
-                  <textarea className="input min-h-20" placeholder="Internal notes" value={supportForm.internal_notes} onChange={(e) => setSupportForm({ ...supportForm, internal_notes: e.target.value })} />
-                  <button className="btn-primary w-full" type="submit">Create Ticket</button>
-                </form>
-              </Card>
+                  <form onSubmit={handleCreateSupportTicket} className="space-y-3">
+                    <select className="input" value={supportForm.user_id} onChange={(e) => setSupportForm({ ...supportForm, user_id: e.target.value })}>
+                      <option value="">Select customer (optional)</option>{profiles.map((p) => <option key={p.id} value={p.id}>{p.business_name || p.email || p.id}</option>)}
+                    </select>
+                    <input className="input" required placeholder="Issue subject" value={supportForm.subject} onChange={(e) => setSupportForm({ ...supportForm, subject: e.target.value })} />
+                    <textarea className="input min-h-28" placeholder="Describe the customer problem, error, request, or complaint" value={supportForm.message} onChange={(e) => setSupportForm({ ...supportForm, message: e.target.value })} />
+                    <div className="grid grid-cols-2 gap-2">
+                      <select className="input" value={supportForm.priority} onChange={(e) => setSupportForm({ ...supportForm, priority: e.target.value })}><option value="low">Low Priority</option><option value="medium">Medium Priority</option><option value="high">High Priority</option><option value="urgent">Urgent Priority</option></select>
+                      <select className="input" value={supportForm.assigned_to} onChange={(e) => setSupportForm({ ...supportForm, assigned_to: e.target.value })}><option value="">Assign later</option>{supportAgents.map((m) => <option key={m.id} value={m.id}>{m.name || m.email}</option>)}</select>
+                    </div>
+                    <textarea className="input min-h-20" placeholder="Private internal note for staff/admin only" value={supportForm.internal_notes} onChange={(e) => setSupportForm({ ...supportForm, internal_notes: e.target.value })} />
+                    <button className="btn-primary w-full" type="submit">Create Ticket</button>
+                  </form>
+                </Card>
+
+                <Card className="p-5">
+                  <h2 className="text-lg font-semibold text-slate-900 mb-4">Support Pipeline</h2>
+                  <div className="space-y-3">
+                    {["open", "pending", "resolved", "closed"].map((status) => {
+                      const count = supportTickets.filter((t) => t.status === status).length;
+                      const total = Math.max(supportTickets.length, 1);
+                      return (
+                        <div key={status}>
+                          <div className="flex items-center justify-between text-sm mb-1"><span className="capitalize text-slate-600">{status}</span><span className="font-semibold text-slate-900">{count}</span></div>
+                          <div className="h-2 rounded-full bg-slate-100 overflow-hidden"><div className="h-full rounded-full bg-primary-500" style={{ width: `${Math.round((count / total) * 100)}%` }} /></div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </Card>
+              </div>
+
               <div className="space-y-6">
                 <Card>
-                  <div className="p-5 border-b border-slate-100 flex flex-col lg:flex-row gap-3 lg:items-center lg:justify-between">
-                    <h2 className="text-lg font-semibold text-slate-900">Ticket Inbox</h2>
+                  <div className="p-5 border-b border-slate-100 flex flex-col xl:flex-row gap-3 xl:items-center xl:justify-between">
+                    <div>
+                      <h2 className="text-lg font-semibold text-slate-900">Ticket Inbox</h2>
+                      <p className="text-sm text-slate-500">Search, assign, resolve, and export customer issues.</p>
+                    </div>
                     <div className="flex gap-2 flex-wrap">
-                      <input className="input lg:w-72" placeholder="Search tickets..." value={supportSearch} onChange={(e) => setSupportSearch(e.target.value)} />
+                      <input className="input lg:w-72" placeholder="Search subject or message..." value={supportSearch} onChange={(e) => setSupportSearch(e.target.value)} />
                       <select className="input w-40" value={supportStatusFilter} onChange={(e) => setSupportStatusFilter(e.target.value as typeof supportStatusFilter)}><option value="all">All Status</option><option value="open">Open</option><option value="pending">Pending</option><option value="resolved">Resolved</option><option value="closed">Closed</option></select>
                       <button className="btn-secondary" onClick={() => exportCsv(filteredSupportTickets as unknown as Record<string, unknown>[], "support-tickets.csv")}>Export CSV</button>
                     </div>
                   </div>
-                  <div className="divide-y divide-slate-100">
-                    {filteredSupportTickets.length === 0 ? <p className="p-8 text-center text-sm text-slate-500">No support tickets found.</p> : filteredSupportTickets.map((t) => (
-                      <button key={t.id} className={cx("w-full p-5 text-left flex items-center justify-between hover:bg-slate-50", selectedTicket?.id === t.id && "bg-primary-50/40")} onClick={() => setSelectedTicketId(t.id)}>
-                        <div><p className="font-medium text-slate-900">{t.subject}</p><p className="text-sm text-slate-500 line-clamp-1">{t.message || "No message"}</p><p className="text-xs text-slate-400 mt-1">{formatDate(t.created_at)}</p></div>
-                        <div className="flex gap-2"><Pill className={statusClass(t.priority)}>{t.priority}</Pill><Pill className={statusClass(t.status)}>{t.status}</Pill></div>
+                  <div className="divide-y divide-slate-100 max-h-[540px] overflow-y-auto">
+                    {filteredSupportTickets.length === 0 ? <div className="p-10 text-center"><div className="mx-auto h-14 w-14 rounded-2xl bg-slate-100 grid place-items-center text-2xl mb-3">🎫</div><p className="text-sm font-medium text-slate-700">No support tickets found</p><p className="text-xs text-slate-500 mt-1">New user issues will appear here once tickets are created.</p></div> : filteredSupportTickets.map((t) => (
+                      <button key={t.id} className={cx("w-full p-5 text-left hover:bg-slate-50 transition", selectedTicket?.id === t.id && "bg-primary-50/40")} onClick={() => setSelectedTicketId(t.id)}>
+                        <div className="flex items-start justify-between gap-4">
+                          <div className="min-w-0"><p className="font-semibold text-slate-900 truncate">{t.subject}</p><p className="text-sm text-slate-500 line-clamp-2 mt-1">{t.message || "No customer message provided."}</p><p className="text-xs text-slate-400 mt-2">Created {formatDate(t.created_at)}</p></div>
+                          <div className="flex gap-2 shrink-0"><Pill className={statusClass(t.priority)}>{t.priority}</Pill><Pill className={statusClass(t.status)}>{t.status}</Pill></div>
+                        </div>
                       </button>
                     ))}
                   </div>
                 </Card>
+
                 <Card className="p-5">
-                  <h2 className="text-lg font-semibold text-slate-900 mb-4">Ticket Detail</h2>
+                  <div className="flex items-center justify-between gap-3 mb-4">
+                    <h2 className="text-lg font-semibold text-slate-900">Ticket Detail</h2>
+                    {selectedTicket && <Pill className={statusClass(selectedTicket.status)}>{selectedTicket.status}</Pill>}
+                  </div>
                   {selectedTicket ? (
-                    <div className="space-y-4">
-                      <div className="flex items-start justify-between gap-3"><div><p className="text-xl font-bold text-slate-900">{selectedTicket.subject}</p><p className="text-sm text-slate-500">{selectedTicket.message || "No message"}</p></div><Pill className={statusClass(selectedTicket.status)}>{selectedTicket.status}</Pill></div>
-                      <div className="grid md:grid-cols-3 gap-3"><Info label="Priority" value={selectedTicket.priority} /><Info label="Created" value={formatDate(selectedTicket.created_at)} /><Info label="Assigned" value={team.find((m) => m.id === selectedTicket.assigned_to)?.name || team.find((m) => m.id === selectedTicket.assigned_to)?.email || "Unassigned"} /></div>
+                    <div className="space-y-5">
+                      <div className="rounded-2xl border border-slate-100 bg-slate-50 p-5"><p className="text-xl font-bold text-slate-900">{selectedTicket.subject}</p><p className="text-sm text-slate-600 mt-2 whitespace-pre-wrap">{selectedTicket.message || "No customer message provided."}</p></div>
+                      <div className="grid md:grid-cols-3 gap-3"><Info label="Priority" value={selectedTicket.priority} /><Info label="Created" value={formatDate(selectedTicket.created_at)} /><Info label="Assigned Agent" value={team.find((m) => m.id === selectedTicket.assigned_to)?.name || team.find((m) => m.id === selectedTicket.assigned_to)?.email || "Unassigned"} /></div>
                       <div className="grid md:grid-cols-2 gap-2">
                         <select className="input" value={selectedTicket.status} onChange={(e) => updateTicketStatus(selectedTicket, e.target.value as AdminSupportTicket["status"])}><option value="open">Open</option><option value="pending">Pending</option><option value="resolved">Resolved</option><option value="closed">Closed</option></select>
                         <select className="input" value={selectedTicket.assigned_to || ""} onChange={(e) => updateTicketAssignment(selectedTicket, e.target.value)}><option value="">Unassigned</option>{supportAgents.map((m) => <option key={m.id} value={m.id}>{m.name || m.email}</option>)}</select>
                       </div>
-                      {selectedTicket.internal_notes && <div className="rounded-xl bg-slate-50 border border-slate-100 p-4"><p className="text-xs text-slate-500 mb-1">Internal Notes</p><p className="text-sm text-slate-700 whitespace-pre-wrap">{selectedTicket.internal_notes}</p></div>}
-                      <button className="btn-danger" onClick={() => deleteTicket(selectedTicket)}>Delete Ticket</button>
+                      <div className="rounded-xl bg-amber-50 border border-amber-100 p-4"><p className="text-xs text-amber-700 font-semibold mb-1">Internal Notes</p><p className="text-sm text-amber-800 whitespace-pre-wrap">{selectedTicket.internal_notes || "No private note added yet."}</p></div>
+                      <div className="flex flex-wrap gap-2">
+                        <button className="btn-secondary" onClick={() => updateTicketStatus(selectedTicket, "resolved")}>Mark Resolved</button>
+                        <button className="btn-secondary" onClick={() => updateTicketStatus(selectedTicket, "closed")}>Close Ticket</button>
+                        <button className="btn-danger" onClick={() => deleteTicket(selectedTicket)}>Delete Ticket</button>
+                      </div>
                     </div>
-                  ) : <p className="text-sm text-slate-500">Select a ticket.</p>}
+                  ) : <p className="text-sm text-slate-500">Select a ticket to view details.</p>}
                 </Card>
               </div>
             </div>
