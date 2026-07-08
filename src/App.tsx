@@ -21,7 +21,11 @@ import Reports from "./pages/Reports";
 import Settings from "./pages/Settings";
 import Admin from "./pages/Admin";
 import AdminLogin from "./pages/AdminLogin";
+import StaffLogin from "./pages/StaffLogin";
+import StaffDashboard from "./pages/StaffDashboard";
 import AdminLayout from "./components/AdminLayout";
+import StaffLayout from "./components/StaffLayout";
+import StaffRoute from "./components/StaffRoute";
 import ShareInvoice from "./pages/ShareInvoice";
 import { ADMIN_EMAIL } from "./lib/constants";
 
@@ -262,6 +266,17 @@ export default function App() {
       {/* Deliberately not linked anywhere in the app UI — reached only by
           typing this exact URL. No signup exists for this account. */}
       <Route path="/admin/login" element={<AdminLogin />} />
+
+
+      <Route path="/staff/login" element={<StaffLogin />} />
+      <Route
+        path="/staff"
+        element={
+          <StaffRoute>
+            <StaffLayout><StaffDashboard /></StaffLayout>
+          </StaffRoute>
+        }
+      />
 
       <Route path="/share/:token" element={<ShareInvoice />} />
       <Route path="*" element={<Navigate to="/" replace />} />
