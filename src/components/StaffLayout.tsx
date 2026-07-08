@@ -13,6 +13,7 @@ export default function StaffLayout({ children }: { children: ReactNode }) {
   const { user, signOut } = useAuth();
   const navigate = useNavigate();
   const [staff, setStaff] = useState<StaffMember | null>(null);
+  const [unreadCount, setUnreadCount] = useState(0);
 
   useEffect(() => {
     async function loadStaff() {
@@ -23,7 +24,16 @@ export default function StaffLayout({ children }: { children: ReactNode }) {
         .select("id, auth_user_id, email, name, role, status, notes, created_at")
         .or(`auth_user_id.eq.${user.id},email.eq.${email}`)
         .maybeSingle();
-      if (data?.status === "active") setStaff(data as StaffMember);
+      if (data?.status === "active") {
+        const team = data as StaffMember;
+        setStaff(team);
+        const { count } = await supabase
+          .from("notifications")
+          .select("id", { count: "exact", head: true })
+          .is("read_at", null)
+          .or(`recipient_team_member_id.eq.${team.id},role.eq.${team.role},audience.eq.staff,audience.eq.all`);
+        setUnreadCount(count ?? 0);
+      }
     }
     loadStaff();
   }, [user]);
@@ -55,6 +65,10 @@ export default function StaffLayout({ children }: { children: ReactNode }) {
             <div className="text-xs text-slate-400">Role-based workspace</div>
           </div>
           <div className="flex items-center gap-4">
+            <a href="#notifications" className="relative text-sm rounded-xl border border-slate-700 px-3 py-2 text-slate-200 hover:text-white hover:border-slate-500">
+              🔔
+              {unreadCount > 0 && <span className="absolute -top-2 -right-2 min-w-5 h-5 rounded-full bg-red-500 text-white text-[10px] flex items-center justify-center px-1">{unreadCount}</span>}
+            </a>
             <div className="hidden sm:block text-right">
               <div className="text-sm font-semibold">{staff?.name || user?.email}</div>
               <div className="text-xs text-slate-400">{STAFF_ROLE_LABELS[role]}</div>

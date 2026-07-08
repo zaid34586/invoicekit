@@ -39,6 +39,15 @@ interface FinanceRow {
   title: string;
 }
 
+interface NotificationRow {
+  id: string;
+  title: string;
+  body: string | null;
+  type: string;
+  read_at: string | null;
+  created_at: string;
+}
+
 function Card({ title, value, icon, note }: { title: string; value: string | number; icon: string; note?: string }) {
   return (
     <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
@@ -59,6 +68,7 @@ export default function StaffDashboard() {
   const [tasks, setTasks] = useState<TaskRow[]>([]);
   const [tickets, setTickets] = useState<TicketRow[]>([]);
   const [finance, setFinance] = useState<FinanceRow[]>([]);
+  const [notifications, setNotifications] = useState<NotificationRow[]>([]);
   const [savingId, setSavingId] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [taskFilter, setTaskFilter] = useState("open");
@@ -99,6 +109,15 @@ export default function StaffDashboard() {
       setTickets((ticketData as TicketRow[]) ?? []);
     }
 
+    const { data: notificationData } = await supabase
+      .from("notifications")
+      .select("id, title, body, type, read_at, created_at")
+      .is("read_at", null)
+      .or(`recipient_team_member_id.eq.${team.id},role.eq.${team.role},audience.eq.staff,audience.eq.all`)
+      .order("created_at", { ascending: false })
+      .limit(10);
+    setNotifications((notificationData as NotificationRow[]) ?? []);
+
     if (hasStaffPermission(team.role, "finance")) {
       const { data: financeData } = await supabase
         .from("admin_finance_entries")
@@ -120,6 +139,21 @@ export default function StaffDashboard() {
     [finance]
   );
 
+  async function markNotificationRead(notificationId: string) {
+    await supabase.from("notifications").update({ read_at: new Date().toISOString() }).eq("id", notificationId);
+    await load();
+  }
+
+  async function markAllNotificationsRead() {
+    if (!staff) return;
+    await supabase
+      .from("notifications")
+      .update({ read_at: new Date().toISOString() })
+      .is("read_at", null)
+      .or(`recipient_team_member_id.eq.${staff.id},role.eq.${staff.role},audience.eq.staff,audience.eq.all`);
+    await load();
+  }
+
   async function updateTask(taskId: string, changes: Partial<TaskRow>) {
     setSavingId(taskId);
     setMessage(null);
@@ -135,6 +169,20 @@ export default function StaffDashboard() {
       setMessage(`Task update failed: ${error.message}`);
       return;
     }
+    await supabase.from("admin_audit_logs").insert({
+      actor_user_id: user?.id,
+      action: "staff_task_update",
+      target_type: "task",
+      target_id: taskId,
+      details: { changes, staff_email: user?.email },
+    });
+    await supabase.from("notifications").insert({
+      audience: "admin",
+      type: "task_update",
+      title: "Task updated by staff",
+      body: `${user?.email ?? "Staff"} updated a task.`,
+      metadata: { task_id: taskId, changes },
+    });
     setMessage("Task updated.");
     await load();
   }
@@ -154,6 +202,20 @@ export default function StaffDashboard() {
       setMessage(`Ticket update failed: ${error.message}`);
       return;
     }
+    await supabase.from("admin_audit_logs").insert({
+      actor_user_id: user?.id,
+      action: "staff_ticket_update",
+      target_type: "support_ticket",
+      target_id: ticketId,
+      details: { changes, staff_email: user?.email },
+    });
+    await supabase.from("notifications").insert({
+      audience: "admin",
+      type: "ticket_update",
+      title: "Ticket updated by staff",
+      body: `${user?.email ?? "Staff"} updated a support ticket.`,
+      metadata: { ticket_id: ticketId, changes },
+    });
     setMessage("Ticket updated.");
     await load();
   }
@@ -236,6 +298,32 @@ export default function StaffDashboard() {
           <Card title="Finance Access" value="Hidden" icon="🚫" note="Owner/admin controls this" />
         )}
       </div>
+
+      <section id="notifications" className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
+        <div className="p-5 border-b border-slate-100 flex items-center justify-between gap-3">
+          <div>
+            <h2 className="text-xl font-bold text-slate-950">Notifications</h2>
+            <p className="text-sm text-slate-500">Tasks, tickets and system updates for your role.</p>
+          </div>
+          {notifications.length > 0 && (
+            <button onClick={markAllNotificationsRead} className="text-sm font-semibold text-primary-700">Mark all read</button>
+          )}
+        </div>
+        <div className="divide-y divide-slate-100">
+          {notifications.length === 0 ? (
+            <div className="p-6 text-slate-500">No unread notifications.</div>
+          ) : notifications.map((notification) => (
+            <div key={notification.id} className="p-5 flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+              <div>
+                <div className="font-semibold text-slate-900">{notification.title}</div>
+                {notification.body && <div className="text-sm text-slate-500 mt-1">{notification.body}</div>}
+                <div className="text-xs text-slate-400 mt-1">{new Date(notification.created_at).toLocaleString()} • {notification.type.replace("_", " ")}</div>
+              </div>
+              <button onClick={() => markNotificationRead(notification.id)} className="rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">Mark read</button>
+            </div>
+          ))}
+        </div>
+      </section>
 
       {(dueTodayTasks > 0 || urgentTickets > 0) && (
         <section id="notifications" className="bg-amber-50 border border-amber-200 rounded-2xl p-5">
