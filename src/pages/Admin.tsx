@@ -93,6 +93,29 @@ function cx(...classes: Array<string | false | null | undefined>) {
   return classes.filter(Boolean).join(" ");
 }
 
+
+const roleLabels: Record<AdminTeamMember["role"], string> = {
+  full_access: "Full Access",
+  limited: "Limited",
+  support: "Support",
+  finance: "Finance",
+  viewer: "Viewer",
+};
+
+const roleAccess: Record<AdminTeamMember["role"], string[]> = {
+  full_access: ["Dashboard", "Users", "Credits", "Team", "Tasks", "Finance", "Invoices", "Analytics", "Support", "Audit", "Settings"],
+  limited: ["Dashboard", "Users", "Tasks"],
+  support: ["Users", "Support", "Tasks"],
+  finance: ["Finance", "Invoices", "Analytics"],
+  viewer: ["Dashboard", "Users", "Invoices", "Analytics"],
+};
+
+function generatePassword() {
+  const part = Math.random().toString(36).slice(2, 8);
+  const digits = Math.floor(1000 + Math.random() * 9000);
+  return `IK-${part}-${digits}`;
+}
+
 function statusClass(status: string) {
   const map: Record<string, string> = {
     active: "bg-green-50 text-green-700 border-green-200",
@@ -167,6 +190,9 @@ export default function Admin() {
   const [adminNotesDraft, setAdminNotesDraft] = useState("");
   const [invoiceSearch, setInvoiceSearch] = useState("");
   const [teamForm, setTeamForm] = useState({ name: "", email: "", password: "", role: "limited", notes: "" });
+  const [teamSearch, setTeamSearch] = useState("");
+  const [teamStatusFilter, setTeamStatusFilter] = useState<"all" | "active" | "disabled">("all");
+  const [selectedTeamId, setSelectedTeamId] = useState<string | null>(null);
   const [taskForm, setTaskForm] = useState({ title: "", description: "", assigned_to: "", priority: "medium", due_date: "" });
   const [financeForm, setFinanceForm] = useState(emptyFormFinance());
 
@@ -308,6 +334,26 @@ export default function Admin() {
         .some((value) => String(value).toLowerCase().includes(q))
     );
   }, [invoices, invoiceSearch]);
+
+  const filteredTeam = useMemo(() => {
+    const q = teamSearch.trim().toLowerCase();
+    return team.filter((member) => {
+      const matchesSearch = !q || [member.name, member.email, member.role, member.status, member.notes]
+        .filter(Boolean)
+        .some((value) => String(value).toLowerCase().includes(q));
+      const matchesStatus = teamStatusFilter === "all" || member.status === teamStatusFilter;
+      return matchesSearch && matchesStatus;
+    });
+  }, [team, teamSearch, teamStatusFilter]);
+
+  const selectedTeam = team.find((member) => member.id === selectedTeamId) ?? filteredTeam[0] ?? null;
+
+  const teamStats = useMemo(() => ({
+    total: team.length,
+    active: team.filter((m) => m.status === "active").length,
+    disabled: team.filter((m) => m.status === "disabled").length,
+    fullAccess: team.filter((m) => m.role === "full_access").length,
+  }), [team]);
 
   const metrics = useMemo(() => {
     const proUsers = profiles.filter((p) => p.is_pro || p.plan === "pro" || p.plan === "business").length;
@@ -511,6 +557,36 @@ export default function Admin() {
     const { error: updateError } = await supabase.from("admin_team_members").update({ status: next }).eq("id", member.id);
     if (updateError) return setError(updateError.message);
     await logAction("update_team_status", "admin_team_members", member.id, { status: next });
+    setNotice(`Team member ${next === "active" ? "enabled" : "disabled"}.`);
+    await load();
+  }
+
+  async function updateTeamRole(member: AdminTeamMember, role: AdminTeamMember["role"]) {
+    const { error: updateError } = await supabase.from("admin_team_members").update({ role }).eq("id", member.id);
+    if (updateError) return setError(updateError.message);
+    await logAction("update_team_role", "admin_team_members", member.id, { old_role: member.role, new_role: role });
+    setNotice("Team role updated.");
+    await load();
+  }
+
+  async function resetTeamTempPassword(member: AdminTeamMember) {
+    const password = window.prompt(`New temporary password for ${member.email}`, generatePassword());
+    if (!password || password.length < 6) return;
+    const { error: updateError } = await supabase.from("admin_team_members").update({ temporary_password: password }).eq("id", member.id);
+    if (updateError) return setError(updateError.message);
+    await logAction("reset_team_temp_password", "admin_team_members", member.id, { email: member.email });
+    setNotice("Temporary password saved in team record. Real Auth password reset ke liye Supabase Auth/Edge Function update needed hoga.");
+    await load();
+  }
+
+  async function deleteTeamMember(member: AdminTeamMember) {
+    const confirmText = window.prompt(`Delete team member ${member.email}? Confirm ke liye DELETE likho.`);
+    if (confirmText !== "DELETE") return;
+    const { error: deleteError } = await supabase.from("admin_team_members").delete().eq("id", member.id);
+    if (deleteError) return setError(deleteError.message);
+    await logAction("delete_team_member", "admin_team_members", member.id, { email: member.email });
+    setSelectedTeamId(null);
+    setNotice("Team member record deleted. Agar real Auth user bana tha to Supabase Authentication se disable/delete manually karo.");
     await load();
   }
 
@@ -876,26 +952,141 @@ export default function Admin() {
 
         {active === "team" && (
           <section className="space-y-6">
-            <SectionHeader title="Manage Team Members" subtitle="Team ke liye email/password create karo, role assign karo, access disable karo" />
-            <div className="grid xl:grid-cols-[420px_1fr] gap-6">
+            <SectionHeader title="Manage Team Members" subtitle="Team login, role, permission, status aur task workload control karo" />
+            <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
+              <Metric title="Total Members" value={String(teamStats.total)} icon="👨‍💼" />
+              <Metric title="Active" value={String(teamStats.active)} icon="✅" />
+              <Metric title="Disabled" value={String(teamStats.disabled)} icon="🚫" />
+              <Metric title="Full Access" value={String(teamStats.fullAccess)} icon="🔐" />
+            </div>
+
+            <div className="grid xl:grid-cols-[430px_1fr] gap-6">
               <Card className="p-5 h-fit">
-                <h2 className="text-lg font-semibold text-slate-900 mb-4">Create Team Login</h2>
+                <div className="flex items-start justify-between gap-3 mb-4">
+                  <div>
+                    <h2 className="text-lg font-semibold text-slate-900">Create Team Login</h2>
+                    <p className="text-sm text-slate-500">Email/password se team member record aur Supabase login create hoga.</p>
+                  </div>
+                </div>
                 <form onSubmit={handleAddTeam} className="space-y-3">
-                  <input className="input" placeholder="Name" value={teamForm.name} onChange={(e) => setTeamForm({ ...teamForm, name: e.target.value })} />
+                  <input className="input" placeholder="Full name" value={teamForm.name} onChange={(e) => setTeamForm({ ...teamForm, name: e.target.value })} />
                   <input className="input" type="email" placeholder="Email" value={teamForm.email} onChange={(e) => setTeamForm({ ...teamForm, email: e.target.value })} />
-                  <input className="input" type="text" placeholder="Temporary password" value={teamForm.password} onChange={(e) => setTeamForm({ ...teamForm, password: e.target.value })} />
+                  <div className="grid grid-cols-[1fr_auto] gap-2">
+                    <input className="input" type="text" placeholder="Temporary password" value={teamForm.password} onChange={(e) => setTeamForm({ ...teamForm, password: e.target.value })} />
+                    <button type="button" className="btn-secondary whitespace-nowrap" onClick={() => setTeamForm({ ...teamForm, password: generatePassword() })}>Generate</button>
+                  </div>
                   <select className="input" value={teamForm.role} onChange={(e) => setTeamForm({ ...teamForm, role: e.target.value })}>
-                    <option value="limited">Limited</option><option value="full_access">Full Access</option><option value="support">Support</option><option value="finance">Finance</option><option value="viewer">Viewer</option>
+                    <option value="limited">Limited</option>
+                    <option value="full_access">Full Access</option>
+                    <option value="support">Support</option>
+                    <option value="finance">Finance</option>
+                    <option value="viewer">Viewer</option>
                   </select>
-                  <textarea className="input min-h-24" placeholder="Notes" value={teamForm.notes} onChange={(e) => setTeamForm({ ...teamForm, notes: e.target.value })} />
+                  <div className="rounded-xl bg-slate-50 border border-slate-100 p-3">
+                    <p className="text-xs font-semibold text-slate-500 uppercase mb-2">Role Access Preview</p>
+                    <div className="flex flex-wrap gap-2">
+                      {roleAccess[teamForm.role as AdminTeamMember["role"]].map((item) => <Pill key={item} className="bg-white text-slate-700 border-slate-200">{item}</Pill>)}
+                    </div>
+                  </div>
+                  <textarea className="input min-h-24" placeholder="Notes / responsibility" value={teamForm.notes} onChange={(e) => setTeamForm({ ...teamForm, notes: e.target.value })} />
                   <button className="btn-primary w-full" type="submit">Create Team Member</button>
                 </form>
-                <p className="text-xs text-slate-500 mt-3">Real auth login ke liye Supabase Edge Function <b>create-team-member</b> deploy karna zaroori hai.</p>
+                <p className="text-xs text-slate-500 mt-3">Real auth login ke liye Supabase Edge Function <b>create-team-member</b> deploy hona chahiye. Function fail hua to safe fallback team record create karega.</p>
               </Card>
-              <Card>
-                <div className="p-5 border-b border-slate-100"><h2 className="text-lg font-semibold text-slate-900">Team Members</h2></div>
-                <div className="overflow-x-auto"><table className="w-full"><thead><tr className="border-b border-slate-100 bg-slate-50/50"><th className="text-left text-xs font-semibold text-slate-500 uppercase px-5 py-3">Member</th><th className="text-left text-xs font-semibold text-slate-500 uppercase px-5 py-3">Role</th><th className="text-left text-xs font-semibold text-slate-500 uppercase px-5 py-3">Status</th><th className="text-right text-xs font-semibold text-slate-500 uppercase px-5 py-3">Action</th></tr></thead><tbody className="divide-y divide-slate-100">{team.length === 0 ? <tr><td colSpan={4} className="p-8 text-center text-sm text-slate-500">No team members yet.</td></tr> : team.map((m) => <tr key={m.id}><td className="px-5 py-3.5"><p className="font-medium text-slate-900">{m.name || m.email}</p><p className="text-xs text-slate-500">{m.email}</p></td><td className="px-5 py-3.5"><Pill className="bg-slate-100 text-slate-600 border-slate-200">{m.role.replace("_", " ")}</Pill></td><td className="px-5 py-3.5"><Pill className={statusClass(m.status)}>{m.status}</Pill></td><td className="px-5 py-3.5 text-right"><button className="btn-secondary text-xs py-1.5 px-3" onClick={() => toggleTeamStatus(m)}>{m.status === "active" ? "Disable" : "Enable"}</button></td></tr>)}</tbody></table></div>
-              </Card>
+
+              <div className="space-y-6">
+                <Card>
+                  <div className="p-5 border-b border-slate-100 flex flex-col lg:flex-row gap-3 lg:items-center lg:justify-between">
+                    <div>
+                      <h2 className="text-lg font-semibold text-slate-900">Team Members</h2>
+                      <p className="text-sm text-slate-500">Search, role update, disable/enable, reset temp password.</p>
+                    </div>
+                    <div className="flex gap-2">
+                      <input className="input w-64" placeholder="Search member, email, role..." value={teamSearch} onChange={(e) => setTeamSearch(e.target.value)} />
+                      <select className="input w-36" value={teamStatusFilter} onChange={(e) => setTeamStatusFilter(e.target.value as "all" | "active" | "disabled")}>
+                        <option value="all">All</option>
+                        <option value="active">Active</option>
+                        <option value="disabled">Disabled</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full">
+                      <thead>
+                        <tr className="border-b border-slate-100 bg-slate-50/50">
+                          <th className="text-left text-xs font-semibold text-slate-500 uppercase px-5 py-3">Member</th>
+                          <th className="text-left text-xs font-semibold text-slate-500 uppercase px-5 py-3">Role</th>
+                          <th className="text-left text-xs font-semibold text-slate-500 uppercase px-5 py-3">Status</th>
+                          <th className="text-left text-xs font-semibold text-slate-500 uppercase px-5 py-3">Created</th>
+                          <th className="text-right text-xs font-semibold text-slate-500 uppercase px-5 py-3">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {filteredTeam.length === 0 ? (
+                          <tr><td colSpan={5} className="p-8 text-center text-sm text-slate-500">No team members found.</td></tr>
+                        ) : filteredTeam.map((m) => (
+                          <tr key={m.id} className={cx("hover:bg-slate-50/60 transition", selectedTeam?.id === m.id && "bg-primary-50/40")}>
+                            <td className="px-5 py-3.5">
+                              <button className="text-left" onClick={() => setSelectedTeamId(m.id)}>
+                                <p className="font-medium text-slate-900">{m.name || m.email}</p>
+                                <p className="text-xs text-slate-500">{m.email}</p>
+                              </button>
+                            </td>
+                            <td className="px-5 py-3.5">
+                              <select className="input text-xs py-1.5" value={m.role} onChange={(e) => updateTeamRole(m, e.target.value as AdminTeamMember["role"])}>
+                                <option value="limited">Limited</option>
+                                <option value="full_access">Full Access</option>
+                                <option value="support">Support</option>
+                                <option value="finance">Finance</option>
+                                <option value="viewer">Viewer</option>
+                              </select>
+                            </td>
+                            <td className="px-5 py-3.5"><Pill className={statusClass(m.status)}>{m.status}</Pill></td>
+                            <td className="px-5 py-3.5 text-sm text-slate-500">{formatDate(m.created_at)}</td>
+                            <td className="px-5 py-3.5 text-right space-x-2 whitespace-nowrap">
+                              <button className="btn-secondary text-xs py-1.5 px-3" onClick={() => setSelectedTeamId(m.id)}>Details</button>
+                              <button className="btn-secondary text-xs py-1.5 px-3" onClick={() => toggleTeamStatus(m)}>{m.status === "active" ? "Disable" : "Enable"}</button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </Card>
+
+                <Card className="p-5">
+                  <h2 className="text-lg font-semibold text-slate-900 mb-4">Team Member 360</h2>
+                  {selectedTeam ? (
+                    <div className="space-y-4">
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className="text-xl font-bold text-slate-900">{selectedTeam.name || selectedTeam.email}</p>
+                          <p className="text-sm text-slate-500">{selectedTeam.email}</p>
+                        </div>
+                        <Pill className={statusClass(selectedTeam.status)}>{selectedTeam.status}</Pill>
+                      </div>
+                      <div className="grid md:grid-cols-2 gap-3">
+                        <Info label="Role" value={roleLabels[selectedTeam.role]} />
+                        <Info label="Created" value={formatDate(selectedTeam.created_at)} />
+                        <Info label="Auth User" value={selectedTeam.auth_user_id ? "Created" : "Not linked"} />
+                        <Info label="Temp Password" value={selectedTeam.temporary_password || "—"} />
+                      </div>
+                      <div className="rounded-xl bg-slate-50 border border-slate-100 p-4">
+                        <p className="text-xs font-semibold text-slate-500 uppercase mb-2">Allowed Modules</p>
+                        <div className="flex flex-wrap gap-2">
+                          {roleAccess[selectedTeam.role].map((item) => <Pill key={item} className="bg-white text-slate-700 border-slate-200">{item}</Pill>)}
+                        </div>
+                      </div>
+                      {selectedTeam.notes && <div className="rounded-xl bg-slate-50 border border-slate-100 p-4"><p className="text-xs text-slate-500 mb-1">Notes</p><p className="text-sm text-slate-700 whitespace-pre-wrap">{selectedTeam.notes}</p></div>}
+                      <div className="grid md:grid-cols-3 gap-2">
+                        <button className="btn-secondary" onClick={() => resetTeamTempPassword(selectedTeam)}>Reset Temp Password</button>
+                        <button className="btn-secondary" onClick={() => toggleTeamStatus(selectedTeam)}>{selectedTeam.status === "active" ? "Disable Access" : "Enable Access"}</button>
+                        <button className="rounded-lg bg-red-50 text-red-700 border border-red-200 px-4 py-2 text-sm font-semibold hover:bg-red-100" onClick={() => deleteTeamMember(selectedTeam)}>Delete Record</button>
+                      </div>
+                    </div>
+                  ) : <p className="text-sm text-slate-500">Select a team member.</p>}
+                </Card>
+              </div>
             </div>
           </section>
         )}
