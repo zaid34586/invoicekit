@@ -351,10 +351,15 @@ export default function NewInvoice() {
     const availableCredits = Number(profile?.credits ?? 0);
 
     if (!profile?.is_pro) {
+      const monthStart = new Date();
+      monthStart.setDate(1);
+      monthStart.setHours(0, 0, 0, 0);
+
       const { count } = await supabase
         .from("invoices")
         .select("*", { count: "exact", head: true })
-        .eq("user_id", user.id);
+        .eq("user_id", user.id)
+        .gte("created_at", monthStart.toISOString());
 
       const usedFreeInvoices = count ?? 0;
       if (usedFreeInvoices >= FREE_PLAN_LIMIT) {

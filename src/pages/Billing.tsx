@@ -1,7 +1,9 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRegion } from "../context/RegionContext";
 import { INDIA_PLANS, GLOBAL_PLANS } from "../lib/pricing";
 import { useAuth } from "../context/AuthContext";
+import { supabase } from "../lib/supabase";
+import { FREE_PLAN_LIMIT } from "../lib/constants";
 
 // Placeholder billing history data
 const BILLING_HISTORY = [
@@ -209,7 +211,7 @@ function PricingCard({
 }
 
 export default function Billing() {
-  const { profile } = useAuth();
+  const { user, profile } = useAuth();
   const [paymentModalOpen, setPaymentModalOpen] = useState(false);
   const [confirmModal, setConfirmModal] = useState<{
     open: boolean;
@@ -226,7 +228,30 @@ const plans =
     ? INDIA_PLANS
     : GLOBAL_PLANS;
 
-  // Placeholder data for current plan
+const [invoicesThisMonth, setInvoicesThisMonth] = useState(0);
+
+useEffect(() => {
+  async function loadUsage() {
+    if (!user) return;
+    const monthStart = new Date();
+    monthStart.setDate(1);
+    monthStart.setHours(0, 0, 0, 0);
+
+    const { count } = await supabase
+      .from("invoices")
+      .select("*", { count: "exact", head: true })
+      .eq("user_id", user.id)
+      .gte("created_at", monthStart.toISOString());
+
+    setInvoicesThisMonth(count ?? 0);
+  }
+  loadUsage();
+}, [user]);
+
+const invoiceBalance = Number(profile?.credits ?? 0);
+const isUnlimited = profile?.plan !== "free" || profile?.is_pro;
+
+  // Current plan and invoice usage
   const planName =
   profile?.plan === "pro"
     ? "Pro"
@@ -240,12 +265,12 @@ const currentPlan = {
   renewalDate: profile?.plan_expires_at
     ? new Date(profile.plan_expires_at).toLocaleDateString("en-IN")
     : null,
-  invoicesUsed: 2,
-  invoicesLimit: profile?.plan === "free" ? 3 : 999999,
+  invoicesUsed: invoicesThisMonth,
+  invoicesLimit: isUnlimited ? 999999 : FREE_PLAN_LIMIT + invoiceBalance,
 };
 
-  const invoicesRemaining = currentPlan.invoicesLimit - currentPlan.invoicesUsed;
-  const usagePercentage = (currentPlan.invoicesUsed / currentPlan.invoicesLimit) * 100;
+  const invoicesRemaining = isUnlimited ? Number.POSITIVE_INFINITY : Math.max(0, currentPlan.invoicesLimit - currentPlan.invoicesUsed);
+  const usagePercentage = isUnlimited ? 0 : Math.min(100, (currentPlan.invoicesUsed / Math.max(currentPlan.invoicesLimit, 1)) * 100);
 
   function handleUpgrade(planName: string) {
     setConfirmModal({
@@ -341,7 +366,7 @@ const currentPlan = {
                 />
               </div>
               <span className="text-sm font-medium text-slate-700">
-                {currentPlan.invoicesUsed}/{currentPlan.invoicesLimit}
+                {isUnlimited ? "Unlimited" : `${currentPlan.invoicesUsed}/${currentPlan.invoicesLimit}`}
               </span>
             </div>
           </div>
@@ -350,7 +375,7 @@ const currentPlan = {
               Remaining
             </p>
             <p className="text-lg font-semibold text-slate-900">
-              {invoicesRemaining} invoices
+              {isUnlimited ? "Unlimited" : `${invoicesRemaining} invoices`}
             </p>
           </div>
         </div>

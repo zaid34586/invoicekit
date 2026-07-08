@@ -364,7 +364,11 @@ export default function Dashboard() {
   );
 
   const isPro = profile?.is_pro ?? false;
-  const remaining = Math.max(0, FREE_PLAN_LIMIT - invoicesThisMonth);
+  const invoiceBalance = Number(profile?.credits ?? 0);
+  const freeRemaining = Math.max(0, FREE_PLAN_LIMIT - invoicesThisMonth);
+  // Business rule: 1 invoice balance = 1 extra invoice after free monthly limit.
+  // Keep DB column `credits` for compatibility, but show it to users as invoices.
+  const remaining = isPro ? Number.POSITIVE_INFINITY : freeRemaining + invoiceBalance;
 
   // Get upcoming due invoices (next 7 days)
   const upcomingDue = invoices
@@ -973,10 +977,10 @@ export default function Dashboard() {
                 </span>
               </div>
               <h3 className="text-xl sm:text-2xl font-bold mb-2">
-                {remaining} invoice{remaining !== 1 ? "s" : ""} remaining this month
+                {remaining} invoice{remaining !== 1 ? "s" : ""} remaining
               </h3>
               <p className="text-primary-100 text-sm sm:text-base">
-                Upgrade to Pro for unlimited invoices, client management, and premium features.
+                Includes your monthly free invoices and any extra invoice balance added by admin.
               </p>
             </div>
             <Link

@@ -113,7 +113,7 @@ const DEFAULT_SYSTEM_SETTINGS: AdminSystemSettings = {
 const sections: { id: AdminSection; label: string; icon: string; group: string }[] = [
   { id: "dashboard", label: "Dashboard", icon: "📊", group: "Overview" },
   { id: "users", label: "Users", icon: "👥", group: "Users" },
-  { id: "credits", label: "Credits & Plans", icon: "💳", group: "Users" },
+  { id: "credits", label: "Invoice Balance & Plans", icon: "💳", group: "Users" },
   { id: "team", label: "Team Members", icon: "👨‍💼", group: "Operations" },
   { id: "tasks", label: "Tasks", icon: "📋", group: "Operations" },
   { id: "finance", label: "Revenue & Finance", icon: "💰", group: "Money" },
@@ -140,7 +140,7 @@ const roleLabels: Record<AdminTeamMember["role"], string> = {
 };
 
 const roleAccess: Record<AdminTeamMember["role"], string[]> = {
-  full_access: ["Dashboard", "Users", "Credits", "Team", "Tasks", "Finance", "Invoices", "Analytics", "Support", "Audit", "Settings"],
+  full_access: ["Dashboard", "Users", "Invoice Balance", "Team", "Tasks", "Finance", "Invoices", "Analytics", "Support", "Audit", "Settings"],
   limited: ["Dashboard", "Users", "Tasks"],
   support: ["Users", "Support", "Tasks"],
   finance: ["Finance", "Invoices", "Analytics"],
@@ -574,8 +574,8 @@ export default function Admin() {
   }
 
   async function handleResetCredits(profile: Profile) {
-    if (!window.confirm("Is user ke credits 0 karne hain?")) return;
-    await updateProfile(profile.id, { credits: 0 }, "reset_credits");
+    if (!window.confirm("Is user ka extra invoice balance 0 karna hai?")) return;
+    await updateProfile(profile.id, { credits: 0 }, "reset_invoice_balance");
   }
 
   async function handleRemoveFreePro(profile: Profile) {
@@ -602,7 +602,7 @@ export default function Admin() {
   }
 
   function exportUsersCsv() {
-    const headers = ["Business", "Email", "Country", "Phone", "GSTIN", "Plan", "Credits", "Banned", "Invoices", "Joined"];
+    const headers = ["Business", "Email", "Country", "Phone", "GSTIN", "Plan", "Invoice Balance", "Banned", "Invoices", "Joined"];
     const rows = paginatedProfiles.map((p) => {
       const authId = p.user_id || p.id;
       const values = [
@@ -678,10 +678,10 @@ export default function Admin() {
   }
 
   async function handleGiveCredits(profile: Profile) {
-    const amount = Number(window.prompt("Credits add karne ke liye number daalo", "10"));
+    const amount = Number(window.prompt("Extra invoices add karne ke liye number daalo", "10"));
     if (!Number.isFinite(amount) || amount <= 0) return;
     const current = Number((profile as unknown as { credits?: number }).credits ?? 0);
-    await updateProfile(profile.id, { credits: current + amount }, "give_credits");
+    await updateProfile(profile.id, { credits: current + amount }, "add_invoice_balance");
   }
 
   async function handleFreePro(profile: Profile) {
@@ -1196,7 +1196,7 @@ export default function Admin() {
 
         {active === "users" && (
           <section className="space-y-6">
-            <SectionHeader title="User Management" subtitle="Search, filter, full user 360 detail, ban/unban, credits, free Pro aur notes" />
+            <SectionHeader title="User Management" subtitle="Search, filter, full user 360 detail, ban/unban, invoice balance, free Pro aur notes" />
 
             <div className="grid grid-cols-2 xl:grid-cols-5 gap-4">
               <Metric title="Visible Users" value={String(filteredProfiles.length)} icon="👥" />
@@ -1228,7 +1228,7 @@ export default function Admin() {
                     <select className="input" value={userSort} onChange={(e) => setUserSort(e.target.value as typeof userSort)}>
                       <option value="newest">Newest first</option>
                       <option value="oldest">Oldest first</option>
-                      <option value="credits_high">Credits high to low</option>
+                      <option value="credits_high">Invoice balance high to low</option>
                       <option value="invoices_high">Invoices high to low</option>
                     </select>
                   </div>
@@ -1239,7 +1239,7 @@ export default function Admin() {
                       <tr className="border-b border-slate-100 bg-slate-50/50">
                         <th className="text-left text-xs font-semibold text-slate-500 uppercase px-5 py-3">Business</th>
                         <th className="text-left text-xs font-semibold text-slate-500 uppercase px-5 py-3">Plan</th>
-                        <th className="text-left text-xs font-semibold text-slate-500 uppercase px-5 py-3 hidden md:table-cell">Credits</th>
+                        <th className="text-left text-xs font-semibold text-slate-500 uppercase px-5 py-3 hidden md:table-cell">Invoice Balance</th>
                         <th className="text-left text-xs font-semibold text-slate-500 uppercase px-5 py-3 hidden lg:table-cell">Invoices</th>
                         <th className="text-left text-xs font-semibold text-slate-500 uppercase px-5 py-3 hidden xl:table-cell">Clients</th>
                         <th className="text-left text-xs font-semibold text-slate-500 uppercase px-5 py-3 hidden 2xl:table-cell">Joined</th>
@@ -1306,7 +1306,7 @@ export default function Admin() {
                       <Info label="Invoices" value={String(selectedUserInvoices.length)} />
                       <Info label="Clients" value={String(selectedUserClients.length)} />
                       <Info label="Revenue" value={formatMoney(selectedUserInvoiceRevenue, selectedUser.currency || "INR")} />
-                      <Info label="Credits" value={String(Number((selectedUser as unknown as { credits?: number }).credits ?? 0))} />
+                      <Info label="Invoice Balance" value={String(Number((selectedUser as unknown as { credits?: number }).credits ?? 0))} />
                       <Info label="Joined" value={formatDate(selectedUser.created_at)} />
                       <Info label="Free Pro Until" value={String((selectedUser as unknown as { free_pro_until?: string | null }).free_pro_until ? formatDate(String((selectedUser as unknown as { free_pro_until?: string }).free_pro_until)) : "—")} />
                     </div>
@@ -1318,8 +1318,8 @@ export default function Admin() {
                     )}
 
                     <div className="grid grid-cols-2 gap-2">
-                      <button className="btn-secondary" onClick={() => handleGiveCredits(selectedUser)}>Give Credits</button>
-                      <button className="btn-secondary" onClick={() => handleResetCredits(selectedUser)}>Reset Credits</button>
+                      <button className="btn-secondary" onClick={() => handleGiveCredits(selectedUser)}>Add Invoices</button>
+                      <button className="btn-secondary" onClick={() => handleResetCredits(selectedUser)}>Reset Balance</button>
                       <button className="btn-primary" onClick={() => handleFreePro(selectedUser)}>Give Free Pro</button>
                       <button className="btn-secondary" onClick={() => handleRemoveFreePro(selectedUser)}>Remove Pro</button>
                       <button className="btn-secondary col-span-2" onClick={() => handleResetUserPassword(selectedUser)}>Reset Login Password</button>
@@ -1393,14 +1393,14 @@ export default function Admin() {
 
         {active === "credits" && (
           <section className="space-y-6">
-            <SectionHeader title="Credits & Plans" subtitle="Manual credits, free Pro access aur plan override yahan se control karo" />
+            <SectionHeader title="Invoice Balance & Plans" subtitle="Manual invoice balance, free Pro access aur plan override yahan se control karo" />
             <Card>
               <div className="p-5 border-b border-slate-100"><h2 className="text-lg font-semibold text-slate-900">Quick Actions</h2></div>
               <div className="overflow-x-auto">
                 <table className="w-full">
-                  <thead><tr className="border-b border-slate-100 bg-slate-50/50"><th className="text-left text-xs font-semibold text-slate-500 uppercase px-5 py-3">User</th><th className="text-left text-xs font-semibold text-slate-500 uppercase px-5 py-3">Plan</th><th className="text-left text-xs font-semibold text-slate-500 uppercase px-5 py-3">Credits</th><th className="text-right text-xs font-semibold text-slate-500 uppercase px-5 py-3">Actions</th></tr></thead>
+                  <thead><tr className="border-b border-slate-100 bg-slate-50/50"><th className="text-left text-xs font-semibold text-slate-500 uppercase px-5 py-3">User</th><th className="text-left text-xs font-semibold text-slate-500 uppercase px-5 py-3">Plan</th><th className="text-left text-xs font-semibold text-slate-500 uppercase px-5 py-3">Invoice Balance</th><th className="text-right text-xs font-semibold text-slate-500 uppercase px-5 py-3">Actions</th></tr></thead>
                   <tbody className="divide-y divide-slate-100">
-                    {profiles.map((p) => <tr key={p.id}><td className="px-5 py-3.5"><p className="font-medium text-slate-900">{p.business_name || "Unnamed"}</p><p className="text-xs text-slate-500">{p.email}</p></td><td className="px-5 py-3.5"><Pill className={p.is_pro ? "bg-amber-50 text-amber-700 border-amber-200" : statusClass("closed")}>{p.is_pro ? "Pro" : "Free"}</Pill></td><td className="px-5 py-3.5 font-semibold">{Number((p as unknown as { credits?: number }).credits ?? 0)}</td><td className="px-5 py-3.5 text-right space-x-2"><button className="btn-secondary text-xs py-1.5 px-3" onClick={() => handleGiveCredits(p)}>Add Credits</button><button className="btn-primary text-xs py-1.5 px-3" onClick={() => handleFreePro(p)}>Give Free Pro</button></td></tr>)}
+                    {profiles.map((p) => <tr key={p.id}><td className="px-5 py-3.5"><p className="font-medium text-slate-900">{p.business_name || "Unnamed"}</p><p className="text-xs text-slate-500">{p.email}</p></td><td className="px-5 py-3.5"><Pill className={p.is_pro ? "bg-amber-50 text-amber-700 border-amber-200" : statusClass("closed")}>{p.is_pro ? "Pro" : "Free"}</Pill></td><td className="px-5 py-3.5 font-semibold">{Number((p as unknown as { credits?: number }).credits ?? 0)}</td><td className="px-5 py-3.5 text-right space-x-2"><button className="btn-secondary text-xs py-1.5 px-3" onClick={() => handleGiveCredits(p)}>Add Invoices</button><button className="btn-primary text-xs py-1.5 px-3" onClick={() => handleFreePro(p)}>Give Free Pro</button></td></tr>)}
                   </tbody>
                 </table>
               </div>
@@ -1988,7 +1988,7 @@ export default function Admin() {
                   {[
                     ["public_signup", "Public Signup"],
                     ["invoice_sharing", "Invoice Sharing"],
-                    ["credits_system", "Credits System"],
+                    ["credits_system", "Invoice Balance System"],
                     ["team_portal", "Team Portal"],
                     ["ai_insights", "AI Insights"],
                     ["ads_enabled", "Ads Enabled"],
