@@ -534,6 +534,18 @@ export default function Admin() {
     );
   }
 
+  async function invokeAdminUserAction(action: string, body: Record<string, unknown>) {
+    const { data, error: fnError } = await supabase.functions.invoke("admin-user-actions", {
+      body: { action, ...body },
+    });
+
+    if (fnError) {
+      throw new Error(fnError.message || "Admin user action failed");
+    }
+
+    return data as { ok?: boolean; message?: string };
+  }
+
   async function updateProfile(profileId: string, updates: Partial<Profile> & Record<string, unknown>, action: string) {
     setError(null);
     setNotice(null);
@@ -614,10 +626,46 @@ export default function Admin() {
     const reason = window.prompt("Ban reason?", "Violation of platform rules");
     if (reason === null) return;
     await updateProfile(profile.id, { is_banned: true, ban_reason: reason, banned_at: new Date().toISOString() }, "ban_user");
+
+    try {
+      await invokeAdminUserAction("mark_auth_banned", {
+        user_id: profile.user_id || profile.id,
+        reason,
+      });
+    } catch (err) {
+      setNotice("Profile banned. Edge Function deploy nahi hai, isliye Auth metadata update skip hua.");
+    }
   }
 
   async function handleUnban(profile: Profile) {
     await updateProfile(profile.id, { is_banned: false, ban_reason: null, banned_at: null }, "unban_user");
+
+    try {
+      await invokeAdminUserAction("mark_auth_unbanned", {
+        user_id: profile.user_id || profile.id,
+      });
+    } catch (err) {
+      setNotice("Profile unbanned. Edge Function deploy nahi hai, isliye Auth metadata update skip hua.");
+    }
+  }
+
+  async function handleResetUserPassword(profile: Profile) {
+    const password = window.prompt("New temporary login password (minimum 8 chars)", generatePassword());
+    if (!password || password.length < 8) {
+      setError("Password minimum 8 characters hona chahiye.");
+      return;
+    }
+
+    try {
+      await invokeAdminUserAction("reset_password", {
+        user_id: profile.user_id || profile.id,
+        password,
+      });
+      await logAction("reset_user_password", "profile", profile.id, { email: profile.email });
+      setNotice("User password reset ho gaya. Temporary password user ko safely share karo.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Password reset failed. Edge Function deploy check karo.");
+    }
   }
 
   async function handleGiveCredits(profile: Profile) {
@@ -655,9 +703,19 @@ export default function Admin() {
     const { error: profileError } = await supabase.from("profiles").delete().eq("id", profile.id);
     if (profileError) return setError(profileError.message);
 
+    try {
+      await invokeAdminUserAction("delete_auth_user", { user_id: authId });
+    } catch (err) {
+      await logAction("delete_user_data_auth_pending", "profile", profile.id, { email: profile.email, user_id: authId });
+      setSelectedUserId(null);
+      setNotice("User data deleted. Auth user delete skip hua — admin-user-actions Edge Function deploy karo ya Supabase Auth se manually delete karo.");
+      await load();
+      return;
+    }
+
     await logAction("delete_user_data", "profile", profile.id, { email: profile.email, user_id: authId });
     setSelectedUserId(null);
-    setNotice("User data deleted. Auth user ko Supabase Authentication se manually delete karna hoga agar required hai.");
+    setNotice("User data + Auth user deleted.");
     await load();
   }
 
@@ -1255,6 +1313,7 @@ export default function Admin() {
                       <button className="btn-secondary" onClick={() => handleResetCredits(selectedUser)}>Reset Credits</button>
                       <button className="btn-primary" onClick={() => handleFreePro(selectedUser)}>Give Free Pro</button>
                       <button className="btn-secondary" onClick={() => handleRemoveFreePro(selectedUser)}>Remove Pro</button>
+                      <button className="btn-secondary col-span-2" onClick={() => handleResetUserPassword(selectedUser)}>Reset Login Password</button>
                       {(selectedUser as unknown as { is_banned?: boolean }).is_banned ? (
                         <button className="btn-primary col-span-2" onClick={() => handleUnban(selectedUser)}>Unban User</button>
                       ) : (
