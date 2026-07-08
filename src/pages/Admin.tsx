@@ -159,6 +159,9 @@ export default function Admin() {
   const [notice, setNotice] = useState<string | null>(null);
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
   const [userSearch, setUserSearch] = useState("");
+  const [userFilter, setUserFilter] = useState<"all" | "active" | "banned" | "free" | "pro">("all");
+  const [userSort, setUserSort] = useState<"newest" | "oldest" | "credits_high" | "invoices_high">("newest");
+  const [adminNotesDraft, setAdminNotesDraft] = useState("");
   const [invoiceSearch, setInvoiceSearch] = useState("");
   const [teamForm, setTeamForm] = useState({ name: "", email: "", password: "", role: "limited", notes: "" });
   const [taskForm, setTaskForm] = useState({ title: "", description: "", assigned_to: "", priority: "medium", due_date: "" });
@@ -227,17 +230,49 @@ export default function Admin() {
   }, [user?.id, isAdmin]);
 
   const selectedUser = profiles.find((p) => p.id === selectedUserId) ?? profiles[0] ?? null;
-  const selectedUserInvoices = selectedUser ? invoices.filter((i) => i.user_id === selectedUser.user_id) : [];
+  const selectedUserAuthId = selectedUser ? selectedUser.user_id || selectedUser.id : null;
+  const selectedUserInvoices = selectedUserAuthId ? invoices.filter((i) => i.user_id === selectedUserAuthId) : [];
+
+  useEffect(() => {
+    setAdminNotesDraft(String((selectedUser as unknown as { admin_notes?: string | null })?.admin_notes ?? ""));
+  }, [selectedUser?.id]);
+
+  const userInvoiceCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const invoice of invoices) {
+      counts.set(invoice.user_id, (counts.get(invoice.user_id) ?? 0) + 1);
+    }
+    return counts;
+  }, [invoices]);
 
   const filteredProfiles = useMemo(() => {
     const q = userSearch.trim().toLowerCase();
-    if (!q) return profiles;
-    return profiles.filter((p) =>
-      [p.business_name, p.email, p.gstin, p.phone, p.country, p.plan]
+    const matchesSearch = (p: Profile) => {
+      if (!q) return true;
+      return [p.business_name, p.email, p.gstin, p.phone, p.country, p.plan, p.currency]
         .filter(Boolean)
-        .some((value) => String(value).toLowerCase().includes(q))
-    );
-  }, [profiles, userSearch]);
+        .some((value) => String(value).toLowerCase().includes(q));
+    };
+
+    const matchesFilter = (p: Profile) => {
+      const isBanned = Boolean((p as unknown as { is_banned?: boolean }).is_banned);
+      const isPro = Boolean(p.is_pro || p.plan === "pro" || p.plan === "business");
+      if (userFilter === "active") return !isBanned;
+      if (userFilter === "banned") return isBanned;
+      if (userFilter === "free") return !isBanned && !isPro;
+      if (userFilter === "pro") return !isBanned && isPro;
+      return true;
+    };
+
+    return profiles
+      .filter((p) => matchesSearch(p) && matchesFilter(p))
+      .sort((a, b) => {
+        if (userSort === "oldest") return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+        if (userSort === "credits_high") return Number((b as unknown as { credits?: number }).credits ?? 0) - Number((a as unknown as { credits?: number }).credits ?? 0);
+        if (userSort === "invoices_high") return (userInvoiceCounts.get(b.user_id || b.id) ?? 0) - (userInvoiceCounts.get(a.user_id || a.id) ?? 0);
+        return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+      });
+  }, [profiles, userSearch, userFilter, userSort, userInvoiceCounts]);
 
   const filteredInvoices = useMemo(() => {
     const q = invoiceSearch.trim().toLowerCase();
@@ -310,6 +345,51 @@ export default function Admin() {
     await logAction(action, "profile", profileId, updates);
     setNotice("User updated successfully.");
     await load();
+  }
+
+
+  async function handleSaveAdminNotes(profile: Profile) {
+    await updateProfile(profile.id, { admin_notes: adminNotesDraft }, "save_admin_notes");
+  }
+
+  async function handleResetCredits(profile: Profile) {
+    if (!window.confirm("Is user ke credits 0 karne hain?")) return;
+    await updateProfile(profile.id, { credits: 0 }, "reset_credits");
+  }
+
+  async function handleRemoveFreePro(profile: Profile) {
+    if (!window.confirm("Is user ka free Pro/Pro access remove karna hai?")) return;
+    await updateProfile(profile.id, { is_pro: false, plan: "free", free_pro_until: null }, "remove_free_pro");
+  }
+
+  function exportUsersCsv() {
+    const headers = ["Business", "Email", "Country", "Phone", "GSTIN", "Plan", "Credits", "Banned", "Invoices", "Joined"];
+    const rows = filteredProfiles.map((p) => {
+      const authId = p.user_id || p.id;
+      const values = [
+        p.business_name || "",
+        p.email || "",
+        p.country || "",
+        p.phone || "",
+        p.gstin || "",
+        p.is_pro || p.plan === "pro" || p.plan === "business" ? "Pro" : "Free",
+        String(Number((p as unknown as { credits?: number }).credits ?? 0)),
+        Boolean((p as unknown as { is_banned?: boolean }).is_banned) ? "Yes" : "No",
+        String(userInvoiceCounts.get(authId) ?? 0),
+        p.created_at,
+      ];
+      return values.map((value) => `"${String(value).replace(/"/g, '""')}"`).join(",");
+    });
+    const csv = [headers.join(","), ...rows].join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `invoicekit-users-${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
   }
 
   async function handleBan(profile: Profile) {
@@ -532,12 +612,42 @@ export default function Admin() {
 
         {active === "users" && (
           <section className="space-y-6">
-            <SectionHeader title="User Management" subtitle="Users ki full detail dekho, ban/unban karo, plan aur credits manage karo" />
-            <div className="grid xl:grid-cols-[1fr_420px] gap-6">
+            <SectionHeader title="User Management" subtitle="Search, filter, full user 360 detail, ban/unban, credits, free Pro aur notes" />
+
+            <div className="grid grid-cols-2 xl:grid-cols-5 gap-4">
+              <Metric title="Visible Users" value={String(filteredProfiles.length)} icon="👥" />
+              <Metric title="Active" value={String(profiles.filter((p) => !(p as unknown as { is_banned?: boolean }).is_banned).length)} icon="✅" />
+              <Metric title="Banned" value={String(profiles.filter((p) => (p as unknown as { is_banned?: boolean }).is_banned).length)} icon="🚫" />
+              <Metric title="Pro" value={String(metrics.proUsers)} icon="⭐" />
+              <Metric title="Free" value={String(metrics.freeUsers)} icon="🆓" />
+            </div>
+
+            <div className="grid xl:grid-cols-[1fr_460px] gap-6">
               <Card>
-                <div className="p-5 border-b border-slate-100 flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between">
-                  <h2 className="text-lg font-semibold text-slate-900">All Users</h2>
-                  <input className="input sm:w-72" placeholder="Search user, email, GSTIN..." value={userSearch} onChange={(e) => setUserSearch(e.target.value)} />
+                <div className="p-5 border-b border-slate-100 space-y-4">
+                  <div className="flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between">
+                    <div>
+                      <h2 className="text-lg font-semibold text-slate-900">All Users</h2>
+                      <p className="text-sm text-slate-500">Click Details to manage user account.</p>
+                    </div>
+                    <button className="btn-secondary text-sm" onClick={exportUsersCsv}>Export CSV</button>
+                  </div>
+                  <div className="grid md:grid-cols-[1fr_160px_180px] gap-3">
+                    <input className="input" placeholder="Search business, email, phone, GSTIN, country..." value={userSearch} onChange={(e) => setUserSearch(e.target.value)} />
+                    <select className="input" value={userFilter} onChange={(e) => setUserFilter(e.target.value as typeof userFilter)}>
+                      <option value="all">All users</option>
+                      <option value="active">Active only</option>
+                      <option value="banned">Banned only</option>
+                      <option value="free">Free only</option>
+                      <option value="pro">Pro only</option>
+                    </select>
+                    <select className="input" value={userSort} onChange={(e) => setUserSort(e.target.value as typeof userSort)}>
+                      <option value="newest">Newest first</option>
+                      <option value="oldest">Oldest first</option>
+                      <option value="credits_high">Credits high to low</option>
+                      <option value="invoices_high">Invoices high to low</option>
+                    </select>
+                  </div>
                 </div>
                 <div className="overflow-x-auto">
                   <table className="w-full">
@@ -546,22 +656,29 @@ export default function Admin() {
                         <th className="text-left text-xs font-semibold text-slate-500 uppercase px-5 py-3">Business</th>
                         <th className="text-left text-xs font-semibold text-slate-500 uppercase px-5 py-3">Plan</th>
                         <th className="text-left text-xs font-semibold text-slate-500 uppercase px-5 py-3 hidden md:table-cell">Credits</th>
-                        <th className="text-left text-xs font-semibold text-slate-500 uppercase px-5 py-3 hidden lg:table-cell">Joined</th>
+                        <th className="text-left text-xs font-semibold text-slate-500 uppercase px-5 py-3 hidden lg:table-cell">Invoices</th>
+                        <th className="text-left text-xs font-semibold text-slate-500 uppercase px-5 py-3 hidden xl:table-cell">Joined</th>
                         <th className="text-right text-xs font-semibold text-slate-500 uppercase px-5 py-3">Action</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
-                      {filteredProfiles.map((p) => {
+                      {filteredProfiles.length === 0 ? (
+                        <tr><td colSpan={6} className="p-8 text-center text-sm text-slate-500">No users found.</td></tr>
+                      ) : filteredProfiles.map((p) => {
+                        const authId = p.user_id || p.id;
                         const isBanned = Boolean((p as unknown as { is_banned?: boolean }).is_banned);
+                        const isPro = Boolean(p.is_pro || p.plan === "pro" || p.plan === "business");
                         return (
                           <tr key={p.id} className={cx("hover:bg-slate-50/50 transition", selectedUser?.id === p.id && "bg-primary-50/50")}>
                             <td className="px-5 py-3.5">
                               <p className="font-medium text-slate-900">{p.business_name || "Unnamed"}</p>
                               <p className="text-xs text-slate-500">{p.email || "No email"}</p>
+                              <p className="text-xs text-slate-400">{p.country || "No country"} {p.phone ? `· ${p.phone}` : ""}</p>
                             </td>
-                            <td className="px-5 py-3.5"><Pill className={isBanned ? statusClass("disabled") : p.is_pro ? "bg-amber-50 text-amber-700 border-amber-200" : statusClass("closed")}>{isBanned ? "Banned" : p.is_pro ? "Pro" : "Free"}</Pill></td>
+                            <td className="px-5 py-3.5"><Pill className={isBanned ? statusClass("disabled") : isPro ? "bg-amber-50 text-amber-700 border-amber-200" : statusClass("closed")}>{isBanned ? "Banned" : isPro ? "Pro" : "Free"}</Pill></td>
                             <td className="px-5 py-3.5 text-sm text-slate-600 hidden md:table-cell">{Number((p as unknown as { credits?: number }).credits ?? 0)}</td>
-                            <td className="px-5 py-3.5 text-sm text-slate-500 hidden lg:table-cell">{formatDate(p.created_at)}</td>
+                            <td className="px-5 py-3.5 text-sm text-slate-600 hidden lg:table-cell">{userInvoiceCounts.get(authId) ?? 0}</td>
+                            <td className="px-5 py-3.5 text-sm text-slate-500 hidden xl:table-cell">{formatDate(p.created_at)}</td>
                             <td className="px-5 py-3.5 text-right">
                               <button className="btn-secondary text-xs py-1.5 px-3" onClick={() => setSelectedUserId(p.id)}>Details</button>
                             </td>
@@ -573,14 +690,20 @@ export default function Admin() {
                 </div>
               </Card>
 
-              <Card className="p-5 h-fit">
-                <h2 className="text-lg font-semibold text-slate-900 mb-4">User Detail</h2>
+              <Card className="p-5 h-fit xl:sticky xl:top-6">
+                <h2 className="text-lg font-semibold text-slate-900 mb-4">User 360 Detail</h2>
                 {selectedUser ? (
-                  <div className="space-y-4">
-                    <div>
-                      <p className="text-xl font-bold text-slate-900">{selectedUser.business_name || "Unnamed Business"}</p>
-                      <p className="text-sm text-slate-500">{selectedUser.email || "No email"}</p>
+                  <div className="space-y-5">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="text-xl font-bold text-slate-900">{selectedUser.business_name || "Unnamed Business"}</p>
+                        <p className="text-sm text-slate-500">{selectedUser.email || "No email"}</p>
+                      </div>
+                      <Pill className={(selectedUser as unknown as { is_banned?: boolean }).is_banned ? statusClass("disabled") : selectedUser.is_pro ? "bg-amber-50 text-amber-700 border-amber-200" : statusClass("closed")}>
+                        {(selectedUser as unknown as { is_banned?: boolean }).is_banned ? "Banned" : selectedUser.is_pro ? "Pro" : "Free"}
+                      </Pill>
                     </div>
+
                     <div className="grid grid-cols-2 gap-3 text-sm">
                       <Info label="Country" value={selectedUser.country || "—"} />
                       <Info label="Phone" value={selectedUser.phone || "—"} />
@@ -588,31 +711,47 @@ export default function Admin() {
                       <Info label="Currency" value={selectedUser.currency || "—"} />
                       <Info label="Invoices" value={String(selectedUserInvoices.length)} />
                       <Info label="Credits" value={String(Number((selectedUser as unknown as { credits?: number }).credits ?? 0))} />
+                      <Info label="Joined" value={formatDate(selectedUser.created_at)} />
+                      <Info label="Free Pro Until" value={String((selectedUser as unknown as { free_pro_until?: string | null }).free_pro_until ? formatDate(String((selectedUser as unknown as { free_pro_until?: string }).free_pro_until)) : "—")} />
                     </div>
+
                     {(selectedUser as unknown as { ban_reason?: string | null }).ban_reason && (
                       <div className="rounded-lg bg-red-50 border border-red-200 p-3 text-sm text-red-700">
                         Ban reason: {(selectedUser as unknown as { ban_reason?: string | null }).ban_reason}
                       </div>
                     )}
+
                     <div className="grid grid-cols-2 gap-2">
                       <button className="btn-secondary" onClick={() => handleGiveCredits(selectedUser)}>Give Credits</button>
-                      <button className="btn-secondary" onClick={() => handleFreePro(selectedUser)}>Free Pro</button>
+                      <button className="btn-secondary" onClick={() => handleResetCredits(selectedUser)}>Reset Credits</button>
+                      <button className="btn-primary" onClick={() => handleFreePro(selectedUser)}>Give Free Pro</button>
+                      <button className="btn-secondary" onClick={() => handleRemoveFreePro(selectedUser)}>Remove Pro</button>
                       {(selectedUser as unknown as { is_banned?: boolean }).is_banned ? (
                         <button className="btn-primary col-span-2" onClick={() => handleUnban(selectedUser)}>Unban User</button>
                       ) : (
                         <button className="col-span-2 rounded-lg bg-red-600 text-white px-4 py-2 text-sm font-semibold hover:bg-red-700" onClick={() => handleBan(selectedUser)}>Ban User</button>
                       )}
                     </div>
+
+                    <div>
+                      <label className="text-sm font-semibold text-slate-900 mb-2 block">Admin Notes</label>
+                      <textarea className="input min-h-24" placeholder="Internal notes for this user..." value={adminNotesDraft} onChange={(e) => setAdminNotesDraft(e.target.value)} />
+                      <button className="btn-secondary mt-2 w-full" onClick={() => handleSaveAdminNotes(selectedUser)}>Save Notes</button>
+                    </div>
+
                     <div>
                       <p className="text-sm font-semibold text-slate-900 mb-2">Latest invoices</p>
-                      <div className="space-y-2">
-                        {selectedUserInvoices.slice(0, 4).map((inv) => (
-                          <div key={inv.id} className="rounded-lg border border-slate-100 p-3 flex justify-between items-center">
+                      <div className="space-y-2 max-h-72 overflow-auto pr-1">
+                        {selectedUserInvoices.slice(0, 8).map((inv) => (
+                          <div key={inv.id} className="rounded-lg border border-slate-100 p-3 flex justify-between items-center gap-3">
                             <div>
                               <p className="text-sm font-medium text-slate-900">{inv.invoice_number}</p>
-                              <p className="text-xs text-slate-500">{inv.client_name}</p>
+                              <p className="text-xs text-slate-500">{inv.client_name} · {formatDate(inv.created_at)}</p>
                             </div>
-                            <p className="text-sm font-semibold">{formatMoney(Number(inv.invoice_total ?? inv.total), inv.invoice_currency || selectedUser.currency || "INR")}</p>
+                            <div className="text-right">
+                              <p className="text-sm font-semibold">{formatMoney(Number(inv.invoice_total ?? inv.total), inv.invoice_currency || selectedUser.currency || "INR")}</p>
+                              <StatusBadge status={inv.status} />
+                            </div>
                           </div>
                         ))}
                         {selectedUserInvoices.length === 0 && <p className="text-sm text-slate-500">No invoices.</p>}
