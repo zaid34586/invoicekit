@@ -63,6 +63,8 @@ export default function StaffDashboard() {
   const [message, setMessage] = useState<string | null>(null);
   const [taskFilter, setTaskFilter] = useState("open");
   const [ticketFilter, setTicketFilter] = useState("open");
+  const [taskSearch, setTaskSearch] = useState("");
+  const [ticketSearch, setTicketSearch] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [updatingPassword, setUpdatingPassword] = useState(false);
 
@@ -178,18 +180,38 @@ export default function StaffDashboard() {
   const openTicketCount = tickets.filter((t) => t.status !== "resolved" && t.status !== "closed").length;
   const dueTodayTasks = tasks.filter((t) => t.due_date === todayIso && t.status !== "done").length;
   const urgentTickets = tickets.filter((t) => t.priority === "urgent" && t.status !== "closed" && t.status !== "resolved").length;
-  const filteredTasks = tasks.filter((task) => {
-    if (taskFilter === "all") return true;
-    if (taskFilter === "open") return task.status !== "done";
-    if (taskFilter === "due_today") return task.due_date === todayIso && task.status !== "done";
-    return task.status === taskFilter;
-  });
-  const filteredTickets = tickets.filter((ticket) => {
-    if (ticketFilter === "all") return true;
-    if (ticketFilter === "open") return ticket.status !== "resolved" && ticket.status !== "closed";
-    if (ticketFilter === "urgent") return ticket.priority === "urgent";
-    return ticket.status === ticketFilter;
-  });
+  const filteredTasks = tasks
+    .filter((task) => {
+      const search = taskSearch.trim().toLowerCase();
+      const matchesSearch = !search || `${task.title} ${task.description ?? ""} ${task.priority} ${task.status}`.toLowerCase().includes(search);
+      if (!matchesSearch) return false;
+      if (taskFilter === "all") return true;
+      if (taskFilter === "open") return task.status !== "done";
+      if (taskFilter === "due_today") return task.due_date === todayIso && task.status !== "done";
+      return task.status === taskFilter;
+    })
+    .sort((a, b) => {
+      const priorityRank: Record<string, number> = { urgent: 0, high: 1, medium: 2, low: 3 };
+      const prio = (priorityRank[a.priority] ?? 9) - (priorityRank[b.priority] ?? 9);
+      if (prio !== 0) return prio;
+      return String(a.due_date ?? "9999-12-31").localeCompare(String(b.due_date ?? "9999-12-31"));
+    });
+  const filteredTickets = tickets
+    .filter((ticket) => {
+      const search = ticketSearch.trim().toLowerCase();
+      const matchesSearch = !search || `${ticket.subject} ${ticket.message ?? ""} ${ticket.priority} ${ticket.status}`.toLowerCase().includes(search);
+      if (!matchesSearch) return false;
+      if (ticketFilter === "all") return true;
+      if (ticketFilter === "open") return ticket.status !== "resolved" && ticket.status !== "closed";
+      if (ticketFilter === "urgent") return ticket.priority === "urgent";
+      return ticket.status === ticketFilter;
+    })
+    .sort((a, b) => {
+      const priorityRank: Record<string, number> = { urgent: 0, high: 1, medium: 2, low: 3 };
+      const prio = (priorityRank[a.priority] ?? 9) - (priorityRank[b.priority] ?? 9);
+      if (prio !== 0) return prio;
+      return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+    });
 
   return (
     <div className="space-y-7">
@@ -232,12 +254,18 @@ export default function StaffDashboard() {
 
       {hasStaffPermission(role, "tasks") && (
         <section id="tasks" className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
-          <div className="p-5 border-b border-slate-100 flex items-center justify-between">
+          <div className="p-5 border-b border-slate-100 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
             <div>
               <h2 className="text-xl font-bold text-slate-950">My Tasks</h2>
               <p className="text-sm text-slate-500">Update task status, progress and staff notes.</p>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+              <input
+                value={taskSearch}
+                onChange={(e) => setTaskSearch(e.target.value)}
+                placeholder="Search tasks..."
+                className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
+              />
               <select value={taskFilter} onChange={(e) => setTaskFilter(e.target.value)} className="rounded-xl border border-slate-200 px-3 py-2 text-sm">
                 <option value="open">Open</option>
                 <option value="due_today">Due today</option>
@@ -276,6 +304,15 @@ export default function StaffDashboard() {
                     >
                       {[0, 25, 50, 75, 100].map((value) => <option key={value} value={value}>{value}%</option>)}
                     </select>
+                    {task.status !== "done" && (
+                      <button
+                        onClick={() => updateTask(task.id, { status: "done", progress: 100 })}
+                        disabled={savingId === task.id}
+                        className="rounded-xl bg-emerald-600 text-white px-3 py-2 text-sm font-semibold disabled:opacity-50"
+                      >
+                        Mark Done
+                      </button>
+                    )}
                   </div>
                 </div>
                 <div className="h-2 rounded-full bg-slate-100 overflow-hidden">
@@ -297,11 +334,18 @@ export default function StaffDashboard() {
 
       {hasStaffPermission(role, "tickets") && (
         <section id="tickets" className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
-          <div className="p-5 border-b border-slate-100 flex items-center justify-between gap-3">
+          <div className="p-5 border-b border-slate-100 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
             <div>
               <h2 className="text-xl font-bold text-slate-950">Support Tickets</h2>
               <p className="text-sm text-slate-500">Update assigned ticket status and notes.</p>
             </div>
+            <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+            <input
+              value={ticketSearch}
+              onChange={(e) => setTicketSearch(e.target.value)}
+              placeholder="Search tickets..."
+              className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
+            />
             <select value={ticketFilter} onChange={(e) => setTicketFilter(e.target.value)} className="rounded-xl border border-slate-200 px-3 py-2 text-sm">
               <option value="open">Open</option>
               <option value="urgent">Urgent</option>
@@ -310,6 +354,8 @@ export default function StaffDashboard() {
               <option value="closed">Closed</option>
               <option value="all">All</option>
             </select>
+            <button onClick={load} className="text-sm font-semibold text-primary-700">Refresh</button>
+            </div>
           </div>
           <div className="divide-y divide-slate-100">
             {filteredTickets.length === 0 ? <div className="p-6 text-slate-500">No tickets found for this filter.</div> : filteredTickets.map((ticket) => (
@@ -328,6 +374,15 @@ export default function StaffDashboard() {
                   >
                     {ticketStatuses.map((status) => <option key={status} value={status}>{status}</option>)}
                   </select>
+                  {ticket.status !== "resolved" && ticket.status !== "closed" && (
+                    <button
+                      onClick={() => updateTicket(ticket.id, { status: "resolved" })}
+                      disabled={savingId === ticket.id}
+                      className="rounded-xl bg-emerald-600 text-white px-3 py-2 text-sm font-semibold disabled:opacity-50"
+                    >
+                      Resolve
+                    </button>
+                  )}
                 </div>
                 <textarea
                   defaultValue={ticket.staff_notes ?? ""}

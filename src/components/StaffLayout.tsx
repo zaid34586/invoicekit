@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { supabase } from "../lib/supabase";
@@ -36,7 +36,7 @@ export default function StaffLayout({ children }: { children: ReactNode }) {
   const role = staff?.role ?? "viewer";
   const permissions = getStaffPermissions(role);
 
-  const navItems = [
+  const navItems = useMemo(() => [
     { key: "dashboard", label: "Dashboard", icon: "📊" },
     { key: "tasks", label: "My Tasks", icon: "📋" },
     { key: "tickets", label: "Support Tickets", icon: "🎫" },
@@ -44,7 +44,7 @@ export default function StaffLayout({ children }: { children: ReactNode }) {
     { key: "finance", label: "Finance", icon: "💰" },
     { key: "reports", label: "Reports", icon: "📄" },
     { key: "profile", label: "Profile", icon: "👤" },
-  ].filter((item) => item.key === "profile" || hasStaffPermission(role, item.key as any));
+  ].filter((item) => item.key === "profile" || hasStaffPermission(role, item.key as any)), [role]);
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -65,6 +65,21 @@ export default function StaffLayout({ children }: { children: ReactNode }) {
           </div>
         </div>
       </header>
+
+      <div className="md:hidden bg-white border-b border-slate-200 px-4 py-3 overflow-x-auto">
+        <div className="flex gap-2 min-w-max">
+          {navItems.map((item) => (
+            <a
+              key={item.key}
+              href={`#${item.key}`}
+              className="flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-semibold text-slate-700 bg-slate-50 border border-slate-200"
+            >
+              <span>{item.icon}</span>
+              {item.label}
+            </a>
+          ))}
+        </div>
+      </div>
 
       <div className="flex">
         <aside className="hidden md:block w-72 min-h-[calc(100vh-4rem)] bg-white border-r border-slate-200 p-5">
