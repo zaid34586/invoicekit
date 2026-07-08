@@ -23,14 +23,16 @@ export default function Signup() {
     // (Real enforcement is Supabase's unique-email constraint once that
     // account exists; this is just a clear, early error instead of a
     // confusing "already registered" message.)
-    if (email.trim().toLowerCase() === ADMIN_EMAIL.toLowerCase()) {
+    const cleanEmail = email.trim().toLowerCase();
+
+    if (cleanEmail === ADMIN_EMAIL.toLowerCase()) {
       setError("This email address is reserved and cannot be used to sign up.");
       return;
     }
 
     setStage("loading");
 
-    const result = await signUp(email, password);
+    const result = await signUp(cleanEmail, password);
 
     if (result.error) {
       setStage("form");
@@ -156,11 +158,11 @@ export default function Signup() {
                   id="password"
                   type="password"
                   required
-                  minLength={6}
+                  minLength={8}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   className="input"
-                  placeholder="At least 6 characters"
+                  placeholder="At least 8 characters"
                   autoComplete="new-password"
                 />
               </div>

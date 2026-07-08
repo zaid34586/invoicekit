@@ -23,7 +23,8 @@ export default function AdminLogin() {
     setError(null);
     setSubmitting(true);
 
-    const { error: signInError } = await signIn(email, password);
+    const cleanEmail = email.trim().toLowerCase();
+    const { error: signInError } = await signIn(cleanEmail, password);
 
     if (signInError) {
       // Same generic message whether the email/password was wrong or the

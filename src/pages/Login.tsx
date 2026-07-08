@@ -24,7 +24,7 @@ export default function Login() {
     setStage("loading");
     setLoadingText("Signing you in...");
 
-    const { error } = await signIn(email, password);
+    const { error } = await signIn(email.trim().toLowerCase(), password);
 
     if (error) {
       setStage("form");
