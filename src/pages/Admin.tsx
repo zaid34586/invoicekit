@@ -31,6 +31,10 @@ type AdminTeamMember = {
   status: "active" | "disabled";
   temporary_password: string | null;
   notes: string | null;
+  invite_status?: "sent" | "failed" | "not_configured" | null;
+  invite_email_sent_at?: string | null;
+  invite_error?: string | null;
+  staff_portal_url?: string | null;
   created_at: string;
 };
 
@@ -858,7 +862,13 @@ export default function Admin() {
         if (insertError) throw insertError;
         setNotice("Team record created. Edge Function deploy karne ke baad real login create hoga.");
       } else {
-        setNotice(data?.message ?? "Team member login created.");
+        if (data?.email_sent) {
+          setNotice(`Team member created. Welcome email sent to ${teamForm.email}.`);
+        } else if (data?.email_error) {
+          setNotice(`Team member created, but email failed: ${data.email_error}`);
+        } else {
+          setNotice(data?.message ?? "Team member created. Email not configured yet.");
+        }
       }
 
       await logAction("create_team_member", "admin_team_members", teamForm.email, { role: teamForm.role });
@@ -1581,9 +1591,12 @@ export default function Admin() {
                     </div>
                   </div>
                   <textarea className="input min-h-24" placeholder="Notes / responsibility" value={teamForm.notes} onChange={(e) => setTeamForm({ ...teamForm, notes: e.target.value })} />
-                  <button className="btn-primary w-full" type="submit">Create Team Member</button>
+                  <button className="btn-primary w-full" type="submit">Create Team Member + Send Email</button>
                 </form>
-                <p className="text-xs text-slate-500 mt-3">Real auth login ke liye Supabase Edge Function <b>create-team-member</b> deploy hona chahiye. Function fail hua to safe fallback team record create karega.</p>
+                <div className="text-xs text-slate-500 mt-3 space-y-1">
+                  <p>Staff portal URL: <b>https://staff.invoicekit.com</b></p>
+                  <p>Email automation ke liye Supabase secret <b>RESEND_API_KEY</b> set hona chahiye. Function create hote hi staff ko login URL, email aur temporary password bhejega.</p>
+                </div>
               </Card>
 
               <div className="space-y-6">
@@ -1662,6 +1675,8 @@ export default function Admin() {
                         <Info label="Created" value={formatDate(selectedTeam.created_at)} />
                         <Info label="Auth User" value={selectedTeam.auth_user_id ? "Created" : "Not linked"} />
                         <Info label="Temp Password" value={selectedTeam.temporary_password || "—"} />
+                        <Info label="Invite Email" value={selectedTeam.invite_status ? `${selectedTeam.invite_status}${selectedTeam.invite_email_sent_at ? ` • ${formatDate(selectedTeam.invite_email_sent_at)}` : ""}` : "—"} />
+                        <Info label="Staff Portal" value={selectedTeam.staff_portal_url || "https://staff.invoicekit.com"} />
                       </div>
                       <div className="rounded-xl bg-slate-50 border border-slate-100 p-4">
                         <p className="text-xs font-semibold text-slate-500 uppercase mb-2">Allowed Modules</p>
@@ -1669,6 +1684,7 @@ export default function Admin() {
                           {roleAccess[selectedTeam.role].map((item) => <Pill key={item} className="bg-white text-slate-700 border-slate-200">{item}</Pill>)}
                         </div>
                       </div>
+                      {selectedTeam.invite_error && <div className="rounded-xl bg-red-50 border border-red-100 p-4"><p className="text-xs text-red-500 mb-1">Invite Email Error</p><p className="text-sm text-red-700 whitespace-pre-wrap">{selectedTeam.invite_error}</p></div>}
                       {selectedTeam.notes && <div className="rounded-xl bg-slate-50 border border-slate-100 p-4"><p className="text-xs text-slate-500 mb-1">Notes</p><p className="text-sm text-slate-700 whitespace-pre-wrap">{selectedTeam.notes}</p></div>}
                       <div className="grid md:grid-cols-3 gap-2">
                         <button className="btn-secondary" onClick={() => resetTeamTempPassword(selectedTeam)}>Reset Temp Password</button>

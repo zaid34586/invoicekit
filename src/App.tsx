@@ -29,6 +29,34 @@ import StaffRoute from "./components/StaffRoute";
 import ShareInvoice from "./pages/ShareInvoice";
 import { ADMIN_EMAIL } from "./lib/constants";
 
+
+function getPortalHost() {
+  const host = window.location.hostname.toLowerCase();
+  return {
+    isStaffHost: host === "staff.invoicekit.com" || host.startsWith("staff."),
+    isAdminHost: host === "admin.invoicekit.com" || host.startsWith("admin."),
+  };
+}
+
+function HostHomeRedirect() {
+  const { isStaffHost, isAdminHost } = getPortalHost();
+  if (isStaffHost) return <Navigate to="/staff/login" replace />;
+  if (isAdminHost) return <Navigate to="/admin/login" replace />;
+  return <Landing />;
+}
+
+function StaffHostOnly({ children }: { children: ReactNode }) {
+  const { isAdminHost } = getPortalHost();
+  if (isAdminHost) return <Navigate to="/admin/login" replace />;
+  return <>{children}</>;
+}
+
+function AdminHostOnly({ children }: { children: ReactNode }) {
+  const { isStaffHost } = getPortalHost();
+  if (isStaffHost) return <Navigate to="/staff/login" replace />;
+  return <>{children}</>;
+}
+
 function LoadingScreen() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-slate-50">
@@ -159,7 +187,7 @@ function CheckEmailRoute() {
 export default function App() {
   return (
     <Routes>
-      <Route path="/" element={<Landing />} />
+      <Route path="/" element={<HostHomeRedirect />} />
 
       <Route
         path="/login"
@@ -258,23 +286,27 @@ export default function App() {
       <Route
         path="/admin"
         element={
-          <AdminRoute>
-            <AdminLayout><Admin /></AdminLayout>
-          </AdminRoute>
+          <AdminHostOnly>
+            <AdminRoute>
+              <AdminLayout><Admin /></AdminLayout>
+            </AdminRoute>
+          </AdminHostOnly>
         }
       />
       {/* Deliberately not linked anywhere in the app UI — reached only by
           typing this exact URL. No signup exists for this account. */}
-      <Route path="/admin/login" element={<AdminLogin />} />
+      <Route path="/admin/login" element={<AdminHostOnly><AdminLogin /></AdminHostOnly>} />
 
 
-      <Route path="/staff/login" element={<StaffLogin />} />
+      <Route path="/staff/login" element={<StaffHostOnly><StaffLogin /></StaffHostOnly>} />
       <Route
         path="/staff"
         element={
-          <StaffRoute>
-            <StaffLayout><StaffDashboard /></StaffLayout>
-          </StaffRoute>
+          <StaffHostOnly>
+            <StaffRoute>
+              <StaffLayout><StaffDashboard /></StaffLayout>
+            </StaffRoute>
+          </StaffHostOnly>
         }
       />
 
