@@ -195,6 +195,10 @@ export default function Admin() {
   const [selectedTeamId, setSelectedTeamId] = useState<string | null>(null);
   const [taskForm, setTaskForm] = useState({ title: "", description: "", assigned_to: "", priority: "medium", due_date: "" });
   const [financeForm, setFinanceForm] = useState(emptyFormFinance());
+  const [financeSearch, setFinanceSearch] = useState("");
+  const [financeStatusFilter, setFinanceStatusFilter] = useState<"all" | AdminFinanceEntry["status"]>("all");
+  const [financeSourceFilter, setFinanceSourceFilter] = useState<"all" | AdminFinanceEntry["source"]>("all");
+  const [financeRange, setFinanceRange] = useState<"7" | "30" | "90" | "all">("30");
 
   const isAdmin = user?.email?.toLowerCase() === ADMIN_EMAIL.toLowerCase();
 
@@ -379,6 +383,62 @@ export default function Admin() {
     return { proUsers, freeUsers, paidInvoices, overdueInvoices, invoiceRevenue, receivedFinance, expenses, receivable, adsRevenue };
   }, [profiles, invoices, finance]);
 
+  const financeReport = useMemo(() => {
+    const today = new Date();
+    const todayKey = today.toISOString().slice(0, 10);
+    const monthKey = today.toISOString().slice(0, 7);
+    const cutoff = financeRange === "all" ? null : new Date(Date.now() - Number(financeRange) * 24 * 60 * 60 * 1000);
+    const q = financeSearch.trim().toLowerCase();
+
+    const visible = finance.filter((entry) => {
+      const entryDate = new Date(entry.entry_date);
+      const matchesRange = !cutoff || entryDate >= cutoff;
+      const matchesStatus = financeStatusFilter === "all" || entry.status === financeStatusFilter;
+      const matchesSource = financeSourceFilter === "all" || entry.source === financeSourceFilter;
+      const matchesSearch = !q || [entry.title, entry.source, entry.type, entry.status, entry.currency, entry.notes]
+        .filter(Boolean)
+        .some((value) => String(value).toLowerCase().includes(q));
+      return matchesRange && matchesStatus && matchesSource && matchesSearch;
+    });
+
+    const income = visible
+      .filter((entry) => entry.type === "income" && entry.status === "received")
+      .reduce((sum, entry) => sum + Number(entry.amount), 0);
+    const expenses = visible
+      .filter((entry) => entry.type === "expense")
+      .reduce((sum, entry) => sum + Number(entry.amount), 0);
+    const pending = visible
+      .filter((entry) => entry.type === "receivable" || entry.status === "pending")
+      .reduce((sum, entry) => sum + Number(entry.amount), 0);
+    const todayRevenue = finance
+      .filter((entry) => entry.entry_date === todayKey && entry.type === "income" && entry.status === "received")
+      .reduce((sum, entry) => sum + Number(entry.amount), 0);
+    const monthlyRevenue = finance
+      .filter((entry) => entry.entry_date?.startsWith(monthKey) && entry.type === "income" && entry.status === "received")
+      .reduce((sum, entry) => sum + Number(entry.amount), 0);
+    const subscriptionRevenue = visible
+      .filter((entry) => entry.source === "subscription" && entry.status === "received")
+      .reduce((sum, entry) => sum + Number(entry.amount), 0);
+    const adsRevenue = visible
+      .filter((entry) => entry.source === "ads" && entry.status === "received")
+      .reduce((sum, entry) => sum + Number(entry.amount), 0);
+
+    const trend = Array.from({ length: 7 }).map((_, index) => {
+      const date = new Date(Date.now() - (6 - index) * 24 * 60 * 60 * 1000);
+      const key = date.toISOString().slice(0, 10);
+      const dayIncome = finance
+        .filter((entry) => entry.entry_date === key && entry.type === "income" && entry.status === "received")
+        .reduce((sum, entry) => sum + Number(entry.amount), 0);
+      const dayExpense = finance
+        .filter((entry) => entry.entry_date === key && entry.type === "expense")
+        .reduce((sum, entry) => sum + Number(entry.amount), 0);
+      return { key, label: date.toLocaleDateString(undefined, { day: "2-digit", month: "short" }), income: dayIncome, expense: dayExpense };
+    });
+
+    return { visible, income, expenses, pending, todayRevenue, monthlyRevenue, subscriptionRevenue, adsRevenue, net: income - expenses, trend };
+  }, [finance, financeRange, financeSearch, financeSourceFilter, financeStatusFilter]);
+
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-50">
@@ -431,6 +491,24 @@ export default function Admin() {
   async function handleRemoveFreePro(profile: Profile) {
     if (!window.confirm("Is user ka free Pro/Pro access remove karna hai?")) return;
     await updateProfile(profile.id, { is_pro: false, plan: "free", free_pro_until: null }, "remove_free_pro");
+  }
+
+  function exportCsv(rows: Record<string, unknown>[], filename: string) {
+    if (rows.length === 0) {
+      setNotice("No rows to export.");
+      return;
+    }
+    const headers = Object.keys(rows[0]);
+    const csvRows = rows.map((row) => headers.map((header) => `"${String(row[header] ?? "").replace(/"/g, '""')}"`).join(","));
+    const blob = new Blob([[headers.join(","), ...csvRows].join("\n")], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
   }
 
   function exportUsersCsv() {
@@ -626,6 +704,27 @@ export default function Admin() {
     await logAction("create_finance_entry", "admin_finance_entries", financeForm.title, { amount: financeForm.amount });
     setFinanceForm(emptyFormFinance());
     setNotice("Finance entry added.");
+    await load();
+  }
+
+  async function markFinanceReceived(entry: AdminFinanceEntry) {
+    const { error: updateError } = await supabase
+      .from("admin_finance_entries")
+      .update({ status: "received", type: entry.type === "receivable" ? "income" : entry.type })
+      .eq("id", entry.id);
+    if (updateError) return setError(updateError.message);
+    await logAction("mark_finance_received", "admin_finance_entries", entry.id, { title: entry.title, amount: entry.amount });
+    setNotice("Finance entry marked received.");
+    await load();
+  }
+
+  async function deleteFinanceEntry(entry: AdminFinanceEntry) {
+    const ok = window.confirm(`Delete finance entry: ${entry.title}?`);
+    if (!ok) return;
+    const { error: deleteError } = await supabase.from("admin_finance_entries").delete().eq("id", entry.id);
+    if (deleteError) return setError(deleteError.message);
+    await logAction("delete_finance_entry", "admin_finance_entries", entry.id, { title: entry.title, amount: entry.amount });
+    setNotice("Finance entry deleted.");
     await load();
   }
 
@@ -1103,16 +1202,158 @@ export default function Admin() {
 
         {active === "finance" && (
           <section className="space-y-6">
-            <SectionHeader title="Revenue & Finance" subtitle="Manual revenue, ads income, expenses, receivables aur balance track karo" />
-            <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
-              <Metric title="Received" value={formatMoney(metrics.receivedFinance, "INR")} icon="💰" />
-              <Metric title="Ads Revenue" value={formatMoney(metrics.adsRevenue, "INR")} icon="📢" />
-              <Metric title="Pending/Receivable" value={formatMoney(metrics.receivable, "INR")} icon="⏳" />
-              <Metric title="Net Balance" value={formatMoney(metrics.receivedFinance - metrics.expenses, "INR")} icon="🏦" />
+            <SectionHeader title="Revenue & Finance" subtitle="Revenue, ads income, expenses, receivables, balance aur reports track karo" />
+            <div className="grid grid-cols-2 xl:grid-cols-6 gap-4">
+              <Metric title="Total Revenue" value={formatMoney(financeReport.income, "INR")} icon="💰" />
+              <Metric title="This Month" value={formatMoney(financeReport.monthlyRevenue, "INR")} icon="📅" />
+              <Metric title="Today" value={formatMoney(financeReport.todayRevenue, "INR")} icon="📈" />
+              <Metric title="Pending" value={formatMoney(financeReport.pending, "INR")} icon="⏳" />
+              <Metric title="Expenses" value={formatMoney(financeReport.expenses, "INR")} icon="💸" />
+              <Metric title="Net Profit" value={formatMoney(financeReport.net, "INR")} icon="🏦" />
             </div>
+
             <div className="grid xl:grid-cols-[420px_1fr] gap-6">
-              <Card className="p-5 h-fit"><h2 className="text-lg font-semibold text-slate-900 mb-4">Add Finance Entry</h2><form onSubmit={handleAddFinance} className="space-y-3"><input className="input" type="date" value={financeForm.entry_date} onChange={(e) => setFinanceForm({ ...financeForm, entry_date: e.target.value })} /><input className="input" required placeholder="Title" value={financeForm.title} onChange={(e) => setFinanceForm({ ...financeForm, title: e.target.value })} /><div className="grid grid-cols-2 gap-2"><select className="input" value={financeForm.type} onChange={(e) => setFinanceForm({ ...financeForm, type: e.target.value as AdminFinanceEntry["type"] })}><option value="income">Income</option><option value="expense">Expense</option><option value="receivable">Receivable</option></select><select className="input" value={financeForm.source} onChange={(e) => setFinanceForm({ ...financeForm, source: e.target.value as AdminFinanceEntry["source"] })}><option value="manual">Manual</option><option value="subscription">Subscription</option><option value="ads">Ads</option><option value="invoice">Invoice</option><option value="other">Other</option></select></div><div className="grid grid-cols-[1fr_90px] gap-2"><input className="input" type="number" min="0" step="0.01" value={financeForm.amount} onChange={(e) => setFinanceForm({ ...financeForm, amount: Number(e.target.value) })} /><input className="input" value={financeForm.currency} onChange={(e) => setFinanceForm({ ...financeForm, currency: e.target.value.toUpperCase() })} /></div><select className="input" value={financeForm.status} onChange={(e) => setFinanceForm({ ...financeForm, status: e.target.value as AdminFinanceEntry["status"] })}><option value="received">Received</option><option value="pending">Pending</option><option value="spent">Spent</option></select><textarea className="input min-h-20" placeholder="Notes" value={financeForm.notes ?? ""} onChange={(e) => setFinanceForm({ ...financeForm, notes: e.target.value })} /><button className="btn-primary w-full" type="submit">Add Entry</button></form></Card>
-              <Card><div className="p-5 border-b border-slate-100"><h2 className="text-lg font-semibold text-slate-900">Finance Ledger</h2></div><div className="overflow-x-auto"><table className="w-full"><thead><tr className="border-b border-slate-100 bg-slate-50/50"><th className="text-left text-xs font-semibold text-slate-500 uppercase px-5 py-3">Date</th><th className="text-left text-xs font-semibold text-slate-500 uppercase px-5 py-3">Title</th><th className="text-left text-xs font-semibold text-slate-500 uppercase px-5 py-3">Source</th><th className="text-right text-xs font-semibold text-slate-500 uppercase px-5 py-3">Amount</th></tr></thead><tbody className="divide-y divide-slate-100">{finance.length === 0 ? <tr><td colSpan={4} className="p-8 text-center text-sm text-slate-500">No finance entries yet.</td></tr> : finance.map((entry) => <tr key={entry.id}><td className="px-5 py-3.5 text-sm text-slate-500">{entry.entry_date}</td><td className="px-5 py-3.5"><p className="font-medium text-slate-900">{entry.title}</p><Pill className={statusClass(entry.status)}>{entry.status}</Pill></td><td className="px-5 py-3.5 text-sm text-slate-600 capitalize">{entry.source}</td><td className={cx("px-5 py-3.5 text-right font-bold", entry.type === "expense" ? "text-red-600" : "text-green-600")}>{entry.type === "expense" ? "-" : "+"}{formatMoney(Number(entry.amount), entry.currency)}</td></tr>)}</tbody></table></div></Card>
+              <div className="space-y-6">
+                <Card className="p-5 h-fit">
+                  <h2 className="text-lg font-semibold text-slate-900 mb-1">Add Finance Entry</h2>
+                  <p className="text-sm text-slate-500 mb-4">Subscription, ads, manual income, expenses aur pending payments add karo.</p>
+                  <form onSubmit={handleAddFinance} className="space-y-3">
+                    <input className="input" type="date" value={financeForm.entry_date} onChange={(e) => setFinanceForm({ ...financeForm, entry_date: e.target.value })} />
+                    <input className="input" required placeholder="Title e.g. July Pro Subscription" value={financeForm.title} onChange={(e) => setFinanceForm({ ...financeForm, title: e.target.value })} />
+                    <div className="grid grid-cols-2 gap-2">
+                      <select className="input" value={financeForm.type} onChange={(e) => setFinanceForm({ ...financeForm, type: e.target.value as AdminFinanceEntry["type"] })}>
+                        <option value="income">Income</option>
+                        <option value="expense">Expense</option>
+                        <option value="receivable">Receivable</option>
+                      </select>
+                      <select className="input" value={financeForm.source} onChange={(e) => setFinanceForm({ ...financeForm, source: e.target.value as AdminFinanceEntry["source"] })}>
+                        <option value="manual">Manual</option>
+                        <option value="subscription">Subscription</option>
+                        <option value="ads">Ads</option>
+                        <option value="invoice">Invoice</option>
+                        <option value="other">Other</option>
+                      </select>
+                    </div>
+                    <div className="grid grid-cols-[1fr_90px] gap-2">
+                      <input className="input" type="number" min="0" step="0.01" value={financeForm.amount} onChange={(e) => setFinanceForm({ ...financeForm, amount: Number(e.target.value) })} />
+                      <input className="input" value={financeForm.currency} onChange={(e) => setFinanceForm({ ...financeForm, currency: e.target.value.toUpperCase() })} />
+                    </div>
+                    <select className="input" value={financeForm.status} onChange={(e) => setFinanceForm({ ...financeForm, status: e.target.value as AdminFinanceEntry["status"] })}>
+                      <option value="received">Received</option>
+                      <option value="pending">Pending</option>
+                      <option value="spent">Spent</option>
+                    </select>
+                    <textarea className="input min-h-20" placeholder="Notes / bank / ad network / payment reference" value={financeForm.notes ?? ""} onChange={(e) => setFinanceForm({ ...financeForm, notes: e.target.value })} />
+                    <button className="btn-primary w-full" type="submit">Add Entry</button>
+                  </form>
+                </Card>
+
+                <Card className="p-5">
+                  <h2 className="text-lg font-semibold text-slate-900 mb-4">Source Breakdown</h2>
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between"><span className="text-sm text-slate-500">Subscription</span><strong>{formatMoney(financeReport.subscriptionRevenue, "INR")}</strong></div>
+                    <div className="flex items-center justify-between"><span className="text-sm text-slate-500">Ads</span><strong>{formatMoney(financeReport.adsRevenue, "INR")}</strong></div>
+                    <div className="flex items-center justify-between"><span className="text-sm text-slate-500">Manual/Other</span><strong>{formatMoney(Math.max(0, financeReport.income - financeReport.subscriptionRevenue - financeReport.adsRevenue), "INR")}</strong></div>
+                    <div className="pt-3 border-t border-slate-100 flex items-center justify-between"><span className="text-sm font-semibold text-slate-700">Net Balance</span><strong className={financeReport.net >= 0 ? "text-green-600" : "text-red-600"}>{formatMoney(financeReport.net, "INR")}</strong></div>
+                  </div>
+                </Card>
+              </div>
+
+              <div className="space-y-6">
+                <Card className="p-5">
+                  <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-5">
+                    <div>
+                      <h2 className="text-lg font-semibold text-slate-900">Finance Report</h2>
+                      <p className="text-sm text-slate-500">Last 7 days income vs expenses</p>
+                    </div>
+                    <select className="input md:w-36" value={financeRange} onChange={(e) => setFinanceRange(e.target.value as typeof financeRange)}>
+                      <option value="7">7 days</option>
+                      <option value="30">30 days</option>
+                      <option value="90">90 days</option>
+                      <option value="all">All time</option>
+                    </select>
+                  </div>
+                  <div className="grid grid-cols-7 gap-2 items-end h-36">
+                    {financeReport.trend.map((day) => {
+                      const maxValue = Math.max(...financeReport.trend.map((d) => Math.max(d.income, d.expense)), 1);
+                      return (
+                        <div key={day.key} className="flex flex-col items-center gap-1">
+                          <div className="w-full flex items-end gap-1 h-24">
+                            <div className="flex-1 bg-green-200 rounded-t" style={{ height: `${Math.max(6, (day.income / maxValue) * 96)}px` }} title={`Income ${formatMoney(day.income, "INR")}`} />
+                            <div className="flex-1 bg-red-200 rounded-t" style={{ height: `${Math.max(6, (day.expense / maxValue) * 96)}px` }} title={`Expense ${formatMoney(day.expense, "INR")}`} />
+                          </div>
+                          <span className="text-[10px] text-slate-400">{day.label}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </Card>
+
+                <Card>
+                  <div className="p-5 border-b border-slate-100">
+                    <div className="flex flex-col xl:flex-row xl:items-center xl:justify-between gap-3">
+                      <div>
+                        <h2 className="text-lg font-semibold text-slate-900">Finance Ledger</h2>
+                        <p className="text-sm text-slate-500">Income, expense, ads aur pending entries manage karo.</p>
+                      </div>
+                      <div className="grid sm:grid-cols-4 gap-2 xl:w-[720px]">
+                        <input className="input" placeholder="Search ledger..." value={financeSearch} onChange={(e) => setFinanceSearch(e.target.value)} />
+                        <select className="input" value={financeStatusFilter} onChange={(e) => setFinanceStatusFilter(e.target.value as typeof financeStatusFilter)}>
+                          <option value="all">All status</option>
+                          <option value="received">Received</option>
+                          <option value="pending">Pending</option>
+                          <option value="spent">Spent</option>
+                        </select>
+                        <select className="input" value={financeSourceFilter} onChange={(e) => setFinanceSourceFilter(e.target.value as typeof financeSourceFilter)}>
+                          <option value="all">All source</option>
+                          <option value="subscription">Subscription</option>
+                          <option value="ads">Ads</option>
+                          <option value="manual">Manual</option>
+                          <option value="invoice">Invoice</option>
+                          <option value="other">Other</option>
+                        </select>
+                        <button className="btn-secondary" type="button" onClick={() => exportCsv(financeReport.visible, "finance-ledger.csv")}>Export CSV</button>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full">
+                      <thead>
+                        <tr className="border-b border-slate-100 bg-slate-50/50">
+                          <th className="text-left text-xs font-semibold text-slate-500 uppercase px-5 py-3">Date</th>
+                          <th className="text-left text-xs font-semibold text-slate-500 uppercase px-5 py-3">Title</th>
+                          <th className="text-left text-xs font-semibold text-slate-500 uppercase px-5 py-3">Type</th>
+                          <th className="text-left text-xs font-semibold text-slate-500 uppercase px-5 py-3">Source</th>
+                          <th className="text-right text-xs font-semibold text-slate-500 uppercase px-5 py-3">Amount</th>
+                          <th className="text-right text-xs font-semibold text-slate-500 uppercase px-5 py-3">Action</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {financeReport.visible.length === 0 ? (
+                          <tr><td colSpan={6} className="p-8 text-center text-sm text-slate-500">No finance entries found.</td></tr>
+                        ) : financeReport.visible.map((entry) => (
+                          <tr key={entry.id}>
+                            <td className="px-5 py-3.5 text-sm text-slate-500">{entry.entry_date}</td>
+                            <td className="px-5 py-3.5">
+                              <p className="font-medium text-slate-900">{entry.title}</p>
+                              <p className="text-xs text-slate-500 line-clamp-1">{entry.notes || "No notes"}</p>
+                            </td>
+                            <td className="px-5 py-3.5"><Pill className={entry.type === "expense" ? "bg-red-50 text-red-700" : entry.type === "receivable" ? "bg-amber-50 text-amber-700" : "bg-green-50 text-green-700"}>{entry.type}</Pill></td>
+                            <td className="px-5 py-3.5 text-sm text-slate-600 capitalize">{entry.source}<div><Pill className={statusClass(entry.status)}>{entry.status}</Pill></div></td>
+                            <td className={cx("px-5 py-3.5 text-right font-bold", entry.type === "expense" ? "text-red-600" : "text-green-600")}>{entry.type === "expense" ? "-" : "+"}{formatMoney(Number(entry.amount), entry.currency)}</td>
+                            <td className="px-5 py-3.5 text-right">
+                              <div className="flex justify-end gap-2">
+                                {(entry.status === "pending" || entry.type === "receivable") && <button className="btn-secondary text-xs py-1.5" onClick={() => markFinanceReceived(entry)}>Mark Paid</button>}
+                                <button className="btn-danger text-xs py-1.5" onClick={() => deleteFinanceEntry(entry)}>Delete</button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </Card>
+              </div>
             </div>
           </section>
         )}
