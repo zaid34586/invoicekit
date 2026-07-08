@@ -82,6 +82,18 @@ type AdminSupportTicket = {
   created_at: string;
 };
 
+type InvoiceBalanceModalState = {
+  profile: Profile;
+  amount: string;
+  reason: string;
+} | null;
+
+type FreeProModalState = {
+  profile: Profile;
+  days: string;
+  reason: string;
+} | null;
+
 type AdminSystemSettings = {
   maintenance_mode: boolean;
   maintenance_message: string;
@@ -243,6 +255,9 @@ export default function Admin() {
   const [auditSearch, setAuditSearch] = useState("");
   const [systemSettings, setSystemSettings] = useState<AdminSystemSettings>(DEFAULT_SYSTEM_SETTINGS);
   const [savingSystem, setSavingSystem] = useState(false);
+  const [balanceModal, setBalanceModal] = useState<InvoiceBalanceModalState>(null);
+  const [freeProModal, setFreeProModal] = useState<FreeProModalState>(null);
+  const [adminActionBusy, setAdminActionBusy] = useState(false);
 
   const isAdmin = user?.email?.toLowerCase() === ADMIN_EMAIL.toLowerCase();
 
@@ -573,11 +588,6 @@ export default function Admin() {
     await updateProfile(profile.id, { admin_notes: adminNotesDraft }, "save_admin_notes");
   }
 
-  async function handleResetCredits(profile: Profile) {
-    if (!window.confirm("Is user ka extra invoice balance 0 karna hai?")) return;
-    await updateProfile(profile.id, { credits: 0 }, "reset_invoice_balance");
-  }
-
   async function handleRemoveFreePro(profile: Profile) {
     if (!window.confirm("Is user ka free Pro/Pro access remove karna hai?")) return;
     await updateProfile(profile.id, { is_pro: false, plan: "free", free_pro_until: null }, "remove_free_pro");
@@ -677,19 +687,91 @@ export default function Admin() {
     }
   }
 
-  async function handleGiveCredits(profile: Profile) {
-    const amount = Number(window.prompt("Extra invoices add karne ke liye number daalo", "10"));
-    if (!Number.isFinite(amount) || amount <= 0) return;
-    const current = Number((profile as unknown as { credits?: number }).credits ?? 0);
-    await updateProfile(profile.id, { credits: current + amount }, "add_invoice_balance");
+  function openInvoiceBalanceModal(profile: Profile) {
+    setError(null);
+    setNotice(null);
+    setBalanceModal({ profile, amount: "10", reason: "Manual admin adjustment" });
   }
 
-  async function handleFreePro(profile: Profile) {
-    const days = Number(window.prompt("Free Pro kitne din ke liye?", "30"));
-    if (!Number.isFinite(days) || days <= 0) return;
+  async function submitInvoiceBalance(amountOverride?: number) {
+    if (!balanceModal) return;
+    const amount = amountOverride ?? Number(balanceModal.amount);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      setError("Invoice balance add karne ke liye valid positive number daalo.");
+      return;
+    }
+
+    const profile = balanceModal.profile;
+    const current = Number((profile as unknown as { credits?: number }).credits ?? 0);
+    const next = current + amount;
+    setAdminActionBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      await updateProfile(
+        profile.id,
+        { credits: next },
+        "add_invoice_balance"
+      );
+      await logAction("invoice_balance_added", "profile", profile.id, {
+        email: profile.email,
+        added: amount,
+        previous_balance: current,
+        new_balance: next,
+        reason: balanceModal.reason || "Manual admin adjustment",
+      });
+      setBalanceModal(null);
+      setNotice(`${amount} invoice${amount === 1 ? "" : "s"} add ho gaye. New balance: ${next}.`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Invoice balance update failed.");
+    } finally {
+      setAdminActionBusy(false);
+    }
+  }
+
+  async function handleResetCredits(profile: Profile) {
+    const current = Number((profile as unknown as { credits?: number }).credits ?? 0);
+    const reason = window.prompt(`Invoice balance reset karna hai? Current balance: ${current}. Reason likho:`, "Manual reset");
+    if (reason === null) return;
+    await updateProfile(profile.id, { credits: 0 }, "reset_invoice_balance");
+    await logAction("invoice_balance_reset", "profile", profile.id, { email: profile.email, previous_balance: current, reason });
+  }
+
+  function openFreeProModal(profile: Profile) {
+    setError(null);
+    setNotice(null);
+    setFreeProModal({ profile, days: "30", reason: "Manual free Pro access" });
+  }
+
+  async function submitFreePro(daysOverride?: number) {
+    if (!freeProModal) return;
+    const days = daysOverride ?? Number(freeProModal.days);
+    if (!Number.isFinite(days) || days <= 0) {
+      setError("Free Pro ke liye valid days daalo.");
+      return;
+    }
+
+    const profile = freeProModal.profile;
     const until = new Date();
     until.setDate(until.getDate() + days);
-    await updateProfile(profile.id, { is_pro: true, plan: "pro", free_pro_until: until.toISOString() }, "give_free_pro");
+    setAdminActionBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      await updateProfile(profile.id, { is_pro: true, plan: "pro", free_pro_until: until.toISOString() }, "give_free_pro");
+      await logAction("free_pro_granted", "profile", profile.id, {
+        email: profile.email,
+        days,
+        free_pro_until: until.toISOString(),
+        reason: freeProModal.reason || "Manual free Pro access",
+      });
+      setFreeProModal(null);
+      setNotice(`Free Pro ${days} din ke liye active ho gaya.`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Free Pro update failed.");
+    } finally {
+      setAdminActionBusy(false);
+    }
   }
 
   async function handleDeleteUserData(profile: Profile) {
@@ -1318,9 +1400,9 @@ export default function Admin() {
                     )}
 
                     <div className="grid grid-cols-2 gap-2">
-                      <button className="btn-secondary" onClick={() => handleGiveCredits(selectedUser)}>Add Invoices</button>
+                      <button className="btn-secondary" onClick={() => openInvoiceBalanceModal(selectedUser)}>Add Invoices</button>
                       <button className="btn-secondary" onClick={() => handleResetCredits(selectedUser)}>Reset Balance</button>
-                      <button className="btn-primary" onClick={() => handleFreePro(selectedUser)}>Give Free Pro</button>
+                      <button className="btn-primary" onClick={() => openFreeProModal(selectedUser)}>Give Free Pro</button>
                       <button className="btn-secondary" onClick={() => handleRemoveFreePro(selectedUser)}>Remove Pro</button>
                       <button className="btn-secondary col-span-2" onClick={() => handleResetUserPassword(selectedUser)}>Reset Login Password</button>
                       {(selectedUser as unknown as { is_banned?: boolean }).is_banned ? (
@@ -1393,14 +1475,14 @@ export default function Admin() {
 
         {active === "credits" && (
           <section className="space-y-6">
-            <SectionHeader title="Invoice Balance & Plans" subtitle="Manual invoice balance, free Pro access aur plan override yahan se control karo" />
+            <SectionHeader title="Invoice Balance & Plans" subtitle="1 invoice balance = 1 extra invoice. Free Pro duration ke saath yahan se control karo" />
             <Card>
               <div className="p-5 border-b border-slate-100"><h2 className="text-lg font-semibold text-slate-900">Quick Actions</h2></div>
               <div className="overflow-x-auto">
                 <table className="w-full">
                   <thead><tr className="border-b border-slate-100 bg-slate-50/50"><th className="text-left text-xs font-semibold text-slate-500 uppercase px-5 py-3">User</th><th className="text-left text-xs font-semibold text-slate-500 uppercase px-5 py-3">Plan</th><th className="text-left text-xs font-semibold text-slate-500 uppercase px-5 py-3">Invoice Balance</th><th className="text-right text-xs font-semibold text-slate-500 uppercase px-5 py-3">Actions</th></tr></thead>
                   <tbody className="divide-y divide-slate-100">
-                    {profiles.map((p) => <tr key={p.id}><td className="px-5 py-3.5"><p className="font-medium text-slate-900">{p.business_name || "Unnamed"}</p><p className="text-xs text-slate-500">{p.email}</p></td><td className="px-5 py-3.5"><Pill className={p.is_pro ? "bg-amber-50 text-amber-700 border-amber-200" : statusClass("closed")}>{p.is_pro ? "Pro" : "Free"}</Pill></td><td className="px-5 py-3.5 font-semibold">{Number((p as unknown as { credits?: number }).credits ?? 0)}</td><td className="px-5 py-3.5 text-right space-x-2"><button className="btn-secondary text-xs py-1.5 px-3" onClick={() => handleGiveCredits(p)}>Add Invoices</button><button className="btn-primary text-xs py-1.5 px-3" onClick={() => handleFreePro(p)}>Give Free Pro</button></td></tr>)}
+                    {profiles.map((p) => <tr key={p.id}><td className="px-5 py-3.5"><p className="font-medium text-slate-900">{p.business_name || "Unnamed"}</p><p className="text-xs text-slate-500">{p.email}</p></td><td className="px-5 py-3.5"><Pill className={p.is_pro ? "bg-amber-50 text-amber-700 border-amber-200" : statusClass("closed")}>{p.is_pro ? "Pro" : "Free"}</Pill></td><td className="px-5 py-3.5 font-semibold">{Number((p as unknown as { credits?: number }).credits ?? 0)}</td><td className="px-5 py-3.5 text-right space-x-2"><button className="btn-secondary text-xs py-1.5 px-3" onClick={() => openInvoiceBalanceModal(p)}>Add Invoices</button><button className="btn-primary text-xs py-1.5 px-3" onClick={() => openFreeProModal(p)}>Give Free Pro</button></td></tr>)}
                   </tbody>
                 </table>
               </div>
@@ -2108,6 +2190,86 @@ export default function Admin() {
         {active === "settings" && (
           <Placeholder title="Admin Settings" subtitle="Owner email, permissions aur platform controls" items={[`Owner admin: ${ADMIN_EMAIL}`, "System Center added for maintenance, flags and security", "Team roles: Full Access, Limited, Support, Finance, Viewer", "Next: production audit and bug fixing"]} />
         )}
+
+
+        {balanceModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4">
+            <div className="w-full max-w-lg rounded-2xl bg-white shadow-2xl border border-slate-200">
+              <div className="p-5 border-b border-slate-100 flex items-start justify-between gap-4">
+                <div>
+                  <h2 className="text-lg font-bold text-slate-900">Add Invoice Balance</h2>
+                  <p className="text-sm text-slate-500">1 balance = 1 extra invoice. User ko credits word nahi dikhaya jayega.</p>
+                </div>
+                <button className="text-slate-400 hover:text-slate-700 text-xl" onClick={() => setBalanceModal(null)}>×</button>
+              </div>
+              <div className="p-5 space-y-4">
+                <div className="rounded-xl bg-slate-50 border border-slate-100 p-4">
+                  <p className="font-semibold text-slate-900">{balanceModal.profile.business_name || balanceModal.profile.email || "Selected user"}</p>
+                  <p className="text-sm text-slate-500">Current balance: <span className="font-semibold text-slate-900">{Number((balanceModal.profile as unknown as { credits?: number }).credits ?? 0)}</span> invoices</p>
+                </div>
+                <div className="grid grid-cols-4 gap-2">
+                  {[5, 10, 25, 50].map((amount) => (
+                    <button key={amount} className="btn-secondary text-sm" onClick={() => setBalanceModal({ ...balanceModal, amount: String(amount) })}>+{amount}</button>
+                  ))}
+                </div>
+                <label className="block text-sm font-medium text-slate-700">Custom invoices to add</label>
+                <input className="input" type="number" min="1" value={balanceModal.amount} onChange={(e) => setBalanceModal({ ...balanceModal, amount: e.target.value })} />
+                <label className="block text-sm font-medium text-slate-700">Reason</label>
+                <select className="input" value={balanceModal.reason} onChange={(e) => setBalanceModal({ ...balanceModal, reason: e.target.value })}>
+                  <option>Manual admin adjustment</option>
+                  <option>Promotion</option>
+                  <option>Refund / compensation</option>
+                  <option>Customer support goodwill</option>
+                  <option>Testing</option>
+                </select>
+              </div>
+              <div className="p-5 border-t border-slate-100 flex justify-end gap-2">
+                <button className="btn-secondary" onClick={() => setBalanceModal(null)}>Cancel</button>
+                <button className="btn-primary" disabled={adminActionBusy} onClick={() => submitInvoiceBalance()}>{adminActionBusy ? "Saving..." : "Add Balance"}</button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {freeProModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4">
+            <div className="w-full max-w-lg rounded-2xl bg-white shadow-2xl border border-slate-200">
+              <div className="p-5 border-b border-slate-100 flex items-start justify-between gap-4">
+                <div>
+                  <h2 className="text-lg font-bold text-slate-900">Give Free Pro</h2>
+                  <p className="text-sm text-slate-500">Expiry date save hogi; date nikalne ke baad user auto Free plan par aa jayega.</p>
+                </div>
+                <button className="text-slate-400 hover:text-slate-700 text-xl" onClick={() => setFreeProModal(null)}>×</button>
+              </div>
+              <div className="p-5 space-y-4">
+                <div className="rounded-xl bg-amber-50 border border-amber-100 p-4">
+                  <p className="font-semibold text-slate-900">{freeProModal.profile.business_name || freeProModal.profile.email || "Selected user"}</p>
+                  <p className="text-sm text-amber-700">Pro access tab tak active rahega jab tak selected duration expire nahi hoti.</p>
+                </div>
+                <div className="grid grid-cols-4 gap-2">
+                  {[7, 30, 90, 365].map((days) => (
+                    <button key={days} className="btn-secondary text-sm" onClick={() => setFreeProModal({ ...freeProModal, days: String(days) })}>{days} days</button>
+                  ))}
+                </div>
+                <label className="block text-sm font-medium text-slate-700">Custom days</label>
+                <input className="input" type="number" min="1" value={freeProModal.days} onChange={(e) => setFreeProModal({ ...freeProModal, days: e.target.value })} />
+                <label className="block text-sm font-medium text-slate-700">Reason</label>
+                <select className="input" value={freeProModal.reason} onChange={(e) => setFreeProModal({ ...freeProModal, reason: e.target.value })}>
+                  <option>Manual free Pro access</option>
+                  <option>Promotion</option>
+                  <option>Trial extension</option>
+                  <option>Support compensation</option>
+                  <option>Testing</option>
+                </select>
+              </div>
+              <div className="p-5 border-t border-slate-100 flex justify-end gap-2">
+                <button className="btn-secondary" onClick={() => setFreeProModal(null)}>Cancel</button>
+                <button className="btn-primary" disabled={adminActionBusy} onClick={() => submitFreePro()}>{adminActionBusy ? "Saving..." : "Give Free Pro"}</button>
+              </div>
+            </div>
+          </div>
+        )}
+
       </main>
     </div>
   );
