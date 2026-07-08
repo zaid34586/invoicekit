@@ -43,7 +43,8 @@ export default function StaffLayout({ children }: { children: ReactNode }) {
     { key: "users", label: "Users", icon: "👥" },
     { key: "finance", label: "Finance", icon: "💰" },
     { key: "reports", label: "Reports", icon: "📄" },
-  ].filter((item) => hasStaffPermission(role, item.key as any));
+    { key: "profile", label: "Profile", icon: "👤" },
+  ].filter((item) => item.key === "profile" || hasStaffPermission(role, item.key as any));
 
   return (
     <div className="min-h-screen bg-slate-50">

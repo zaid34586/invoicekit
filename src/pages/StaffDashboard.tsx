@@ -61,6 +61,10 @@ export default function StaffDashboard() {
   const [finance, setFinance] = useState<FinanceRow[]>([]);
   const [savingId, setSavingId] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [taskFilter, setTaskFilter] = useState("open");
+  const [ticketFilter, setTicketFilter] = useState("open");
+  const [newPassword, setNewPassword] = useState("");
+  const [updatingPassword, setUpdatingPassword] = useState(false);
 
   async function load() {
     if (!user) return;
@@ -152,8 +156,40 @@ export default function StaffDashboard() {
     await load();
   }
 
+  async function changePassword() {
+    if (!newPassword || newPassword.length < 8) {
+      setMessage("Password must be at least 8 characters.");
+      return;
+    }
+    setUpdatingPassword(true);
+    setMessage(null);
+    const { error } = await supabase.auth.updateUser({ password: newPassword });
+    setUpdatingPassword(false);
+    if (error) {
+      setMessage(`Password update failed: ${error.message}`);
+      return;
+    }
+    setNewPassword("");
+    setMessage("Password updated successfully.");
+  }
+
+  const todayIso = new Date().toISOString().slice(0, 10);
   const openTaskCount = tasks.filter((t) => t.status !== "done").length;
   const openTicketCount = tickets.filter((t) => t.status !== "resolved" && t.status !== "closed").length;
+  const dueTodayTasks = tasks.filter((t) => t.due_date === todayIso && t.status !== "done").length;
+  const urgentTickets = tickets.filter((t) => t.priority === "urgent" && t.status !== "closed" && t.status !== "resolved").length;
+  const filteredTasks = tasks.filter((task) => {
+    if (taskFilter === "all") return true;
+    if (taskFilter === "open") return task.status !== "done";
+    if (taskFilter === "due_today") return task.due_date === todayIso && task.status !== "done";
+    return task.status === taskFilter;
+  });
+  const filteredTickets = tickets.filter((ticket) => {
+    if (ticketFilter === "all") return true;
+    if (ticketFilter === "open") return ticket.status !== "resolved" && ticket.status !== "closed";
+    if (ticketFilter === "urgent") return ticket.priority === "urgent";
+    return ticket.status === ticketFilter;
+  });
 
   return (
     <div className="space-y-7">
@@ -179,6 +215,21 @@ export default function StaffDashboard() {
         )}
       </div>
 
+      {(dueTodayTasks > 0 || urgentTickets > 0) && (
+        <section id="notifications" className="bg-amber-50 border border-amber-200 rounded-2xl p-5">
+          <div className="flex items-start gap-3">
+            <div className="text-2xl">🔔</div>
+            <div>
+              <h2 className="font-bold text-amber-950">Today's alerts</h2>
+              <p className="text-sm text-amber-800 mt-1">
+                {dueTodayTasks > 0 ? `${dueTodayTasks} task(s) due today. ` : ""}
+                {urgentTickets > 0 ? `${urgentTickets} urgent ticket(s) need attention.` : ""}
+              </p>
+            </div>
+          </div>
+        </section>
+      )}
+
       {hasStaffPermission(role, "tasks") && (
         <section id="tasks" className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
           <div className="p-5 border-b border-slate-100 flex items-center justify-between">
@@ -186,10 +237,21 @@ export default function StaffDashboard() {
               <h2 className="text-xl font-bold text-slate-950">My Tasks</h2>
               <p className="text-sm text-slate-500">Update task status, progress and staff notes.</p>
             </div>
-            <button onClick={load} className="text-sm font-semibold text-primary-700">Refresh</button>
+            <div className="flex items-center gap-2">
+              <select value={taskFilter} onChange={(e) => setTaskFilter(e.target.value)} className="rounded-xl border border-slate-200 px-3 py-2 text-sm">
+                <option value="open">Open</option>
+                <option value="due_today">Due today</option>
+                <option value="pending">Pending</option>
+                <option value="in_progress">In progress</option>
+                <option value="blocked">Blocked</option>
+                <option value="done">Done</option>
+                <option value="all">All</option>
+              </select>
+              <button onClick={load} className="text-sm font-semibold text-primary-700">Refresh</button>
+            </div>
           </div>
           <div className="divide-y divide-slate-100">
-            {tasks.length === 0 ? <div className="p-6 text-slate-500">No tasks yet.</div> : tasks.map((task) => (
+            {filteredTasks.length === 0 ? <div className="p-6 text-slate-500">No tasks found for this filter.</div> : filteredTasks.map((task) => (
               <div key={task.id} className="p-5 space-y-4">
                 <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
                   <div>
@@ -235,12 +297,22 @@ export default function StaffDashboard() {
 
       {hasStaffPermission(role, "tickets") && (
         <section id="tickets" className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
-          <div className="p-5 border-b border-slate-100">
-            <h2 className="text-xl font-bold text-slate-950">Support Tickets</h2>
-            <p className="text-sm text-slate-500">Update assigned ticket status and notes.</p>
+          <div className="p-5 border-b border-slate-100 flex items-center justify-between gap-3">
+            <div>
+              <h2 className="text-xl font-bold text-slate-950">Support Tickets</h2>
+              <p className="text-sm text-slate-500">Update assigned ticket status and notes.</p>
+            </div>
+            <select value={ticketFilter} onChange={(e) => setTicketFilter(e.target.value)} className="rounded-xl border border-slate-200 px-3 py-2 text-sm">
+              <option value="open">Open</option>
+              <option value="urgent">Urgent</option>
+              <option value="pending">Pending</option>
+              <option value="resolved">Resolved</option>
+              <option value="closed">Closed</option>
+              <option value="all">All</option>
+            </select>
           </div>
           <div className="divide-y divide-slate-100">
-            {tickets.length === 0 ? <div className="p-6 text-slate-500">No tickets yet.</div> : tickets.map((ticket) => (
+            {filteredTickets.length === 0 ? <div className="p-6 text-slate-500">No tickets found for this filter.</div> : filteredTickets.map((ticket) => (
               <div key={ticket.id} className="p-5 space-y-4">
                 <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
                   <div>
@@ -297,6 +369,50 @@ export default function StaffDashboard() {
           <p className="text-slate-500 mt-2">Viewer role can see summaries only. Editing tools are hidden.</p>
         </section>
       )}
+
+      <section id="profile" className="bg-white border border-slate-200 rounded-2xl shadow-sm p-6">
+        <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-5">
+          <div>
+            <h2 className="text-xl font-bold text-slate-950">My Profile</h2>
+            <p className="text-sm text-slate-500 mt-1">Your staff account and access summary.</p>
+            <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+              <div className="rounded-xl bg-slate-50 border border-slate-100 p-3">
+                <div className="text-slate-500 text-xs font-semibold uppercase">Name</div>
+                <div className="font-semibold text-slate-900 mt-1">{staff?.name || "Not set"}</div>
+              </div>
+              <div className="rounded-xl bg-slate-50 border border-slate-100 p-3">
+                <div className="text-slate-500 text-xs font-semibold uppercase">Email</div>
+                <div className="font-semibold text-slate-900 mt-1">{staff?.email || user?.email}</div>
+              </div>
+              <div className="rounded-xl bg-slate-50 border border-slate-100 p-3">
+                <div className="text-slate-500 text-xs font-semibold uppercase">Role</div>
+                <div className="font-semibold text-slate-900 mt-1">{role ? STAFF_ROLE_LABELS[role] : "Staff"}</div>
+              </div>
+              <div className="rounded-xl bg-slate-50 border border-slate-100 p-3">
+                <div className="text-slate-500 text-xs font-semibold uppercase">Status</div>
+                <div className="font-semibold text-slate-900 mt-1">{staff?.status || "active"}</div>
+              </div>
+            </div>
+          </div>
+          <div className="w-full lg:max-w-sm rounded-2xl border border-slate-200 p-4 bg-slate-50">
+            <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Change password</label>
+            <input
+              type="password"
+              value={newPassword}
+              onChange={(e) => setNewPassword(e.target.value)}
+              className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+              placeholder="New password, min 8 characters"
+            />
+            <button
+              onClick={changePassword}
+              disabled={updatingPassword || newPassword.length < 8}
+              className="mt-3 w-full rounded-xl bg-slate-900 text-white text-sm font-semibold py-2.5 disabled:opacity-50"
+            >
+              {updatingPassword ? "Updating..." : "Update Password"}
+            </button>
+          </div>
+        </div>
+      </section>
     </div>
   );
 }
