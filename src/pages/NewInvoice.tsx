@@ -347,24 +347,47 @@ export default function NewInvoice() {
       return;
     }
 
-    let shouldConsumeCredit = false;
-    const availableCredits = Number(profile?.credits ?? 0);
+    // Always re-read the latest plan + invoice balance before saving.
+    // The admin can add invoice balance while the user is already logged in,
+    // so relying only on AuthContext.profile can be stale and incorrectly
+    // block invoice creation.
+    const { data: freshProfile, error: freshProfileError } = await supabase
+      .from("profiles")
+      .select("id,is_pro,plan,credits,free_pro_until")
+      .eq("id", profile?.id ?? user.id)
+      .maybeSingle();
 
-    if (!profile?.is_pro) {
+    if (freshProfileError) {
+      setError(freshProfileError.message);
+      return;
+    }
+
+    const freeProUntil = freshProfile?.free_pro_until ? new Date(String(freshProfile.free_pro_until)) : null;
+    const hasActiveFreePro = Boolean(freeProUntil && freeProUntil.getTime() > Date.now());
+    const isUnlimited = Boolean(freshProfile?.is_pro || freshProfile?.plan === "pro" || freshProfile?.plan === "business" || hasActiveFreePro);
+    const availableInvoiceBalance = Math.max(0, Number(freshProfile?.credits ?? 0));
+    let shouldConsumeInvoiceBalance = false;
+
+    if (!isUnlimited) {
       const monthStart = new Date();
       monthStart.setDate(1);
       monthStart.setHours(0, 0, 0, 0);
 
-      const { count } = await supabase
+      const { count, error: countError } = await supabase
         .from("invoices")
         .select("*", { count: "exact", head: true })
         .eq("user_id", user.id)
         .gte("created_at", monthStart.toISOString());
 
+      if (countError) {
+        setError(countError.message);
+        return;
+      }
+
       const usedFreeInvoices = count ?? 0;
       if (usedFreeInvoices >= FREE_PLAN_LIMIT) {
-        if (availableCredits > 0) {
-          shouldConsumeCredit = true;
+        if (availableInvoiceBalance > 0) {
+          shouldConsumeInvoiceBalance = true;
         } else {
           openUpgrade();
           return;
@@ -459,12 +482,18 @@ export default function NewInvoice() {
       });
     }
 
-    if (shouldConsumeCredit && profile?.id) {
-      await supabase
+    if (shouldConsumeInvoiceBalance && freshProfile?.id) {
+      const nextBalance = Math.max(availableInvoiceBalance - 1, 0);
+      const { error: balanceError } = await supabase
         .from("profiles")
-        .update({ credits: Math.max(availableCredits - 1, 0) })
-        .eq("id", profile.id)
+        .update({ credits: nextBalance })
+        .eq("id", freshProfile.id)
         .gt("credits", 0);
+
+      if (balanceError) {
+        setError(balanceError.message);
+        return;
+      }
     }
 
     if (data) {

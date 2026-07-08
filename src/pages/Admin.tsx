@@ -314,7 +314,7 @@ export default function Admin() {
       const customerProfiles = ((profRes.data as Profile[]) ?? []).filter((profile) => {
         const email = profile.email?.toLowerCase() ?? "";
         const authId = profile.user_id || profile.id;
-        return !staffEmails.has(email) && !staffAuthIds.has(authId);
+        return email !== ADMIN_EMAIL.toLowerCase() && !staffEmails.has(email) && !staffAuthIds.has(authId);
       });
 
       setProfiles(customerProfiles);
@@ -706,7 +706,7 @@ export default function Admin() {
         password,
       });
       await logAction("reset_user_password", "profile", profile.id, { email: profile.email });
-      setNotice("User password reset ho gaya. Temporary password user ko safely share karo.");
+      setNotice("User password reset. Share the temporary password securely.");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Password reset failed. Edge Function deploy check karo.");
     }
@@ -715,14 +715,15 @@ export default function Admin() {
   function openInvoiceBalanceModal(profile: Profile) {
     setError(null);
     setNotice(null);
-    setBalanceModal({ profile, amount: "10", reason: "Manual admin adjustment" });
+    setBalanceModal({ profile, amount: "", reason: "Manual admin adjustment" });
   }
 
   async function submitInvoiceBalance(amountOverride?: number) {
     if (!balanceModal) return;
-    const amount = amountOverride ?? Number(balanceModal.amount);
+    const rawAmount = amountOverride ?? Number(balanceModal.amount);
+    const amount = Math.floor(rawAmount);
     if (!Number.isFinite(amount) || amount <= 0) {
-      setError("Invoice balance add karne ke liye valid positive number daalo.");
+      setError("Enter a valid positive invoice count.");
       return;
     }
 
@@ -746,7 +747,7 @@ export default function Admin() {
         reason: balanceModal.reason || "Manual admin adjustment",
       });
       setBalanceModal(null);
-      setNotice(`${amount} invoice${amount === 1 ? "" : "s"} add ho gaye. New balance: ${next}.`);
+      setNotice(`${amount} invoice${amount === 1 ? "" : "s"} added. New invoice balance: ${next}.`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Invoice balance update failed.");
     } finally {
@@ -772,7 +773,7 @@ export default function Admin() {
     if (!freeProModal) return;
     const days = daysOverride ?? Number(freeProModal.days);
     if (!Number.isFinite(days) || days <= 0) {
-      setError("Free Pro ke liye valid days daalo.");
+      setError("Enter a valid Free Pro duration in days.");
       return;
     }
 
@@ -791,7 +792,7 @@ export default function Admin() {
         reason: freeProModal.reason || "Manual free Pro access",
       });
       setFreeProModal(null);
-      setNotice(`Free Pro ${days} din ke liye active ho gaya.`);
+      setNotice(`Free Pro is active for ${days} day${days === 1 ? "" : "s"}.`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Free Pro update failed.");
     } finally {
@@ -1419,7 +1420,7 @@ export default function Admin() {
                       <Info label="Invoices" value={String(selectedUserInvoices.length)} />
                       <Info label="Clients" value={String(selectedUserClients.length)} />
                       <Info label="Revenue" value={formatMoney(selectedUserInvoiceRevenue, selectedUser.currency || "INR")} />
-                      <Info label="Extra Invoice Balance" value={String(selectedUserInvoiceBalance)} />
+                      <Info label="Added Invoice Balance" value={String(selectedUserInvoiceBalance)} />
                       <Info label="Used This Month" value={`${selectedUserInvoicesThisMonth} / ${FREE_PLAN_LIMIT} free`} />
                       <Info label="Remaining Invoices" value={selectedUserRemainingInvoices} />
                       <Info label="Joined" value={formatDate(selectedUser.created_at)} />
@@ -1537,7 +1538,7 @@ export default function Admin() {
 
         {active === "credits" && (
           <section className="space-y-6">
-            <SectionHeader title="Invoice Balance & Plans" subtitle="1 invoice balance = 1 extra invoice. Free Pro duration ke saath yahan se control karo" />
+            <SectionHeader title="Invoice Balance & Plans" subtitle="Manage invoice balance and Free Pro access from one place." />
             <Card>
               <div className="p-5 border-b border-slate-100"><h2 className="text-lg font-semibold text-slate-900">Quick Actions</h2></div>
               <div className="overflow-x-auto">
@@ -2241,7 +2242,7 @@ export default function Admin() {
                 {[
                   "Logout, login as owner admin, open /admin",
                   "Create test user, verify phone flow, create invoice",
-                  "Admin: give credits, give free pro, ban/unban user",
+                  "Admin: add invoice balance, give free pro, ban/unban user",
                   "Create team member and deploy create-team-member edge function",
                   "Create finance income/expense and export CSV",
                   "Create support ticket, assign, resolve, check audit log",
@@ -2266,14 +2267,14 @@ export default function Admin() {
               <div className="p-5 border-b border-slate-100 flex items-start justify-between gap-4">
                 <div>
                   <h2 className="text-lg font-bold text-slate-900">Add Invoice Balance</h2>
-                  <p className="text-sm text-slate-500">1 balance = 1 extra invoice. User ko credits word nahi dikhaya jayega.</p>
+                  <p className="text-sm text-slate-500">Add the exact number of extra invoices this user can create.</p>
                 </div>
                 <button className="text-slate-400 hover:text-slate-700 text-xl" onClick={() => setBalanceModal(null)}>×</button>
               </div>
               <div className="p-5 space-y-4">
                 <div className="rounded-xl bg-slate-50 border border-slate-100 p-4">
                   <p className="font-semibold text-slate-900">{balanceModal.profile.business_name || balanceModal.profile.email || "Selected user"}</p>
-                  <p className="text-sm text-slate-500">Current balance: <span className="font-semibold text-slate-900">{Number((balanceModal.profile as unknown as { credits?: number }).credits ?? 0)}</span> invoices</p>
+                  <p className="text-sm text-slate-500">Current added balance: <span className="font-semibold text-slate-900">{Number((balanceModal.profile as unknown as { credits?: number }).credits ?? 0)}</span> invoices</p>
                 </div>
                 <div className="grid grid-cols-4 gap-2">
                   {[5, 10, 25, 50].map((amount) => (
@@ -2281,10 +2282,10 @@ export default function Admin() {
                   ))}
                 </div>
                 <div className="rounded-xl border border-blue-100 bg-blue-50 p-3 text-sm text-blue-800">
-                  After add: <span className="font-bold">{Number((balanceModal.profile as unknown as { credits?: number }).credits ?? 0) + Math.max(0, Number(balanceModal.amount) || 0)}</span> invoices available as extra balance.
+                  After add: <span className="font-bold">{Number((balanceModal.profile as unknown as { credits?: number }).credits ?? 0) + Math.max(0, Math.floor(Number(balanceModal.amount) || 0))}</span> added invoices available.
                 </div>
-                <label className="block text-sm font-medium text-slate-700">Custom invoices to add</label>
-                <input className="input" type="number" min="1" value={balanceModal.amount} onChange={(e) => setBalanceModal({ ...balanceModal, amount: e.target.value })} />
+                <label className="block text-sm font-medium text-slate-700">Invoices to add</label>
+                <input className="input" type="number" min="1" step="1" placeholder="Enter exact number, e.g. 1" value={balanceModal.amount} onChange={(e) => setBalanceModal({ ...balanceModal, amount: e.target.value })} />
                 <label className="block text-sm font-medium text-slate-700">Reason</label>
                 <select className="input" value={balanceModal.reason} onChange={(e) => setBalanceModal({ ...balanceModal, reason: e.target.value })}>
                   <option>Manual admin adjustment</option>
