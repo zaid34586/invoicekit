@@ -37,9 +37,12 @@ type AdminTask = {
   title: string;
   description: string | null;
   assigned_to: string | null;
+  department: "general" | "support" | "finance" | "sales" | "engineering";
   priority: "low" | "medium" | "high" | "urgent";
   status: "pending" | "in_progress" | "done" | "blocked";
+  progress: number;
   due_date: string | null;
+  internal_notes: string | null;
   created_at: string;
 };
 
@@ -72,6 +75,8 @@ type AdminSupportTicket = {
   message: string | null;
   status: "open" | "pending" | "resolved" | "closed";
   priority: "low" | "medium" | "high" | "urgent";
+  assigned_to: string | null;
+  internal_notes: string | null;
   created_at: string;
 };
 
@@ -193,12 +198,17 @@ export default function Admin() {
   const [teamSearch, setTeamSearch] = useState("");
   const [teamStatusFilter, setTeamStatusFilter] = useState<"all" | "active" | "disabled">("all");
   const [selectedTeamId, setSelectedTeamId] = useState<string | null>(null);
-  const [taskForm, setTaskForm] = useState({ title: "", description: "", assigned_to: "", priority: "medium", due_date: "" });
+  const [taskForm, setTaskForm] = useState({ title: "", description: "", assigned_to: "", department: "general", priority: "medium", due_date: "" });
   const [financeForm, setFinanceForm] = useState(emptyFormFinance());
   const [financeSearch, setFinanceSearch] = useState("");
   const [financeStatusFilter, setFinanceStatusFilter] = useState<"all" | AdminFinanceEntry["status"]>("all");
   const [financeSourceFilter, setFinanceSourceFilter] = useState<"all" | AdminFinanceEntry["source"]>("all");
   const [financeRange, setFinanceRange] = useState<"7" | "30" | "90" | "all">("30");
+  const [supportForm, setSupportForm] = useState({ user_id: "", subject: "", message: "", priority: "medium", assigned_to: "", internal_notes: "" });
+  const [supportSearch, setSupportSearch] = useState("");
+  const [supportStatusFilter, setSupportStatusFilter] = useState<"all" | AdminSupportTicket["status"]>("all");
+  const [selectedTicketId, setSelectedTicketId] = useState<string | null>(null);
+  const [auditSearch, setAuditSearch] = useState("");
 
   const isAdmin = user?.email?.toLowerCase() === ADMIN_EMAIL.toLowerCase();
 
@@ -675,21 +685,84 @@ export default function Admin() {
       description: taskForm.description || null,
       assigned_to: taskForm.assigned_to || null,
       priority: taskForm.priority,
+      department: taskForm.department,
       status: "pending",
+      progress: 0,
       due_date: taskForm.due_date || null,
       created_by: user?.id ?? null,
     });
     if (insertError) return setError(insertError.message);
     await logAction("create_task", "admin_tasks", taskForm.title);
-    setTaskForm({ title: "", description: "", assigned_to: "", priority: "medium", due_date: "" });
+    setTaskForm({ title: "", description: "", assigned_to: "", department: "general", priority: "medium", due_date: "" });
     setNotice("Task created.");
     await load();
   }
 
   async function updateTaskStatus(task: AdminTask, status: AdminTask["status"]) {
-    const { error: updateError } = await supabase.from("admin_tasks").update({ status }).eq("id", task.id);
+    const progress = status === "done" ? 100 : status === "in_progress" ? Math.max(task.progress ?? 25, 25) : status === "blocked" ? task.progress ?? 0 : 0;
+    const { error: updateError } = await supabase.from("admin_tasks").update({ status, progress }).eq("id", task.id);
     if (updateError) return setError(updateError.message);
-    await logAction("update_task_status", "admin_tasks", task.id, { status });
+    await logAction("update_task_status", "admin_tasks", task.id, { status, progress });
+    await load();
+  }
+
+  async function updateTaskProgress(task: AdminTask, progress: number) {
+    const cleanProgress = Math.max(0, Math.min(100, progress));
+    const nextStatus: AdminTask["status"] = cleanProgress >= 100 ? "done" : cleanProgress > 0 ? "in_progress" : task.status;
+    const { error: updateError } = await supabase.from("admin_tasks").update({ progress: cleanProgress, status: nextStatus }).eq("id", task.id);
+    if (updateError) return setError(updateError.message);
+    await logAction("update_task_progress", "admin_tasks", task.id, { progress: cleanProgress });
+    await load();
+  }
+
+  async function deleteTask(task: AdminTask) {
+    if (!window.confirm(`Delete task: ${task.title}?`)) return;
+    const { error: deleteError } = await supabase.from("admin_tasks").delete().eq("id", task.id);
+    if (deleteError) return setError(deleteError.message);
+    await logAction("delete_task", "admin_tasks", task.id, { title: task.title });
+    setNotice("Task deleted.");
+    await load();
+  }
+
+  async function handleCreateSupportTicket(e: React.FormEvent) {
+    e.preventDefault();
+    const { error: insertError } = await supabase.from("admin_support_tickets").insert({
+      user_id: supportForm.user_id || null,
+      subject: supportForm.subject,
+      message: supportForm.message || null,
+      priority: supportForm.priority,
+      assigned_to: supportForm.assigned_to || null,
+      internal_notes: supportForm.internal_notes || null,
+      status: "open",
+    });
+    if (insertError) return setError(insertError.message);
+    await logAction("create_support_ticket", "admin_support_tickets", supportForm.subject, { priority: supportForm.priority });
+    setSupportForm({ user_id: "", subject: "", message: "", priority: "medium", assigned_to: "", internal_notes: "" });
+    setNotice("Support ticket created.");
+    await load();
+  }
+
+  async function updateTicketStatus(ticket: AdminSupportTicket, status: AdminSupportTicket["status"]) {
+    const { error: updateError } = await supabase.from("admin_support_tickets").update({ status }).eq("id", ticket.id);
+    if (updateError) return setError(updateError.message);
+    await logAction("update_ticket_status", "admin_support_tickets", ticket.id, { status });
+    await load();
+  }
+
+  async function updateTicketAssignment(ticket: AdminSupportTicket, assigned_to: string) {
+    const { error: updateError } = await supabase.from("admin_support_tickets").update({ assigned_to: assigned_to || null }).eq("id", ticket.id);
+    if (updateError) return setError(updateError.message);
+    await logAction("assign_ticket", "admin_support_tickets", ticket.id, { assigned_to: assigned_to || null });
+    await load();
+  }
+
+  async function deleteTicket(ticket: AdminSupportTicket) {
+    if (!window.confirm(`Delete ticket: ${ticket.subject}?`)) return;
+    const { error: deleteError } = await supabase.from("admin_support_tickets").delete().eq("id", ticket.id);
+    if (deleteError) return setError(deleteError.message);
+    await logAction("delete_ticket", "admin_support_tickets", ticket.id, { subject: ticket.subject });
+    setSelectedTicketId(null);
+    setNotice("Support ticket deleted.");
     await load();
   }
 
@@ -733,6 +806,22 @@ export default function Admin() {
     acc[item.group].push(item);
     return acc;
   }, {});
+
+  const supportAgents = team.filter((m) => m.status === "active" && ["full_access", "support", "limited"].includes(m.role));
+  const filteredSupportTickets = useMemo(() => {
+    const q = supportSearch.trim().toLowerCase();
+    return supportTickets.filter((ticket) => {
+      const matchesSearch = !q || [ticket.subject, ticket.message, ticket.priority, ticket.status].some((v) => (v || "").toLowerCase().includes(q));
+      const matchesStatus = supportStatusFilter === "all" || ticket.status === supportStatusFilter;
+      return matchesSearch && matchesStatus;
+    });
+  }, [supportTickets, supportSearch, supportStatusFilter]);
+  const selectedTicket = supportTickets.find((ticket) => ticket.id === selectedTicketId) ?? filteredSupportTickets[0] ?? null;
+  const filteredAuditLogs = useMemo(() => {
+    const q = auditSearch.trim().toLowerCase();
+    if (!q) return auditLogs;
+    return auditLogs.filter((log) => [log.action, log.target_type, log.target_id, JSON.stringify(log.details ?? {})].some((v) => (v || "").toLowerCase().includes(q)));
+  }, [auditLogs, auditSearch]);
 
   return (
     <div className="grid lg:grid-cols-[260px_1fr] gap-6 animate-fade-in">
@@ -1192,10 +1281,62 @@ export default function Admin() {
 
         {active === "tasks" && (
           <section className="space-y-6">
-            <SectionHeader title="Tasks" subtitle="Team ko kaam assign karo aur status track karo" />
+            <SectionHeader title="Tasks" subtitle="Team work ko assign, track aur complete karo" />
+            <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
+              <Metric title="Pending" value={String(tasks.filter((t) => t.status === "pending").length)} icon="⏳" />
+              <Metric title="In Progress" value={String(tasks.filter((t) => t.status === "in_progress").length)} icon="🚧" />
+              <Metric title="Blocked" value={String(tasks.filter((t) => t.status === "blocked").length)} icon="🛑" />
+              <Metric title="Done" value={String(tasks.filter((t) => t.status === "done").length)} icon="✅" />
+            </div>
             <div className="grid xl:grid-cols-[420px_1fr] gap-6">
-              <Card className="p-5 h-fit"><h2 className="text-lg font-semibold text-slate-900 mb-4">Assign New Task</h2><form onSubmit={handleAddTask} className="space-y-3"><input className="input" required placeholder="Task title" value={taskForm.title} onChange={(e) => setTaskForm({ ...taskForm, title: e.target.value })} /><textarea className="input min-h-24" placeholder="Description" value={taskForm.description} onChange={(e) => setTaskForm({ ...taskForm, description: e.target.value })} /><select className="input" value={taskForm.assigned_to} onChange={(e) => setTaskForm({ ...taskForm, assigned_to: e.target.value })}><option value="">Unassigned</option>{team.map((m) => <option key={m.id} value={m.id}>{m.name || m.email}</option>)}</select><select className="input" value={taskForm.priority} onChange={(e) => setTaskForm({ ...taskForm, priority: e.target.value })}><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option><option value="urgent">Urgent</option></select><input className="input" type="date" value={taskForm.due_date} onChange={(e) => setTaskForm({ ...taskForm, due_date: e.target.value })} /><button className="btn-primary w-full" type="submit">Create Task</button></form></Card>
-              <Card><div className="p-5 border-b border-slate-100"><h2 className="text-lg font-semibold text-slate-900">Task Board</h2></div><div className="grid md:grid-cols-2 xl:grid-cols-4 gap-4 p-4">{(["pending", "in_progress", "blocked", "done"] as AdminTask["status"][]).map((status) => <div key={status} className="rounded-xl bg-slate-50 border border-slate-100 p-3"><p className="text-sm font-bold text-slate-700 capitalize mb-3">{status.replace("_", " ")}</p><div className="space-y-2">{tasks.filter((t) => t.status === status).map((task) => <div key={task.id} className="rounded-lg bg-white border border-slate-100 p-3"><p className="font-medium text-sm text-slate-900">{task.title}</p><p className="text-xs text-slate-500 mt-1">{task.priority} {task.due_date ? `· ${task.due_date}` : ""}</p><select className="input mt-2 text-xs py-1.5" value={task.status} onChange={(e) => updateTaskStatus(task, e.target.value as AdminTask["status"])}><option value="pending">Pending</option><option value="in_progress">In Progress</option><option value="blocked">Blocked</option><option value="done">Done</option></select></div>)}{tasks.filter((t) => t.status === status).length === 0 && <p className="text-xs text-slate-400">No tasks</p>}</div></div>)}</div></Card>
+              <Card className="p-5 h-fit">
+                <h2 className="text-lg font-semibold text-slate-900 mb-4">Assign New Task</h2>
+                <form onSubmit={handleAddTask} className="space-y-3">
+                  <input className="input" required placeholder="Task title" value={taskForm.title} onChange={(e) => setTaskForm({ ...taskForm, title: e.target.value })} />
+                  <textarea className="input min-h-24" placeholder="Description" value={taskForm.description} onChange={(e) => setTaskForm({ ...taskForm, description: e.target.value })} />
+                  <select className="input" value={taskForm.assigned_to} onChange={(e) => setTaskForm({ ...taskForm, assigned_to: e.target.value })}>
+                    <option value="">Unassigned</option>{team.map((m) => <option key={m.id} value={m.id}>{m.name || m.email}</option>)}
+                  </select>
+                  <div className="grid grid-cols-2 gap-2">
+                    <select className="input" value={taskForm.department} onChange={(e) => setTaskForm({ ...taskForm, department: e.target.value })}>
+                      <option value="general">General</option><option value="support">Support</option><option value="finance">Finance</option><option value="sales">Sales</option><option value="engineering">Engineering</option>
+                    </select>
+                    <select className="input" value={taskForm.priority} onChange={(e) => setTaskForm({ ...taskForm, priority: e.target.value })}>
+                      <option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option><option value="urgent">Urgent</option>
+                    </select>
+                  </div>
+                  <input className="input" type="date" value={taskForm.due_date} onChange={(e) => setTaskForm({ ...taskForm, due_date: e.target.value })} />
+                  <button className="btn-primary w-full" type="submit">Create Task</button>
+                </form>
+              </Card>
+              <Card>
+                <div className="p-5 border-b border-slate-100 flex items-center justify-between">
+                  <h2 className="text-lg font-semibold text-slate-900">Task Board</h2>
+                  <button className="btn-secondary" onClick={() => exportCsv(tasks as unknown as Record<string, unknown>[], "admin-tasks.csv")}>Export CSV</button>
+                </div>
+                <div className="grid md:grid-cols-2 xl:grid-cols-4 gap-4 p-4">
+                  {(["pending", "in_progress", "blocked", "done"] as AdminTask["status"][]).map((status) => (
+                    <div key={status} className="rounded-xl bg-slate-50 border border-slate-100 p-3">
+                      <p className="text-sm font-bold text-slate-700 capitalize mb-3">{status.replace("_", " ")}</p>
+                      <div className="space-y-2">
+                        {tasks.filter((t) => t.status === status).map((task) => (
+                          <div key={task.id} className="rounded-lg bg-white border border-slate-100 p-3">
+                            <p className="font-medium text-sm text-slate-900">{task.title}</p>
+                            <p className="text-xs text-slate-500 mt-1 capitalize">{task.department || "general"} · {task.priority} {task.due_date ? `· ${task.due_date}` : ""}</p>
+                            <div className="mt-3 h-2 rounded-full bg-slate-100 overflow-hidden"><div className="h-full bg-primary-500" style={{ width: `${task.progress ?? 0}%` }} /></div>
+                            <div className="mt-2 grid grid-cols-2 gap-2">
+                              <select className="input text-xs py-1.5" value={task.status} onChange={(e) => updateTaskStatus(task, e.target.value as AdminTask["status"])}><option value="pending">Pending</option><option value="in_progress">In Progress</option><option value="blocked">Blocked</option><option value="done">Done</option></select>
+                              <input className="input text-xs py-1.5" type="number" min="0" max="100" value={task.progress ?? 0} onChange={(e) => updateTaskProgress(task, Number(e.target.value))} />
+                            </div>
+                            <button className="text-xs text-red-600 mt-2 hover:underline" onClick={() => deleteTask(task)}>Delete</button>
+                          </div>
+                        ))}
+                        {tasks.filter((t) => t.status === status).length === 0 && <p className="text-xs text-slate-400">No tasks</p>}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </Card>
             </div>
           </section>
         )}
@@ -1372,10 +1513,80 @@ export default function Admin() {
           <Placeholder title="Analytics" subtitle="Growth, invoices, revenue aur user activity insights" items={["User growth tracking", "Invoice status breakdown", "Revenue source summary", "Plan conversion monitoring"]} />
         )}
         {active === "support" && (
-          <section className="space-y-6"><SectionHeader title="Support Tickets" subtitle="User complaints/issues yahan track honge" /><Card><div className="p-5 border-b border-slate-100"><h2 className="text-lg font-semibold text-slate-900">Tickets</h2></div><div className="divide-y divide-slate-100">{supportTickets.length === 0 ? <p className="p-8 text-center text-sm text-slate-500">No support tickets yet. Table ready hai, frontend form next phase me user side pe add hoga.</p> : supportTickets.map((t) => <div key={t.id} className="p-5 flex items-center justify-between"><div><p className="font-medium text-slate-900">{t.subject}</p><p className="text-sm text-slate-500">{t.message || "No message"}</p></div><Pill className={statusClass(t.status)}>{t.status}</Pill></div>)}</div></Card></section>
+          <section className="space-y-6">
+            <SectionHeader title="Support Center" subtitle="Tickets create, assign, resolve aur track karo" />
+            <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
+              <Metric title="Open" value={String(supportTickets.filter((t) => t.status === "open").length)} icon="🎫" />
+              <Metric title="Pending" value={String(supportTickets.filter((t) => t.status === "pending").length)} icon="⏳" />
+              <Metric title="Resolved" value={String(supportTickets.filter((t) => t.status === "resolved").length)} icon="✅" />
+              <Metric title="Urgent" value={String(supportTickets.filter((t) => t.priority === "urgent").length)} icon="🚨" />
+            </div>
+            <div className="grid xl:grid-cols-[420px_1fr] gap-6">
+              <Card className="p-5 h-fit">
+                <h2 className="text-lg font-semibold text-slate-900 mb-4">Create Ticket</h2>
+                <form onSubmit={handleCreateSupportTicket} className="space-y-3">
+                  <select className="input" value={supportForm.user_id} onChange={(e) => setSupportForm({ ...supportForm, user_id: e.target.value })}>
+                    <option value="">No user selected</option>{profiles.map((p) => <option key={p.id} value={p.id}>{p.business_name || p.email || p.id}</option>)}
+                  </select>
+                  <input className="input" required placeholder="Subject" value={supportForm.subject} onChange={(e) => setSupportForm({ ...supportForm, subject: e.target.value })} />
+                  <textarea className="input min-h-24" placeholder="User message / issue" value={supportForm.message} onChange={(e) => setSupportForm({ ...supportForm, message: e.target.value })} />
+                  <div className="grid grid-cols-2 gap-2">
+                    <select className="input" value={supportForm.priority} onChange={(e) => setSupportForm({ ...supportForm, priority: e.target.value })}><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option><option value="urgent">Urgent</option></select>
+                    <select className="input" value={supportForm.assigned_to} onChange={(e) => setSupportForm({ ...supportForm, assigned_to: e.target.value })}><option value="">Unassigned</option>{supportAgents.map((m) => <option key={m.id} value={m.id}>{m.name || m.email}</option>)}</select>
+                  </div>
+                  <textarea className="input min-h-20" placeholder="Internal notes" value={supportForm.internal_notes} onChange={(e) => setSupportForm({ ...supportForm, internal_notes: e.target.value })} />
+                  <button className="btn-primary w-full" type="submit">Create Ticket</button>
+                </form>
+              </Card>
+              <div className="space-y-6">
+                <Card>
+                  <div className="p-5 border-b border-slate-100 flex flex-col lg:flex-row gap-3 lg:items-center lg:justify-between">
+                    <h2 className="text-lg font-semibold text-slate-900">Ticket Inbox</h2>
+                    <div className="flex gap-2 flex-wrap">
+                      <input className="input lg:w-72" placeholder="Search tickets..." value={supportSearch} onChange={(e) => setSupportSearch(e.target.value)} />
+                      <select className="input w-40" value={supportStatusFilter} onChange={(e) => setSupportStatusFilter(e.target.value as typeof supportStatusFilter)}><option value="all">All Status</option><option value="open">Open</option><option value="pending">Pending</option><option value="resolved">Resolved</option><option value="closed">Closed</option></select>
+                      <button className="btn-secondary" onClick={() => exportCsv(filteredSupportTickets as unknown as Record<string, unknown>[], "support-tickets.csv")}>Export CSV</button>
+                    </div>
+                  </div>
+                  <div className="divide-y divide-slate-100">
+                    {filteredSupportTickets.length === 0 ? <p className="p-8 text-center text-sm text-slate-500">No support tickets found.</p> : filteredSupportTickets.map((t) => (
+                      <button key={t.id} className={cx("w-full p-5 text-left flex items-center justify-between hover:bg-slate-50", selectedTicket?.id === t.id && "bg-primary-50/40")} onClick={() => setSelectedTicketId(t.id)}>
+                        <div><p className="font-medium text-slate-900">{t.subject}</p><p className="text-sm text-slate-500 line-clamp-1">{t.message || "No message"}</p><p className="text-xs text-slate-400 mt-1">{formatDate(t.created_at)}</p></div>
+                        <div className="flex gap-2"><Pill className={statusClass(t.priority)}>{t.priority}</Pill><Pill className={statusClass(t.status)}>{t.status}</Pill></div>
+                      </button>
+                    ))}
+                  </div>
+                </Card>
+                <Card className="p-5">
+                  <h2 className="text-lg font-semibold text-slate-900 mb-4">Ticket Detail</h2>
+                  {selectedTicket ? (
+                    <div className="space-y-4">
+                      <div className="flex items-start justify-between gap-3"><div><p className="text-xl font-bold text-slate-900">{selectedTicket.subject}</p><p className="text-sm text-slate-500">{selectedTicket.message || "No message"}</p></div><Pill className={statusClass(selectedTicket.status)}>{selectedTicket.status}</Pill></div>
+                      <div className="grid md:grid-cols-3 gap-3"><Info label="Priority" value={selectedTicket.priority} /><Info label="Created" value={formatDate(selectedTicket.created_at)} /><Info label="Assigned" value={team.find((m) => m.id === selectedTicket.assigned_to)?.name || team.find((m) => m.id === selectedTicket.assigned_to)?.email || "Unassigned"} /></div>
+                      <div className="grid md:grid-cols-2 gap-2">
+                        <select className="input" value={selectedTicket.status} onChange={(e) => updateTicketStatus(selectedTicket, e.target.value as AdminSupportTicket["status"])}><option value="open">Open</option><option value="pending">Pending</option><option value="resolved">Resolved</option><option value="closed">Closed</option></select>
+                        <select className="input" value={selectedTicket.assigned_to || ""} onChange={(e) => updateTicketAssignment(selectedTicket, e.target.value)}><option value="">Unassigned</option>{supportAgents.map((m) => <option key={m.id} value={m.id}>{m.name || m.email}</option>)}</select>
+                      </div>
+                      {selectedTicket.internal_notes && <div className="rounded-xl bg-slate-50 border border-slate-100 p-4"><p className="text-xs text-slate-500 mb-1">Internal Notes</p><p className="text-sm text-slate-700 whitespace-pre-wrap">{selectedTicket.internal_notes}</p></div>}
+                      <button className="btn-danger" onClick={() => deleteTicket(selectedTicket)}>Delete Ticket</button>
+                    </div>
+                  ) : <p className="text-sm text-slate-500">Select a ticket.</p>}
+                </Card>
+              </div>
+            </div>
+          </section>
         )}
         {active === "audit" && (
-          <section className="space-y-6"><SectionHeader title="Audit Logs" subtitle="Admin actions ka security history" /><Card><div className="overflow-x-auto"><table className="w-full"><thead><tr className="border-b border-slate-100 bg-slate-50/50"><th className="text-left text-xs font-semibold text-slate-500 uppercase px-5 py-3">Time</th><th className="text-left text-xs font-semibold text-slate-500 uppercase px-5 py-3">Action</th><th className="text-left text-xs font-semibold text-slate-500 uppercase px-5 py-3">Target</th></tr></thead><tbody className="divide-y divide-slate-100">{auditLogs.length === 0 ? <tr><td colSpan={3} className="p-8 text-center text-sm text-slate-500">No audit logs yet.</td></tr> : auditLogs.map((log) => <tr key={log.id}><td className="px-5 py-3.5 text-sm text-slate-500">{formatDate(log.created_at)}</td><td className="px-5 py-3.5 font-medium text-slate-900">{log.action}</td><td className="px-5 py-3.5 text-sm text-slate-600">{log.target_type || "—"} {log.target_id || ""}</td></tr>)}</tbody></table></div></Card></section>
+          <section className="space-y-6">
+            <SectionHeader title="Audit Logs" subtitle="Admin actions ka searchable security history" />
+            <Card>
+              <div className="p-5 border-b border-slate-100 flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between">
+                <h2 className="text-lg font-semibold text-slate-900">Action History</h2>
+                <div className="flex gap-2"><input className="input sm:w-80" placeholder="Search action, target, details..." value={auditSearch} onChange={(e) => setAuditSearch(e.target.value)} /><button className="btn-secondary" onClick={() => exportCsv(filteredAuditLogs as unknown as Record<string, unknown>[], "audit-logs.csv")}>Export CSV</button></div>
+              </div>
+              <div className="overflow-x-auto"><table className="w-full"><thead><tr className="border-b border-slate-100 bg-slate-50/50"><th className="text-left text-xs font-semibold text-slate-500 uppercase px-5 py-3">Time</th><th className="text-left text-xs font-semibold text-slate-500 uppercase px-5 py-3">Action</th><th className="text-left text-xs font-semibold text-slate-500 uppercase px-5 py-3">Target</th><th className="text-left text-xs font-semibold text-slate-500 uppercase px-5 py-3">Details</th></tr></thead><tbody className="divide-y divide-slate-100">{filteredAuditLogs.length === 0 ? <tr><td colSpan={4} className="p-8 text-center text-sm text-slate-500">No audit logs found.</td></tr> : filteredAuditLogs.map((log) => <tr key={log.id}><td className="px-5 py-3.5 text-sm text-slate-500">{formatDate(log.created_at)}</td><td className="px-5 py-3.5 font-medium text-slate-900">{log.action}</td><td className="px-5 py-3.5 text-sm text-slate-600">{log.target_type || "—"} {log.target_id || ""}</td><td className="px-5 py-3.5 text-xs text-slate-500 max-w-md truncate">{JSON.stringify(log.details ?? {})}</td></tr>)}</tbody></table></div>
+            </Card>
+          </section>
         )}
         {active === "settings" && (
           <Placeholder title="Admin Settings" subtitle="Owner email, permissions aur platform controls" items={[`Owner admin: ${ADMIN_EMAIL}`, "Reserved admin email signup block active", "Team roles: Full Access, Limited, Support, Finance, Viewer", "Future: Razorpay/Stripe keys, ads settings, plan limits"]} />
