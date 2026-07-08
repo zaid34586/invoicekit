@@ -289,10 +289,19 @@ export default function Admin() {
       if (auditRes.error) throw auditRes.error;
       if (supportRes.error) throw supportRes.error;
 
-      setProfiles((profRes.data as Profile[]) ?? []);
+      const staffRows = (teamRes.data as AdminTeamMember[]) ?? [];
+      const staffEmails = new Set(staffRows.map((m) => m.email?.toLowerCase()).filter(Boolean));
+      const staffAuthIds = new Set(staffRows.map((m) => m.auth_user_id).filter(Boolean));
+      const customerProfiles = ((profRes.data as Profile[]) ?? []).filter((profile) => {
+        const email = profile.email?.toLowerCase() ?? "";
+        const authId = profile.user_id || profile.id;
+        return !staffEmails.has(email) && !staffAuthIds.has(authId);
+      });
+
+      setProfiles(customerProfiles);
       setInvoices((invRes.data as Invoice[]) ?? []);
       setClients((clientsRes.data as Client[]) ?? []);
-      setTeam((teamRes.data as AdminTeamMember[]) ?? []);
+      setTeam(staffRows);
       setTasks((taskRes.data as AdminTask[]) ?? []);
       setFinance((financeRes.data as AdminFinanceEntry[]) ?? []);
       setAuditLogs((auditRes.data as AdminAuditLog[]) ?? []);

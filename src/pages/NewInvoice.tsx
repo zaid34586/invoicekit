@@ -347,14 +347,23 @@ export default function NewInvoice() {
       return;
     }
 
+    let shouldConsumeCredit = false;
+    const availableCredits = Number(profile?.credits ?? 0);
+
     if (!profile?.is_pro) {
       const { count } = await supabase
         .from("invoices")
         .select("*", { count: "exact", head: true })
         .eq("user_id", user.id);
-      if ((count ?? 0) >= FREE_PLAN_LIMIT) {
-        openUpgrade();
-        return;
+
+      const usedFreeInvoices = count ?? 0;
+      if (usedFreeInvoices >= FREE_PLAN_LIMIT) {
+        if (availableCredits > 0) {
+          shouldConsumeCredit = true;
+        } else {
+          openUpgrade();
+          return;
+        }
       }
     }
 
@@ -443,6 +452,14 @@ export default function NewInvoice() {
         country: clientCountry,
         country_code: clientCountryCode,
       });
+    }
+
+    if (shouldConsumeCredit && profile?.id) {
+      await supabase
+        .from("profiles")
+        .update({ credits: Math.max(availableCredits - 1, 0) })
+        .eq("id", profile.id)
+        .gt("credits", 0);
     }
 
     if (data) {

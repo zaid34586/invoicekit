@@ -17,9 +17,9 @@ interface AuthContextValue {
   profile: Profile | null;
   loading: boolean;
   signUp: (email: string, password: string) => Promise<{ error: string | null }>;
-  signIn: (email: string, password: string) => Promise<{ error: string | null }>;
+  signIn: (email: string, password: string, options?: { skipProfile?: boolean }) => Promise<{ error: string | null }>;
   signOut: () => Promise<void>;
-  refreshProfile: () => Promise<Profile | null>;
+  refreshProfile: (options?: { skipProfile?: boolean }) => Promise<Profile | null>;
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
@@ -62,6 +62,30 @@ function createDefaultProfile(userId: string, email?: string) {
   };
 }
 
+function isStaffPortalRoute() {
+  if (typeof window === "undefined") return false;
+  return window.location.pathname.startsWith("/staff");
+}
+
+async function findActiveStaffMember(userId: string, email?: string | null) {
+  const cleanEmail = email ? normalizeEmail(email) : "";
+  let query = `auth_user_id.eq.${userId}`;
+  if (cleanEmail) query += `,email.eq.${cleanEmail}`;
+
+  const { data, error } = await supabase
+    .from("admin_team_members")
+    .select("id, role, status, email")
+    .or(query)
+    .maybeSingle();
+
+  if (error) {
+    console.warn("Staff lookup failed:", error.message);
+    return null;
+  }
+
+  return data && data.status === "active" ? data : null;
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
@@ -72,6 +96,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     email?: string
   ): Promise<Profile | null> {
     const cleanEmail = email ? normalizeEmail(email) : undefined;
+
+    // Staff accounts must never become customer profiles. Staff login has its
+    // own portal and reads admin_team_members instead of profiles. Without this
+    // guard, every /staff/login created a customer row and polluted Admin → Users.
+    const activeStaff = await findActiveStaffMember(userId, cleanEmail);
+    if (activeStaff) {
+      setProfile(null);
+      return null;
+    }
 
     const { data: existing, error: fetchError } = await supabase
       .from("profiles")
@@ -94,6 +127,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return null;
       }
 
+      const maybeProfile = existing as Profile & {
+        free_pro_until?: string | null;
+        plan?: string | null;
+      };
+      const freeProExpired =
+        maybeProfile.free_pro_until &&
+        new Date(maybeProfile.free_pro_until).getTime() < Date.now();
+
+      if (freeProExpired) {
+        const { data: updated } = await supabase
+          .from("profiles")
+          .update({ is_pro: false, plan: "free", free_pro_until: null })
+          .eq("id", maybeProfile.id)
+          .select("*")
+          .single();
+
+        if (updated) {
+          setProfile(updated as Profile);
+          return updated as Profile;
+        }
+      }
+
       setProfile(existing as Profile);
       return existing as Profile;
     }
@@ -114,7 +169,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return created as Profile;
   }
 
-  async function syncSession(nextSession: Session | null) {
+  async function syncSession(nextSession: Session | null, options?: { skipProfile?: boolean }) {
     if (!nextSession?.user) {
       setSession(null);
       setProfile(null);
@@ -136,6 +191,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (!data.user.email_confirmed_at) {
       setProfile(null);
       return null;
+    }
+
+    const skipProfile = options?.skipProfile || isStaffPortalRoute();
+    if (skipProfile) {
+      const staff = await findActiveStaffMember(data.user.id, data.user.email);
+      if (staff) {
+        setProfile(null);
+        return null;
+      }
     }
 
     return await fetchOrCreateProfile(data.user.id, data.user.email);
@@ -210,7 +274,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return { error: null };
   };
 
-  const signIn = async (email: string, password: string) => {
+  const signIn = async (email: string, password: string, options?: { skipProfile?: boolean }) => {
     const cleanEmail = normalizeEmail(email);
     const { data, error } = await supabase.auth.signInWithPassword({
       email: cleanEmail,
@@ -219,12 +283,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     if (error) return { error: error.message };
 
-    const profileAfterLogin = data.user?.email_confirmed_at
-      ? await fetchOrCreateProfile(data.user.id, data.user.email)
-      : null;
+    if (data.user?.email_confirmed_at) {
+      if (options?.skipProfile) {
+        const staff = await findActiveStaffMember(data.user.id, data.user.email);
+        if (!staff) {
+          await supabase.auth.signOut();
+          clearSupabaseStorage();
+          setSession(null);
+          setProfile(null);
+          return { error: "This staff account is not active or not authorized." };
+        }
+        await syncSession(data.session, { skipProfile: true });
+        return { error: null };
+      }
 
-    if (data.user?.email_confirmed_at && !profileAfterLogin) {
-      return { error: "This account is disabled or could not be loaded." };
+      const profileAfterLogin = await fetchOrCreateProfile(data.user.id, data.user.email);
+      if (!profileAfterLogin) {
+        await supabase.auth.signOut();
+        clearSupabaseStorage();
+        setSession(null);
+        setProfile(null);
+        return { error: "This account is disabled, is a staff account, or could not be loaded." };
+      }
     }
 
     return { error: null };
@@ -237,7 +317,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setProfile(null);
   };
 
-  const refreshProfile = async () => {
+  const refreshProfile = async (options?: { skipProfile?: boolean }) => {
     const { data } = await supabase.auth.getSession();
 
     if (!data.session?.user) {
@@ -247,6 +327,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
 
     setSession(data.session);
+    if (options?.skipProfile || isStaffPortalRoute()) {
+      const staff = await findActiveStaffMember(data.session.user.id, data.session.user.email);
+      if (staff) {
+        setProfile(null);
+        return null;
+      }
+    }
     return await fetchOrCreateProfile(
       data.session.user.id,
       data.session.user.email
