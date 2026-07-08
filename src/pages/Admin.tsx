@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../context/AuthContext";
-import { ADMIN_EMAIL, formatDate } from "../lib/constants";
+import { ADMIN_EMAIL, FREE_PLAN_LIMIT, formatDate } from "../lib/constants";
 import { formatMoney } from "../lib/currency";
 import type { Profile, Invoice, Client } from "../lib/types";
 import StatusBadge from "../components/StatusBadge";
@@ -347,7 +347,28 @@ export default function Admin() {
   const selectedUserInvoices = selectedUserAuthId ? invoices.filter((i) => i.user_id === selectedUserAuthId) : [];
   const selectedUserClients = selectedUserAuthId ? clients.filter((c) => c.user_id === selectedUserAuthId) : [];
   const selectedUserInvoiceRevenue = selectedUserInvoices.reduce((sum, inv) => sum + Number(inv.invoice_total ?? inv.total ?? 0), 0);
+  const currentMonthStart = useMemo(() => {
+    const date = new Date();
+    date.setDate(1);
+    date.setHours(0, 0, 0, 0);
+    return date;
+  }, []);
+  const selectedUserInvoicesThisMonth = selectedUserInvoices.filter((inv) => new Date(inv.created_at) >= currentMonthStart).length;
+  const selectedUserInvoiceBalance = Number((selectedUser as unknown as { credits?: number } | null)?.credits ?? 0);
+  const selectedUserFreeRemaining = Math.max(0, FREE_PLAN_LIMIT - selectedUserInvoicesThisMonth);
+  const selectedUserIsUnlimited = Boolean(selectedUser?.is_pro || selectedUser?.plan === "pro" || selectedUser?.plan === "business");
+  const selectedUserRemainingInvoices = selectedUserIsUnlimited
+    ? "Unlimited"
+    : String(selectedUserFreeRemaining + selectedUserInvoiceBalance);
   const selectedStatusInvoices = selectedInvoiceStatus === "all" ? selectedUserInvoices : selectedUserInvoices.filter((inv) => inv.status === selectedInvoiceStatus);
+  const selectedUserBalanceHistory = selectedUser
+    ? auditLogs
+        .filter((log) =>
+          log.target_id === selectedUser.id &&
+          ["invoice_balance_added", "invoice_balance_reset", "add_invoice_balance", "reset_invoice_balance", "free_pro_granted", "remove_free_pro"].includes(log.action)
+        )
+        .slice(0, 8)
+    : [];
 
   useEffect(() => {
     setAdminNotesDraft(String((selectedUser as unknown as { admin_notes?: string | null })?.admin_notes ?? ""));
@@ -1388,7 +1409,9 @@ export default function Admin() {
                       <Info label="Invoices" value={String(selectedUserInvoices.length)} />
                       <Info label="Clients" value={String(selectedUserClients.length)} />
                       <Info label="Revenue" value={formatMoney(selectedUserInvoiceRevenue, selectedUser.currency || "INR")} />
-                      <Info label="Invoice Balance" value={String(Number((selectedUser as unknown as { credits?: number }).credits ?? 0))} />
+                      <Info label="Extra Invoice Balance" value={String(selectedUserInvoiceBalance)} />
+                      <Info label="Used This Month" value={`${selectedUserInvoicesThisMonth} / ${FREE_PLAN_LIMIT} free`} />
+                      <Info label="Remaining Invoices" value={selectedUserRemainingInvoices} />
                       <Info label="Joined" value={formatDate(selectedUser.created_at)} />
                       <Info label="Free Pro Until" value={String((selectedUser as unknown as { free_pro_until?: string | null }).free_pro_until ? formatDate(String((selectedUser as unknown as { free_pro_until?: string }).free_pro_until)) : "—")} />
                     </div>
@@ -1411,6 +1434,32 @@ export default function Admin() {
                         <button className="col-span-2 rounded-lg bg-red-600 text-white px-4 py-2 text-sm font-semibold hover:bg-red-700" onClick={() => handleBan(selectedUser)}>Ban User</button>
                       )}
                       <button className="col-span-2 rounded-lg bg-red-50 text-red-700 border border-red-200 px-4 py-2 text-sm font-semibold hover:bg-red-100" onClick={() => handleDeleteUserData(selectedUser)}>Delete User Data</button>
+                    </div>
+
+                    <div className="mt-4 rounded-xl border border-slate-100 bg-slate-50 p-4">
+                      <div className="flex items-center justify-between mb-3">
+                        <div>
+                          <p className="font-semibold text-slate-900">Invoice Balance Summary</p>
+                          <p className="text-xs text-slate-500">Free monthly invoices + admin-added invoice balance</p>
+                        </div>
+                        <Pill className={selectedUserIsUnlimited ? "bg-amber-50 text-amber-700 border-amber-200" : "bg-blue-50 text-blue-700 border-blue-200"}>
+                          {selectedUserIsUnlimited ? "Unlimited" : `${selectedUserRemainingInvoices} left`}
+                        </Pill>
+                      </div>
+                      <div className="grid grid-cols-3 gap-2 text-center">
+                        <div className="rounded-lg bg-white border border-slate-100 p-3">
+                          <p className="text-xs text-slate-500">Free left</p>
+                          <p className="text-lg font-bold text-slate-900">{selectedUserIsUnlimited ? "∞" : selectedUserFreeRemaining}</p>
+                        </div>
+                        <div className="rounded-lg bg-white border border-slate-100 p-3">
+                          <p className="text-xs text-slate-500">Extra balance</p>
+                          <p className="text-lg font-bold text-slate-900">{selectedUserInvoiceBalance}</p>
+                        </div>
+                        <div className="rounded-lg bg-white border border-slate-100 p-3">
+                          <p className="text-xs text-slate-500">Used this month</p>
+                          <p className="text-lg font-bold text-slate-900">{selectedUserInvoicesThisMonth}</p>
+                        </div>
+                      </div>
                     </div>
 
                     <div>
@@ -1462,6 +1511,9 @@ export default function Admin() {
                         <TimelineItem label="Account created" date={selectedUser.created_at} />
                         {selectedUserInvoices.slice(0, 3).map((inv) => (
                           <TimelineItem key={inv.id} label={`Invoice ${inv.invoice_number} created`} date={inv.created_at} />
+                        ))}
+                        {selectedUserBalanceHistory.map((log) => (
+                          <TimelineItem key={log.id} label={log.action.replace(/_/g, " ")} date={log.created_at} />
                         ))}
                         {(selectedUser as unknown as { banned_at?: string | null }).banned_at && <TimelineItem label="User banned" date={String((selectedUser as unknown as { banned_at?: string }).banned_at)} />}
                       </div>
@@ -2211,6 +2263,9 @@ export default function Admin() {
                   {[5, 10, 25, 50].map((amount) => (
                     <button key={amount} className="btn-secondary text-sm" onClick={() => setBalanceModal({ ...balanceModal, amount: String(amount) })}>+{amount}</button>
                   ))}
+                </div>
+                <div className="rounded-xl border border-blue-100 bg-blue-50 p-3 text-sm text-blue-800">
+                  After add: <span className="font-bold">{Number((balanceModal.profile as unknown as { credits?: number }).credits ?? 0) + Math.max(0, Number(balanceModal.amount) || 0)}</span> invoices available as extra balance.
                 </div>
                 <label className="block text-sm font-medium text-slate-700">Custom invoices to add</label>
                 <input className="input" type="number" min="1" value={balanceModal.amount} onChange={(e) => setBalanceModal({ ...balanceModal, amount: e.target.value })} />
