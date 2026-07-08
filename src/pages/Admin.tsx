@@ -4,7 +4,7 @@ import { supabase } from "../lib/supabase";
 import { useAuth } from "../context/AuthContext";
 import { ADMIN_EMAIL, formatDate } from "../lib/constants";
 import { formatMoney } from "../lib/currency";
-import type { Profile, Invoice } from "../lib/types";
+import type { Profile, Invoice, Client } from "../lib/types";
 import StatusBadge from "../components/StatusBadge";
 
 type AdminSection =
@@ -149,6 +149,7 @@ export default function Admin() {
   const [active, setActive] = useState<AdminSection>("dashboard");
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
+  const [clients, setClients] = useState<Client[]>([]);
   const [team, setTeam] = useState<AdminTeamMember[]>([]);
   const [tasks, setTasks] = useState<AdminTask[]>([]);
   const [finance, setFinance] = useState<AdminFinanceEntry[]>([]);
@@ -158,6 +159,8 @@ export default function Admin() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
+  const [userPage, setUserPage] = useState(1);
+  const [selectedInvoiceStatus, setSelectedInvoiceStatus] = useState<"all" | "draft" | "sent" | "paid" | "overdue">("all");
   const [userSearch, setUserSearch] = useState("");
   const [userFilter, setUserFilter] = useState<"all" | "active" | "banned" | "free" | "pro">("all");
   const [userSort, setUserSort] = useState<"newest" | "oldest" | "credits_high" | "invoices_high">("newest");
@@ -192,9 +195,10 @@ export default function Admin() {
     setDataLoading(true);
     setError(null);
     try {
-      const [profRes, invRes, teamRes, taskRes, financeRes, auditRes, supportRes] = await Promise.all([
+      const [profRes, invRes, clientsRes, teamRes, taskRes, financeRes, auditRes, supportRes] = await Promise.all([
         supabase.from("profiles").select("*").order("created_at", { ascending: false }),
         supabase.from("invoices").select("*").order("created_at", { ascending: false }),
+        supabase.from("clients").select("*").order("created_at", { ascending: false }),
         supabase.from("admin_team_members").select("*").order("created_at", { ascending: false }),
         supabase.from("admin_tasks").select("*").order("created_at", { ascending: false }),
         supabase.from("admin_finance_entries").select("*").order("entry_date", { ascending: false }),
@@ -204,6 +208,7 @@ export default function Admin() {
 
       if (profRes.error) throw profRes.error;
       if (invRes.error) throw invRes.error;
+      if (clientsRes.error) throw clientsRes.error;
       if (teamRes.error) throw teamRes.error;
       if (taskRes.error) throw taskRes.error;
       if (financeRes.error) throw financeRes.error;
@@ -212,6 +217,7 @@ export default function Admin() {
 
       setProfiles((profRes.data as Profile[]) ?? []);
       setInvoices((invRes.data as Invoice[]) ?? []);
+      setClients((clientsRes.data as Client[]) ?? []);
       setTeam((teamRes.data as AdminTeamMember[]) ?? []);
       setTasks((taskRes.data as AdminTask[]) ?? []);
       setFinance((financeRes.data as AdminFinanceEntry[]) ?? []);
@@ -232,10 +238,17 @@ export default function Admin() {
   const selectedUser = profiles.find((p) => p.id === selectedUserId) ?? profiles[0] ?? null;
   const selectedUserAuthId = selectedUser ? selectedUser.user_id || selectedUser.id : null;
   const selectedUserInvoices = selectedUserAuthId ? invoices.filter((i) => i.user_id === selectedUserAuthId) : [];
+  const selectedUserClients = selectedUserAuthId ? clients.filter((c) => c.user_id === selectedUserAuthId) : [];
+  const selectedUserInvoiceRevenue = selectedUserInvoices.reduce((sum, inv) => sum + Number(inv.invoice_total ?? inv.total ?? 0), 0);
+  const selectedStatusInvoices = selectedInvoiceStatus === "all" ? selectedUserInvoices : selectedUserInvoices.filter((inv) => inv.status === selectedInvoiceStatus);
 
   useEffect(() => {
     setAdminNotesDraft(String((selectedUser as unknown as { admin_notes?: string | null })?.admin_notes ?? ""));
   }, [selectedUser?.id]);
+
+  useEffect(() => {
+    setUserPage(1);
+  }, [userSearch, userFilter, userSort]);
 
   const userInvoiceCounts = useMemo(() => {
     const counts = new Map<string, number>();
@@ -244,6 +257,14 @@ export default function Admin() {
     }
     return counts;
   }, [invoices]);
+
+  const userClientCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const client of clients) {
+      counts.set(client.user_id, (counts.get(client.user_id) ?? 0) + 1);
+    }
+    return counts;
+  }, [clients]);
 
   const filteredProfiles = useMemo(() => {
     const q = userSearch.trim().toLowerCase();
@@ -273,6 +294,10 @@ export default function Admin() {
         return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
       });
   }, [profiles, userSearch, userFilter, userSort, userInvoiceCounts]);
+
+  const usersPerPage = 10;
+  const totalUserPages = Math.max(1, Math.ceil(filteredProfiles.length / usersPerPage));
+  const paginatedProfiles = filteredProfiles.slice((userPage - 1) * usersPerPage, userPage * usersPerPage);
 
   const filteredInvoices = useMemo(() => {
     const q = invoiceSearch.trim().toLowerCase();
@@ -364,7 +389,7 @@ export default function Admin() {
 
   function exportUsersCsv() {
     const headers = ["Business", "Email", "Country", "Phone", "GSTIN", "Plan", "Credits", "Banned", "Invoices", "Joined"];
-    const rows = filteredProfiles.map((p) => {
+    const rows = paginatedProfiles.map((p) => {
       const authId = p.user_id || p.id;
       const values = [
         p.business_name || "",
@@ -415,6 +440,32 @@ export default function Admin() {
     const until = new Date();
     until.setDate(until.getDate() + days);
     await updateProfile(profile.id, { is_pro: true, plan: "pro", free_pro_until: until.toISOString() }, "give_free_pro");
+  }
+
+  async function handleDeleteUserData(profile: Profile) {
+    if (profile.email?.toLowerCase() === ADMIN_EMAIL.toLowerCase()) {
+      setError("Owner admin account delete nahi ho sakta.");
+      return;
+    }
+    const authId = profile.user_id || profile.id;
+    const confirmText = window.prompt(`Danger: ${profile.email || profile.business_name || "user"} ka profile, clients aur invoices delete honge. Confirm karne ke liye DELETE likho.`);
+    if (confirmText !== "DELETE") return;
+    setError(null);
+    setNotice(null);
+
+    const { error: invError } = await supabase.from("invoices").delete().eq("user_id", authId);
+    if (invError) return setError(invError.message);
+    const { error: clientError } = await supabase.from("clients").delete().eq("user_id", authId);
+    if (clientError) return setError(clientError.message);
+    const { error: subError } = await supabase.from("subscriptions").delete().eq("user_id", authId);
+    if (subError && !subError.message.toLowerCase().includes("does not exist")) return setError(subError.message);
+    const { error: profileError } = await supabase.from("profiles").delete().eq("id", profile.id);
+    if (profileError) return setError(profileError.message);
+
+    await logAction("delete_user_data", "profile", profile.id, { email: profile.email, user_id: authId });
+    setSelectedUserId(null);
+    setNotice("User data deleted. Auth user ko Supabase Authentication se manually delete karna hoga agar required hai.");
+    await load();
   }
 
   async function handleAddTeam(e: React.FormEvent) {
@@ -657,14 +708,15 @@ export default function Admin() {
                         <th className="text-left text-xs font-semibold text-slate-500 uppercase px-5 py-3">Plan</th>
                         <th className="text-left text-xs font-semibold text-slate-500 uppercase px-5 py-3 hidden md:table-cell">Credits</th>
                         <th className="text-left text-xs font-semibold text-slate-500 uppercase px-5 py-3 hidden lg:table-cell">Invoices</th>
-                        <th className="text-left text-xs font-semibold text-slate-500 uppercase px-5 py-3 hidden xl:table-cell">Joined</th>
+                        <th className="text-left text-xs font-semibold text-slate-500 uppercase px-5 py-3 hidden xl:table-cell">Clients</th>
+                        <th className="text-left text-xs font-semibold text-slate-500 uppercase px-5 py-3 hidden 2xl:table-cell">Joined</th>
                         <th className="text-right text-xs font-semibold text-slate-500 uppercase px-5 py-3">Action</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
                       {filteredProfiles.length === 0 ? (
-                        <tr><td colSpan={6} className="p-8 text-center text-sm text-slate-500">No users found.</td></tr>
-                      ) : filteredProfiles.map((p) => {
+                        <tr><td colSpan={7} className="p-8 text-center text-sm text-slate-500">No users found.</td></tr>
+                      ) : paginatedProfiles.map((p) => {
                         const authId = p.user_id || p.id;
                         const isBanned = Boolean((p as unknown as { is_banned?: boolean }).is_banned);
                         const isPro = Boolean(p.is_pro || p.plan === "pro" || p.plan === "business");
@@ -678,7 +730,8 @@ export default function Admin() {
                             <td className="px-5 py-3.5"><Pill className={isBanned ? statusClass("disabled") : isPro ? "bg-amber-50 text-amber-700 border-amber-200" : statusClass("closed")}>{isBanned ? "Banned" : isPro ? "Pro" : "Free"}</Pill></td>
                             <td className="px-5 py-3.5 text-sm text-slate-600 hidden md:table-cell">{Number((p as unknown as { credits?: number }).credits ?? 0)}</td>
                             <td className="px-5 py-3.5 text-sm text-slate-600 hidden lg:table-cell">{userInvoiceCounts.get(authId) ?? 0}</td>
-                            <td className="px-5 py-3.5 text-sm text-slate-500 hidden xl:table-cell">{formatDate(p.created_at)}</td>
+                            <td className="px-5 py-3.5 text-sm text-slate-600 hidden xl:table-cell">{userClientCounts.get(authId) ?? 0}</td>
+                            <td className="px-5 py-3.5 text-sm text-slate-500 hidden 2xl:table-cell">{formatDate(p.created_at)}</td>
                             <td className="px-5 py-3.5 text-right">
                               <button className="btn-secondary text-xs py-1.5 px-3" onClick={() => setSelectedUserId(p.id)}>Details</button>
                             </td>
@@ -687,6 +740,14 @@ export default function Admin() {
                       })}
                     </tbody>
                   </table>
+                </div>
+                <div className="px-5 py-4 border-t border-slate-100 flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between">
+                  <p className="text-sm text-slate-500">Showing {filteredProfiles.length === 0 ? 0 : (userPage - 1) * usersPerPage + 1}-{Math.min(userPage * usersPerPage, filteredProfiles.length)} of {filteredProfiles.length}</p>
+                  <div className="flex items-center gap-2">
+                    <button className="btn-secondary text-xs py-1.5 px-3" disabled={userPage <= 1} onClick={() => setUserPage((p) => Math.max(1, p - 1))}>Previous</button>
+                    <span className="text-sm text-slate-600">Page {userPage} / {totalUserPages}</span>
+                    <button className="btn-secondary text-xs py-1.5 px-3" disabled={userPage >= totalUserPages} onClick={() => setUserPage((p) => Math.min(totalUserPages, p + 1))}>Next</button>
+                  </div>
                 </div>
               </Card>
 
@@ -710,6 +771,8 @@ export default function Admin() {
                       <Info label="GSTIN" value={selectedUser.gstin || "—"} />
                       <Info label="Currency" value={selectedUser.currency || "—"} />
                       <Info label="Invoices" value={String(selectedUserInvoices.length)} />
+                      <Info label="Clients" value={String(selectedUserClients.length)} />
+                      <Info label="Revenue" value={formatMoney(selectedUserInvoiceRevenue, selectedUser.currency || "INR")} />
                       <Info label="Credits" value={String(Number((selectedUser as unknown as { credits?: number }).credits ?? 0))} />
                       <Info label="Joined" value={formatDate(selectedUser.created_at)} />
                       <Info label="Free Pro Until" value={String((selectedUser as unknown as { free_pro_until?: string | null }).free_pro_until ? formatDate(String((selectedUser as unknown as { free_pro_until?: string }).free_pro_until)) : "—")} />
@@ -731,6 +794,7 @@ export default function Admin() {
                       ) : (
                         <button className="col-span-2 rounded-lg bg-red-600 text-white px-4 py-2 text-sm font-semibold hover:bg-red-700" onClick={() => handleBan(selectedUser)}>Ban User</button>
                       )}
+                      <button className="col-span-2 rounded-lg bg-red-50 text-red-700 border border-red-200 px-4 py-2 text-sm font-semibold hover:bg-red-100" onClick={() => handleDeleteUserData(selectedUser)}>Delete User Data</button>
                     </div>
 
                     <div>
@@ -740,13 +804,31 @@ export default function Admin() {
                     </div>
 
                     <div>
-                      <p className="text-sm font-semibold text-slate-900 mb-2">Latest invoices</p>
+                      <div className="flex items-center justify-between gap-3 mb-2">
+                        <p className="text-sm font-semibold text-slate-900">Invoice History</p>
+                        <select className="input text-xs py-1.5 max-w-32" value={selectedInvoiceStatus} onChange={(e) => setSelectedInvoiceStatus(e.target.value as typeof selectedInvoiceStatus)}>
+                          <option value="all">All</option>
+                          <option value="draft">Draft</option>
+                          <option value="sent">Sent</option>
+                          <option value="paid">Paid</option>
+                          <option value="overdue">Overdue</option>
+                        </select>
+                      </div>
+                      <div className="grid grid-cols-4 gap-2 mb-3">
+                        {(["draft", "sent", "paid", "overdue"] as const).map((status) => (
+                          <div key={status} className="rounded-lg bg-slate-50 border border-slate-100 p-2 text-center">
+                            <p className="text-xs text-slate-500 capitalize">{status}</p>
+                            <p className="text-sm font-bold text-slate-900">{selectedUserInvoices.filter((inv) => inv.status === status).length}</p>
+                          </div>
+                        ))}
+                      </div>
                       <div className="space-y-2 max-h-72 overflow-auto pr-1">
-                        {selectedUserInvoices.slice(0, 8).map((inv) => (
+                        {selectedStatusInvoices.slice(0, 10).map((inv) => (
                           <div key={inv.id} className="rounded-lg border border-slate-100 p-3 flex justify-between items-center gap-3">
                             <div>
                               <p className="text-sm font-medium text-slate-900">{inv.invoice_number}</p>
                               <p className="text-xs text-slate-500">{inv.client_name} · {formatDate(inv.created_at)}</p>
+                              <p className="text-[11px] text-slate-400">Due: {formatDate(inv.due_date)}</p>
                             </div>
                             <div className="text-right">
                               <p className="text-sm font-semibold">{formatMoney(Number(inv.invoice_total ?? inv.total), inv.invoice_currency || selectedUser.currency || "INR")}</p>
@@ -754,7 +836,18 @@ export default function Admin() {
                             </div>
                           </div>
                         ))}
-                        {selectedUserInvoices.length === 0 && <p className="text-sm text-slate-500">No invoices.</p>}
+                        {selectedStatusInvoices.length === 0 && <p className="text-sm text-slate-500">No invoices for this filter.</p>}
+                      </div>
+                    </div>
+
+                    <div>
+                      <p className="text-sm font-semibold text-slate-900 mb-2">Activity Timeline</p>
+                      <div className="space-y-2">
+                        <TimelineItem label="Account created" date={selectedUser.created_at} />
+                        {selectedUserInvoices.slice(0, 3).map((inv) => (
+                          <TimelineItem key={inv.id} label={`Invoice ${inv.invoice_number} created`} date={inv.created_at} />
+                        ))}
+                        {(selectedUser as unknown as { banned_at?: string | null }).banned_at && <TimelineItem label="User banned" date={String((selectedUser as unknown as { banned_at?: string }).banned_at)} />}
                       </div>
                     </div>
                   </div>
@@ -862,6 +955,18 @@ export default function Admin() {
 
 function Info({ label, value }: { label: string; value: string }) {
   return <div className="rounded-lg bg-slate-50 border border-slate-100 p-3"><p className="text-xs text-slate-500">{label}</p><p className="font-semibold text-slate-900 break-words">{value}</p></div>;
+}
+
+function TimelineItem({ label, date }: { label: string; date: string }) {
+  return (
+    <div className="flex gap-3 text-sm">
+      <div className="mt-1.5 w-2 h-2 rounded-full bg-primary-500 shrink-0" />
+      <div>
+        <p className="text-slate-800 font-medium">{label}</p>
+        <p className="text-xs text-slate-500">{formatDate(date)}</p>
+      </div>
+    </div>
+  );
 }
 
 function Metric({ title, value, icon }: { title: string; value: string; icon: string }) {
