@@ -207,6 +207,43 @@ function SectionHeader({ title, subtitle }: { title: string; subtitle: string })
   );
 }
 
+
+function MiniBars({ data, valueKey, accent = "bg-primary-500" }: { data: Array<Record<string, unknown>>; valueKey: string; accent?: string }) {
+  const values = data.map((item) => Number(item[valueKey] ?? 0));
+  const max = Math.max(1, ...values);
+  return (
+    <div className="flex items-end gap-1 h-28">
+      {data.map((item, index) => {
+        const value = Number(item[valueKey] ?? 0);
+        const height = Math.max(8, Math.round((value / max) * 100));
+        return (
+          <div key={String(item.key ?? index)} className="flex-1 flex flex-col items-center gap-2 min-w-0">
+            <div className="w-full rounded-t-lg bg-slate-100 overflow-hidden flex items-end" style={{ height: "100%" }}>
+              <div className={cx("w-full rounded-t-lg transition-all", accent)} style={{ height: `${height}%` }} title={`${value}`} />
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function PremiumStatCard({ title, value, subtitle, icon, accent }: { title: string; value: string | number; subtitle: string; icon: string; accent: string }) {
+  return (
+    <div className="relative overflow-hidden rounded-2xl border border-slate-200 bg-white p-5 shadow-sm hover:-translate-y-0.5 hover:shadow-lg transition">
+      <div className={cx("absolute inset-x-0 top-0 h-1", accent)} />
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">{title}</p>
+          <p className="mt-2 text-2xl font-black text-slate-950">{value}</p>
+          <p className="mt-1 text-xs text-slate-500">{subtitle}</p>
+        </div>
+        <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-slate-950 text-lg shadow-sm">{icon}</div>
+      </div>
+    </div>
+  );
+}
+
 function emptyFormFinance(): Omit<AdminFinanceEntry, "id" | "created_at"> {
   return {
     entry_date: new Date().toISOString().slice(0, 10),
@@ -1258,38 +1295,155 @@ export default function Admin() {
 
         {active === "dashboard" && (
           <section className="space-y-6">
-            <SectionHeader title="Admin Dashboard" subtitle="Overview of users, plans, invoices, team work, and revenue" />
-            <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
-              {[
-                ["Total Users", profiles.length, "👥", "text-primary-600 bg-primary-50"],
-                ["Pro Users", metrics.proUsers, "⭐", "text-amber-600 bg-amber-50"],
-                ["Banned Users", profiles.filter((p) => (p as unknown as { is_banned?: boolean }).is_banned).length, "🚫", "text-red-600 bg-red-50"],
-                ["Total Invoices", invoices.length, "📄", "text-blue-600 bg-blue-50"],
-                ["Paid Invoices", metrics.paidInvoices, "✅", "text-green-600 bg-green-50"],
-                ["Overdue", metrics.overdueInvoices, "⚠️", "text-red-600 bg-red-50"],
-                ["Manual Revenue", formatMoney(metrics.receivedFinance, "INR"), "💰", "text-green-600 bg-green-50"],
-                ["Expenses", formatMoney(metrics.expenses, "INR"), "💸", "text-slate-600 bg-slate-100"],
-              ].map(([label, value, icon, color]) => (
-                <Card key={String(label)} className="p-5">
-                  <span className={cx("inline-flex w-10 h-10 rounded-xl items-center justify-center text-base font-bold mb-3", String(color))}>{icon}</span>
-                  <p className="text-xs font-medium text-slate-500 uppercase tracking-wide">{label}</p>
-                  <p className="text-xl font-bold text-slate-900 mt-1">{String(value)}</p>
-                </Card>
-              ))}
+            <div className="relative overflow-hidden rounded-3xl bg-slate-950 p-6 text-white shadow-xl">
+              <div className="absolute -right-20 -top-20 h-56 w-56 rounded-full bg-primary-500/30 blur-3xl" />
+              <div className="absolute -bottom-24 left-1/2 h-56 w-56 rounded-full bg-cyan-400/20 blur-3xl" />
+              <div className="relative flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.24em] text-primary-200">Owner Command Center</p>
+                  <h1 className="mt-3 text-3xl font-black tracking-tight sm:text-4xl">InvoiceKit Admin</h1>
+                  <p className="mt-2 max-w-2xl text-sm text-slate-300">Premium overview of revenue, customers, invoices, support, system health, and team operations.</p>
+                </div>
+                <div className="grid grid-cols-3 gap-3 rounded-2xl border border-white/10 bg-white/10 p-3 backdrop-blur">
+                  <div>
+                    <p className="text-[11px] text-slate-300">QA Score</p>
+                    <p className="text-xl font-black">{qaChecks.score}%</p>
+                  </div>
+                  <div>
+                    <p className="text-[11px] text-slate-300">Open Tickets</p>
+                    <p className="text-xl font-black">{supportTickets.filter((t) => ["open", "pending"].includes(t.status)).length}</p>
+                  </div>
+                  <div>
+                    <p className="text-[11px] text-slate-300">Active Team</p>
+                    <p className="text-xl font-black">{teamStats.active}</p>
+                  </div>
+                </div>
+              </div>
             </div>
 
-            <div className="grid xl:grid-cols-2 gap-6">
-              <Card>
-                <div className="p-5 border-b border-slate-100 flex justify-between items-center">
-                  <h2 className="text-lg font-semibold text-slate-900">Recent Users</h2>
-                  <button className="text-sm text-primary-600 font-medium" onClick={() => setActive("users")}>Manage users</button>
+            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+              <PremiumStatCard title="Gross revenue" value={formatMoney(financeCommand.grossRevenue, "INR")} subtitle="Income recorded in finance ledger" icon="💰" accent="bg-emerald-500" />
+              <PremiumStatCard title="Net settlement" value={formatMoney(financeCommand.netSettlement, "INR")} subtitle="After fees, tax and operating cost" icon="🏦" accent="bg-primary-500" />
+              <PremiumStatCard title="Active users" value={analytics.activeUsers} subtitle={`${analytics.newUsers30} new users in 30 days`} icon="👥" accent="bg-blue-500" />
+              <PremiumStatCard title="Pro conversion" value={`${analytics.conversionRate.toFixed(1)}%`} subtitle={`${metrics.proUsers} paid users from ${profiles.length} total`} icon="⭐" accent="bg-amber-500" />
+            </div>
+
+            <div className="grid gap-6 xl:grid-cols-[1.45fr_0.9fr]">
+              <Card className="overflow-hidden border-0 shadow-lg">
+                <div className="flex flex-col gap-3 border-b border-slate-100 bg-white p-5 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <h2 className="text-lg font-black text-slate-950">Revenue Performance</h2>
+                    <p className="text-sm text-slate-500">Daily income trend and settlement health.</p>
+                  </div>
+                  <div className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-700">{analytics.revenueGrowth >= 0 ? "+" : ""}{analytics.revenueGrowth.toFixed(1)}% this month</div>
+                </div>
+                <div className="p-5">
+                  <MiniBars data={financeReport.trend} valueKey="income" accent="bg-gradient-to-t from-primary-600 to-cyan-400" />
+                  <div className="mt-4 grid gap-3 sm:grid-cols-4">
+                    <div className="rounded-2xl bg-slate-50 p-4">
+                      <p className="text-xs text-slate-500">Gateway fee</p>
+                      <p className="mt-1 font-black text-slate-900">{formatMoney(financeCommand.gatewayFee, "INR")}</p>
+                    </div>
+                    <div className="rounded-2xl bg-slate-50 p-4">
+                      <p className="text-xs text-slate-500">Tax estimate</p>
+                      <p className="mt-1 font-black text-slate-900">{formatMoney(financeCommand.estimatedTax, "INR")}</p>
+                    </div>
+                    <div className="rounded-2xl bg-slate-50 p-4">
+                      <p className="text-xs text-slate-500">Expenses</p>
+                      <p className="mt-1 font-black text-slate-900">{formatMoney(financeCommand.operatingCost, "INR")}</p>
+                    </div>
+                    <div className="rounded-2xl bg-slate-950 p-4 text-white">
+                      <p className="text-xs text-slate-300">Pending payout</p>
+                      <p className="mt-1 font-black">{formatMoney(financeCommand.pendingPayout, "INR")}</p>
+                    </div>
+                  </div>
+                </div>
+              </Card>
+
+              <Card className="overflow-hidden border-0 shadow-lg">
+                <div className="border-b border-slate-100 p-5">
+                  <h2 className="text-lg font-black text-slate-950">AI Business Insights</h2>
+                  <p className="text-sm text-slate-500">Auto generated signals from your data.</p>
+                </div>
+                <div className="space-y-3 p-5">
+                  {analytics.insights.map((insight) => (
+                    <div key={insight.title} className="rounded-2xl border border-slate-100 bg-slate-50 p-4">
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className="font-bold text-slate-950">{insight.title}</p>
+                          <p className="mt-1 text-sm text-slate-600">{insight.body}</p>
+                        </div>
+                        <span className={cx("h-2.5 w-2.5 rounded-full mt-2", insight.tone === "green" ? "bg-emerald-500" : insight.tone === "red" ? "bg-red-500" : insight.tone === "amber" ? "bg-amber-500" : "bg-slate-400")} />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </Card>
+            </div>
+
+            <div className="grid gap-6 xl:grid-cols-3">
+              <Card className="overflow-hidden border-0 shadow-lg xl:col-span-2">
+                <div className="flex items-center justify-between border-b border-slate-100 p-5">
+                  <div>
+                    <h2 className="text-lg font-black text-slate-950">Growth Command</h2>
+                    <p className="text-sm text-slate-500">Users and invoice momentum over the last 14 days.</p>
+                  </div>
+                  <button onClick={() => setActive("analytics")} className="rounded-full bg-slate-950 px-4 py-2 text-xs font-bold text-white hover:bg-slate-800">Open analytics</button>
+                </div>
+                <div className="grid gap-5 p-5 lg:grid-cols-2">
+                  <div>
+                    <div className="mb-3 flex items-center justify-between">
+                      <p className="text-sm font-bold text-slate-700">New users</p>
+                      <span className="text-xs text-slate-500">14 days</span>
+                    </div>
+                    <MiniBars data={analytics.userGrowth} valueKey="count" accent="bg-gradient-to-t from-blue-600 to-cyan-400" />
+                  </div>
+                  <div>
+                    <div className="mb-3 flex items-center justify-between">
+                      <p className="text-sm font-bold text-slate-700">Invoices created</p>
+                      <span className="text-xs text-slate-500">14 days</span>
+                    </div>
+                    <MiniBars data={analytics.invoiceGrowth} valueKey="count" accent="bg-gradient-to-t from-violet-600 to-fuchsia-400" />
+                  </div>
+                </div>
+              </Card>
+
+              <Card className="overflow-hidden border-0 shadow-lg">
+                <div className="border-b border-slate-100 p-5">
+                  <h2 className="text-lg font-black text-slate-950">Quick Actions</h2>
+                  <p className="text-sm text-slate-500">Jump into daily operations.</p>
+                </div>
+                <div className="grid gap-3 p-5">
+                  {[
+                    ["Manage users", "users", "👥"],
+                    ["Add invoice balance", "credits", "💳"],
+                    ["Create staff task", "tasks", "📋"],
+                    ["Review support queue", "support", "🎫"],
+                    ["Finance ledger", "finance", "💰"],
+                  ].map(([label, section, icon]) => (
+                    <button key={String(label)} onClick={() => setActive(section as AdminSection)} className="flex items-center justify-between rounded-2xl border border-slate-200 bg-white px-4 py-3 text-left text-sm font-bold text-slate-800 hover:border-primary-200 hover:bg-primary-50 transition">
+                      <span className="flex items-center gap-3"><span>{icon}</span>{label}</span>
+                      <span className="text-slate-400">→</span>
+                    </button>
+                  ))}
+                </div>
+              </Card>
+            </div>
+
+            <div className="grid gap-6 xl:grid-cols-3">
+              <Card className="overflow-hidden border-0 shadow-lg">
+                <div className="border-b border-slate-100 p-5">
+                  <h2 className="text-lg font-black text-slate-950">Recent Users</h2>
                 </div>
                 <div className="divide-y divide-slate-100">
                   {profiles.slice(0, 5).map((p) => (
-                    <div key={p.id} className="p-4 flex items-center justify-between gap-3">
-                      <div>
-                        <p className="font-medium text-slate-900">{p.business_name || p.email || "Unnamed"}</p>
-                        <p className="text-xs text-slate-500">{p.country || "No country"} · {formatDate(p.created_at)}</p>
+                    <div key={p.id} className="flex items-center justify-between gap-3 p-4">
+                      <div className="flex items-center gap-3 min-w-0">
+                        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-slate-950 text-sm font-black text-white">{(p.business_name || p.email || "U").slice(0, 1).toUpperCase()}</div>
+                        <div className="min-w-0">
+                          <p className="truncate font-bold text-slate-900">{p.business_name || p.email || "Unnamed"}</p>
+                          <p className="text-xs text-slate-500">{p.country || "No country"} · {formatDate(p.created_at)}</p>
+                        </div>
                       </div>
                       <Pill className={(p as unknown as { is_banned?: boolean }).is_banned ? statusClass("disabled") : p.is_pro ? "bg-amber-50 text-amber-700 border-amber-200" : statusClass("closed")}>
                         {(p as unknown as { is_banned?: boolean }).is_banned ? "Banned" : p.is_pro ? "Pro" : "Free"}
@@ -1299,19 +1453,38 @@ export default function Admin() {
                 </div>
               </Card>
 
-              <Card>
-                <div className="p-5 border-b border-slate-100 flex justify-between items-center">
-                  <h2 className="text-lg font-semibold text-slate-900">Task Tracker</h2>
-                  <button className="text-sm text-primary-600 font-medium" onClick={() => setActive("tasks")}>Open tasks</button>
+              <Card className="overflow-hidden border-0 shadow-lg">
+                <div className="border-b border-slate-100 p-5">
+                  <h2 className="text-lg font-black text-slate-950">Support Queue</h2>
+                </div>
+                <div className="divide-y divide-slate-100">
+                  {supportTickets.length === 0 ? <p className="p-6 text-sm text-slate-500">No support tickets yet.</p> : supportTickets.slice(0, 5).map((ticket) => (
+                    <div key={ticket.id} className="p-4">
+                      <div className="flex items-center justify-between gap-3">
+                        <p className="font-bold text-slate-900">{ticket.subject}</p>
+                        <Pill className={statusClass(ticket.status)}>{ticket.status}</Pill>
+                      </div>
+                      <p className="mt-1 text-xs text-slate-500">{ticket.priority} priority · {formatDate(ticket.created_at)}</p>
+                    </div>
+                  ))}
+                </div>
+              </Card>
+
+              <Card className="overflow-hidden border-0 shadow-lg">
+                <div className="border-b border-slate-100 p-5">
+                  <h2 className="text-lg font-black text-slate-950">Team Workload</h2>
                 </div>
                 <div className="divide-y divide-slate-100">
                   {tasks.length === 0 ? <p className="p-6 text-sm text-slate-500">No tasks yet.</p> : tasks.slice(0, 5).map((task) => (
-                    <div key={task.id} className="p-4 flex items-center justify-between gap-3">
-                      <div>
-                        <p className="font-medium text-slate-900">{task.title}</p>
-                        <p className="text-xs text-slate-500">{task.priority} priority {task.due_date ? `· Due ${task.due_date}` : ""}</p>
+                    <div key={task.id} className="p-4">
+                      <div className="flex items-center justify-between gap-3">
+                        <p className="font-bold text-slate-900">{task.title}</p>
+                        <Pill className={statusClass(task.status)}>{task.status.replace("_", " ")}</Pill>
                       </div>
-                      <Pill className={statusClass(task.status)}>{task.status.replace("_", " ")}</Pill>
+                      <div className="mt-3 h-2 rounded-full bg-slate-100">
+                        <div className="h-2 rounded-full bg-slate-950" style={{ width: `${Math.min(100, Math.max(0, task.progress ?? 0))}%` }} />
+                      </div>
+                      <p className="mt-2 text-xs text-slate-500">{task.priority} priority {task.due_date ? `· Due ${task.due_date}` : ""}</p>
                     </div>
                   ))}
                 </div>
