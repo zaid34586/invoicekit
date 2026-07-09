@@ -79,9 +79,21 @@ async function sendWelcomeEmail(params: {
   staffPortalUrl: string;
   adminPortalUrl: string;
 }) {
-  const apiKey = Deno.env.get("RESEND_API_KEY");
+  const apiKey = (Deno.env.get("RESEND_API_KEY") || "").trim();
   if (!apiKey) {
-    return { sent: false, status: "not_configured", error: "RESEND_API_KEY is not set" };
+    return {
+      sent: false,
+      status: "not_configured",
+      error: "Email is not configured. Set RESEND_API_KEY in Supabase Edge Function secrets. Staff login was still created; use the temporary password shown in Admin.",
+    };
+  }
+
+  if (!apiKey.startsWith("re_")) {
+    return {
+      sent: false,
+      status: "failed",
+      error: "RESEND_API_KEY looks invalid. It should start with re_. Staff login was still created; use the temporary password shown in Admin.",
+    };
   }
 
   const from = Deno.env.get("STAFF_INVITE_FROM") || "InvoiceKit <onboarding@resend.dev>";
@@ -111,7 +123,12 @@ async function sendWelcomeEmail(params: {
 
   const result = await response.json().catch(() => ({}));
   if (!response.ok) {
-    return { sent: false, status: "failed", error: result?.message || result?.error || `Email API failed with ${response.status}` };
+    const providerMessage = result?.message || result?.error || `Email API failed with ${response.status}`;
+    return {
+      sent: false,
+      status: "failed",
+      error: `${providerMessage}. Staff login was still created; use the temporary password shown in Admin until email is configured.`,
+    };
   }
 
   return { sent: true, status: "sent", error: null, id: result?.id ?? null };
