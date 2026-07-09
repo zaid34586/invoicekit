@@ -1495,25 +1495,46 @@ export default function Admin() {
 
         {active === "users" && (
           <section className="space-y-6">
-            <SectionHeader title="User Management" subtitle="Search, filter, full user 360 detail, ban/unban, invoice balance, free Pro aur notes" />
+            <SectionHeader title="User Management" subtitle="Premium customer command center with search, segmentation, invoice balance, plans, account safety, and 360° history" />
 
             <div className="grid grid-cols-2 xl:grid-cols-5 gap-4">
-              <Metric title="Visible Users" value={String(filteredProfiles.length)} icon="👥" />
-              <Metric title="Active" value={String(profiles.filter((p) => !(p as unknown as { is_banned?: boolean }).is_banned).length)} icon="✅" />
-              <Metric title="Banned" value={String(profiles.filter((p) => (p as unknown as { is_banned?: boolean }).is_banned).length)} icon="🚫" />
-              <Metric title="Pro" value={String(metrics.proUsers)} icon="⭐" />
-              <Metric title="Free" value={String(metrics.freeUsers)} icon="🆓" />
+              <Card className="p-5 border-0 shadow-lg bg-gradient-to-br from-slate-950 to-slate-800 text-white overflow-hidden relative">
+                <div className="absolute -right-6 -top-6 h-20 w-20 rounded-full bg-white/10" />
+                <p className="text-xs font-semibold text-slate-300 uppercase tracking-wider">Visible customers</p>
+                <p className="mt-2 text-3xl font-black">{filteredProfiles.length}</p>
+                <p className="mt-1 text-xs text-slate-300">After current filters</p>
+              </Card>
+              <Card className="p-5 border-0 shadow-lg bg-white">
+                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Active accounts</p>
+                <p className="mt-2 text-3xl font-black text-emerald-600">{profiles.filter((p) => !(p as unknown as { is_banned?: boolean }).is_banned).length}</p>
+                <p className="mt-1 text-xs text-slate-500">Able to use the product</p>
+              </Card>
+              <Card className="p-5 border-0 shadow-lg bg-white">
+                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Restricted</p>
+                <p className="mt-2 text-3xl font-black text-red-600">{profiles.filter((p) => (p as unknown as { is_banned?: boolean }).is_banned).length}</p>
+                <p className="mt-1 text-xs text-slate-500">Banned or blocked users</p>
+              </Card>
+              <Card className="p-5 border-0 shadow-lg bg-white">
+                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Paid users</p>
+                <p className="mt-2 text-3xl font-black text-amber-600">{metrics.proUsers}</p>
+                <p className="mt-1 text-xs text-slate-500">Pro or business plans</p>
+              </Card>
+              <Card className="p-5 border-0 shadow-lg bg-white">
+                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Free users</p>
+                <p className="mt-2 text-3xl font-black text-blue-600">{metrics.freeUsers}</p>
+                <p className="mt-1 text-xs text-slate-500">Free plan accounts</p>
+              </Card>
             </div>
 
             <div className="grid xl:grid-cols-[1fr_460px] gap-6">
-              <Card>
-                <div className="p-5 border-b border-slate-100 space-y-4">
+              <Card className="overflow-hidden border-0 shadow-xl ring-1 ring-slate-100 bg-white/95 backdrop-blur">
+                <div className="p-5 border-b border-slate-100 space-y-4 bg-gradient-to-r from-white to-slate-50">
                   <div className="flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between">
                     <div>
-                      <h2 className="text-lg font-semibold text-slate-900">All Users</h2>
-                      <p className="text-sm text-slate-500">Click Details to manage user account.</p>
+                      <h2 className="text-lg font-black text-slate-950">Customer Directory</h2>
+                      <p className="text-sm text-slate-500">Review accounts, plan status, invoice balance and account controls.</p>
                     </div>
-                    <button className="btn-secondary text-sm" onClick={exportUsersCsv}>Export CSV</button>
+                    <button className="rounded-xl bg-slate-950 px-4 py-2 text-sm font-bold text-white shadow-sm hover:bg-slate-800" onClick={exportUsersCsv}>Export CSV</button>
                   </div>
                   <div className="grid md:grid-cols-[1fr_160px_180px] gap-3">
                     <input className="input" placeholder="Search business, email, phone, GSTIN, country..." value={userSearch} onChange={(e) => setUserSearch(e.target.value)} />
@@ -1536,13 +1557,13 @@ export default function Admin() {
                   <table className="w-full">
                     <thead>
                       <tr className="border-b border-slate-100 bg-slate-50/50">
-                        <th className="text-left text-xs font-semibold text-slate-500 uppercase px-5 py-3">Business</th>
-                        <th className="text-left text-xs font-semibold text-slate-500 uppercase px-5 py-3">Plan</th>
-                        <th className="text-left text-xs font-semibold text-slate-500 uppercase px-5 py-3 hidden md:table-cell">Invoice Balance</th>
-                        <th className="text-left text-xs font-semibold text-slate-500 uppercase px-5 py-3 hidden lg:table-cell">Invoices</th>
-                        <th className="text-left text-xs font-semibold text-slate-500 uppercase px-5 py-3 hidden xl:table-cell">Clients</th>
-                        <th className="text-left text-xs font-semibold text-slate-500 uppercase px-5 py-3 hidden 2xl:table-cell">Joined</th>
-                        <th className="text-right text-xs font-semibold text-slate-500 uppercase px-5 py-3">Action</th>
+                        <th className="text-left text-xs font-black text-slate-500 uppercase tracking-wider px-5 py-3">Customer</th>
+                        <th className="text-left text-xs font-black text-slate-500 uppercase tracking-wider px-5 py-3">Plan</th>
+                        <th className="text-left text-xs font-black text-slate-500 uppercase tracking-wider px-5 py-3 hidden md:table-cell">Balance</th>
+                        <th className="text-left text-xs font-black text-slate-500 uppercase tracking-wider px-5 py-3 hidden lg:table-cell">Invoices</th>
+                        <th className="text-left text-xs font-black text-slate-500 uppercase tracking-wider px-5 py-3 hidden xl:table-cell">Clients</th>
+                        <th className="text-left text-xs font-black text-slate-500 uppercase tracking-wider px-5 py-3 hidden 2xl:table-cell">Joined</th>
+                        <th className="text-right text-xs font-black text-slate-500 uppercase tracking-wider px-5 py-3">Action</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
@@ -1554,18 +1575,25 @@ export default function Admin() {
                         const isPro = Boolean(p.is_pro || p.plan === "pro" || p.plan === "business");
                         return (
                           <tr key={p.id} className={cx("hover:bg-slate-50/50 transition", selectedUser?.id === p.id && "bg-primary-50/50")}>
-                            <td className="px-5 py-3.5">
-                              <p className="font-medium text-slate-900">{p.business_name || "Unnamed"}</p>
-                              <p className="text-xs text-slate-500">{p.email || "No email"}</p>
-                              <p className="text-xs text-slate-400">{p.country || "No country"} {p.phone ? `· ${p.phone}` : ""}</p>
+                            <td className="px-5 py-4">
+                              <div className="flex items-center gap-3">
+                                <div className="h-10 w-10 rounded-2xl bg-gradient-to-br from-slate-950 to-primary-600 text-white grid place-items-center font-black shadow-sm">
+                                  {(p.business_name || p.email || "U").slice(0, 1).toUpperCase()}
+                                </div>
+                                <div>
+                                  <p className="font-bold text-slate-950">{p.business_name || "Unnamed Business"}</p>
+                                  <p className="text-xs text-slate-500">{p.email || "No email"}</p>
+                                  <p className="text-xs text-slate-400">{p.country || "No country"} {p.phone ? `· ${p.phone}` : ""}</p>
+                                </div>
+                              </div>
                             </td>
-                            <td className="px-5 py-3.5"><Pill className={isBanned ? statusClass("disabled") : isPro ? "bg-amber-50 text-amber-700 border-amber-200" : statusClass("closed")}>{isBanned ? "Banned" : isPro ? "Pro" : "Free"}</Pill></td>
-                            <td className="px-5 py-3.5 text-sm text-slate-600 hidden md:table-cell">{Number((p as unknown as { credits?: number }).credits ?? 0)}</td>
-                            <td className="px-5 py-3.5 text-sm text-slate-600 hidden lg:table-cell">{userInvoiceCounts.get(authId) ?? 0}</td>
-                            <td className="px-5 py-3.5 text-sm text-slate-600 hidden xl:table-cell">{userClientCounts.get(authId) ?? 0}</td>
-                            <td className="px-5 py-3.5 text-sm text-slate-500 hidden 2xl:table-cell">{formatDate(p.created_at)}</td>
-                            <td className="px-5 py-3.5 text-right">
-                              <button className="btn-secondary text-xs py-1.5 px-3" onClick={() => setSelectedUserId(p.id)}>Details</button>
+                            <td className="px-5 py-4"><Pill className={isBanned ? statusClass("disabled") : isPro ? "bg-amber-50 text-amber-700 border-amber-200" : "bg-blue-50 text-blue-700 border-blue-200"}>{isBanned ? "Banned" : isPro ? "Pro" : "Free"}</Pill></td>
+                            <td className="px-5 py-4 hidden md:table-cell"><span className="inline-flex rounded-xl bg-slate-100 px-3 py-1 text-sm font-bold text-slate-800">{Number((p as unknown as { credits?: number }).credits ?? 0)}</span></td>
+                            <td className="px-5 py-4 text-sm font-semibold text-slate-700 hidden lg:table-cell">{userInvoiceCounts.get(authId) ?? 0}</td>
+                            <td className="px-5 py-4 text-sm font-semibold text-slate-700 hidden xl:table-cell">{userClientCounts.get(authId) ?? 0}</td>
+                            <td className="px-5 py-4 text-sm text-slate-500 hidden 2xl:table-cell">{formatDate(p.created_at)}</td>
+                            <td className="px-5 py-4 text-right">
+                              <button className="rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-bold text-slate-700 shadow-sm hover:border-slate-300 hover:bg-slate-50" onClick={() => setSelectedUserId(p.id)}>Manage</button>
                             </td>
                           </tr>
                         );
@@ -1583,8 +1611,14 @@ export default function Admin() {
                 </div>
               </Card>
 
-              <Card className="p-5 h-fit xl:sticky xl:top-6">
-                <h2 className="text-lg font-semibold text-slate-900 mb-4">User 360 Detail</h2>
+              <Card className="p-5 h-fit xl:sticky xl:top-6 border-0 shadow-xl ring-1 ring-slate-100 bg-white">
+                <div className="mb-4 flex items-center justify-between gap-3">
+                  <div>
+                    <h2 className="text-lg font-black text-slate-950">Customer 360</h2>
+                    <p className="text-xs text-slate-500">Account, billing, invoices and controls</p>
+                  </div>
+                  <span className="rounded-full bg-slate-950 px-3 py-1 text-[11px] font-bold uppercase tracking-wider text-white">Live</span>
+                </div>
                 {selectedUser ? (
                   <div className="space-y-5">
                     <div className="flex items-start justify-between gap-3">
@@ -1605,7 +1639,7 @@ export default function Admin() {
                       <Info label="Invoices" value={String(selectedUserInvoices.length)} />
                       <Info label="Clients" value={String(selectedUserClients.length)} />
                       <Info label="Revenue" value={formatMoney(selectedUserInvoiceRevenue, selectedUser.currency || "INR")} />
-                      <Info label="Added Invoice Balance" value={String(selectedUserInvoiceBalance)} />
+                      <Info label="Extra Invoice Balance" value={String(selectedUserInvoiceBalance)} />
                       <Info label="Used This Month" value={`${selectedUserInvoicesThisMonth} / ${FREE_PLAN_LIMIT} free`} />
                       <Info label="Remaining Invoices" value={selectedUserRemainingInvoices} />
                       <Info label="Joined" value={formatDate(selectedUser.created_at)} />
@@ -1619,9 +1653,9 @@ export default function Admin() {
                     )}
 
                     <div className="grid grid-cols-2 gap-2">
-                      <button className="btn-secondary" onClick={() => openInvoiceBalanceModal(selectedUser)}>Add Invoices</button>
+                      <button className="rounded-xl bg-slate-950 px-4 py-2 text-sm font-bold text-white shadow-sm hover:bg-slate-800" onClick={() => openInvoiceBalanceModal(selectedUser)}>Add Invoices</button>
                       <button className="btn-secondary" onClick={() => handleResetCredits(selectedUser)}>Reset Balance</button>
-                      <button className="btn-primary" onClick={() => openFreeProModal(selectedUser)}>Give Free Pro</button>
+                      <button className="rounded-xl bg-amber-500 px-4 py-2 text-sm font-bold text-white shadow-sm hover:bg-amber-600" onClick={() => openFreeProModal(selectedUser)}>Give Free Pro</button>
                       <button className="btn-secondary" onClick={() => handleRemoveFreePro(selectedUser)}>Remove Pro</button>
                       <button className="btn-secondary col-span-2" onClick={() => handleResetUserPassword(selectedUser)}>Reset Login Password</button>
                       {(selectedUser as unknown as { is_banned?: boolean }).is_banned ? (
@@ -1636,7 +1670,7 @@ export default function Admin() {
                       <div className="flex items-center justify-between mb-3">
                         <div>
                           <p className="font-semibold text-slate-900">Invoice Balance Summary</p>
-                          <p className="text-xs text-slate-500">Free monthly invoices + admin-added invoice balance</p>
+                          <p className="text-xs text-slate-500">Monthly free allowance plus admin-added invoice balance</p>
                         </div>
                         <Pill className={selectedUserIsUnlimited ? "bg-amber-50 text-amber-700 border-amber-200" : "bg-blue-50 text-blue-700 border-blue-200"}>
                           {selectedUserIsUnlimited ? "Unlimited" : `${selectedUserRemainingInvoices} left`}
@@ -1728,7 +1762,7 @@ export default function Admin() {
               <div className="p-5 border-b border-slate-100"><h2 className="text-lg font-semibold text-slate-900">Quick Actions</h2></div>
               <div className="overflow-x-auto">
                 <table className="w-full">
-                  <thead><tr className="border-b border-slate-100 bg-slate-50/50"><th className="text-left text-xs font-semibold text-slate-500 uppercase px-5 py-3">User</th><th className="text-left text-xs font-semibold text-slate-500 uppercase px-5 py-3">Plan</th><th className="text-left text-xs font-semibold text-slate-500 uppercase px-5 py-3">Invoice Balance</th><th className="text-right text-xs font-semibold text-slate-500 uppercase px-5 py-3">Actions</th></tr></thead>
+                  <thead><tr className="border-b border-slate-100 bg-slate-50/50"><th className="text-left text-xs font-semibold text-slate-500 uppercase px-5 py-3">User</th><th className="text-left text-xs font-black text-slate-500 uppercase tracking-wider px-5 py-3">Plan</th><th className="text-left text-xs font-semibold text-slate-500 uppercase px-5 py-3">Invoice Balance</th><th className="text-right text-xs font-semibold text-slate-500 uppercase px-5 py-3">Actions</th></tr></thead>
                   <tbody className="divide-y divide-slate-100">
                     {profiles.map((p) => <tr key={p.id}><td className="px-5 py-3.5"><p className="font-medium text-slate-900">{p.business_name || "Unnamed"}</p><p className="text-xs text-slate-500">{p.email}</p></td><td className="px-5 py-3.5"><Pill className={p.is_pro ? "bg-amber-50 text-amber-700 border-amber-200" : statusClass("closed")}>{p.is_pro ? "Pro" : "Free"}</Pill></td><td className="px-5 py-3.5 font-semibold">{Number((p as unknown as { credits?: number }).credits ?? 0)}</td><td className="px-5 py-3.5 text-right space-x-2"><button className="btn-secondary text-xs py-1.5 px-3" onClick={() => openInvoiceBalanceModal(p)}>Add Invoices</button><button className="btn-primary text-xs py-1.5 px-3" onClick={() => openFreeProModal(p)}>Give Free Pro</button></td></tr>)}
                   </tbody>
@@ -2094,7 +2128,7 @@ export default function Admin() {
                           <th className="text-left text-xs font-semibold text-slate-500 uppercase px-5 py-3">Type</th>
                           <th className="text-left text-xs font-semibold text-slate-500 uppercase px-5 py-3">Source</th>
                           <th className="text-right text-xs font-semibold text-slate-500 uppercase px-5 py-3">Amount</th>
-                          <th className="text-right text-xs font-semibold text-slate-500 uppercase px-5 py-3">Action</th>
+                          <th className="text-right text-xs font-black text-slate-500 uppercase tracking-wider px-5 py-3">Action</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
