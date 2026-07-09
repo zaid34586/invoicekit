@@ -1982,125 +1982,184 @@ export default function Admin() {
         )}
 
         {active === "finance" && (
-          <section className="space-y-6">
-            <SectionHeader title="Revenue & Finance Command Center" subtitle="Track gross revenue, gateway fees, tax, expenses, pending payouts and real net settlement." />
-            <div className="grid grid-cols-2 xl:grid-cols-6 gap-4">
-              <Metric title="Gross Revenue" value={formatMoney(financeReport.income, "INR")} icon="💰" />
-              <Metric title="This Month" value={formatMoney(financeReport.monthlyRevenue, "INR")} icon="📅" />
-              <Metric title="Today" value={formatMoney(financeReport.todayRevenue, "INR")} icon="📈" />
-              <Metric title="Pending Payout" value={formatMoney(financeCommand.pendingPayout, "INR")} icon="⏳" />
-              <Metric title="Total Expenses" value={formatMoney(financeCommand.operatingCost, "INR")} icon="💸" />
-              <Metric title="Net Settlement" value={formatMoney(financeCommand.netSettlement, "INR")} icon="🏦" />
+          <section className="space-y-7">
+            <div className="relative overflow-hidden rounded-[2rem] bg-slate-950 p-6 text-white shadow-2xl ring-1 ring-slate-900/10">
+              <div className="absolute -right-20 -top-24 h-72 w-72 rounded-full bg-emerald-400/20 blur-3xl" />
+              <div className="absolute -bottom-28 left-1/3 h-72 w-72 rounded-full bg-blue-500/20 blur-3xl" />
+              <div className="relative flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
+                <div>
+                  <p className="text-xs font-black uppercase tracking-[0.28em] text-emerald-300">Finance Command Center</p>
+                  <h1 className="mt-3 text-3xl font-black tracking-tight md:text-4xl">Revenue, deductions, payouts and profit in one place.</h1>
+                  <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-300">Track subscription income, ad revenue, manual entries, gateway deductions, estimated tax, expenses and settlement balance before payment gateway integration goes live.</p>
+                </div>
+                <div className="rounded-3xl border border-white/10 bg-white/10 p-5 backdrop-blur min-w-[280px]">
+                  <p className="text-sm text-slate-300">Estimated net amount</p>
+                  <p className="mt-1 text-4xl font-black">{formatMoney(financeCommand.netSettlement, "INR")}</p>
+                  <p className="mt-2 text-xs text-slate-400">Gross revenue minus gateway fees, tax estimate and operating costs.</p>
+                </div>
+              </div>
             </div>
 
-            <Card className="p-5 bg-gradient-to-br from-slate-950 via-slate-900 to-slate-800 text-white border-0 shadow-xl">
-              <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-5">
-                <div>
-                  <p className="text-xs uppercase tracking-[0.2em] text-slate-300 font-semibold">Finance Command Center</p>
-                  <h2 className="mt-2 text-2xl font-bold">Revenue, deductions and settlement view</h2>
-                  <p className="mt-2 text-sm text-slate-300 max-w-2xl">Use this panel to understand where money comes from and how much remains after gateway fees, tax estimates and operating costs.</p>
-                </div>
-                <div className="rounded-2xl bg-white/10 border border-white/10 p-4 min-w-[240px]">
-                  <p className="text-sm text-slate-300">Estimated amount credited</p>
-                  <p className="text-3xl font-black mt-1">{formatMoney(financeCommand.netSettlement, "INR")}</p>
-                  <p className="text-xs text-slate-400 mt-1">Gateway/tax percentages are estimates until Razorpay/Stripe integration is live.</p>
-                </div>
-              </div>
-              <div className="grid md:grid-cols-5 gap-3 mt-6">
-                <div className="rounded-xl bg-white/10 border border-white/10 p-4"><p className="text-xs text-slate-300">Gross</p><p className="font-bold text-lg">{formatMoney(financeCommand.grossRevenue, "INR")}</p></div>
-                <div className="rounded-xl bg-white/10 border border-white/10 p-4"><p className="text-xs text-slate-300">Gateway Fee</p><p className="font-bold text-lg">-{formatMoney(financeCommand.gatewayFee, "INR")}</p></div>
-                <div className="rounded-xl bg-white/10 border border-white/10 p-4"><p className="text-xs text-slate-300">Estimated Tax</p><p className="font-bold text-lg">-{formatMoney(financeCommand.estimatedTax, "INR")}</p></div>
-                <div className="rounded-xl bg-white/10 border border-white/10 p-4"><p className="text-xs text-slate-300">Operating Cost</p><p className="font-bold text-lg">-{formatMoney(financeCommand.operatingCost, "INR")}</p></div>
-                <div className="rounded-xl bg-emerald-400/20 border border-emerald-300/20 p-4"><p className="text-xs text-emerald-100">Net</p><p className="font-bold text-lg">{formatMoney(financeCommand.netSettlement, "INR")}</p></div>
-              </div>
-            </Card>
+            <div className="grid grid-cols-2 gap-4 xl:grid-cols-6">
+              <Metric title="Gross Revenue" value={formatMoney(financeCommand.grossRevenue, "INR")} icon="💰" />
+              <Metric title="Gateway Fee" value={`-${formatMoney(financeCommand.gatewayFee, "INR")}`} icon="💳" />
+              <Metric title="Estimated Tax" value={`-${formatMoney(financeCommand.estimatedTax, "INR")}`} icon="🧾" />
+              <Metric title="Expenses" value={`-${formatMoney(financeCommand.operatingCost, "INR")}`} icon="💸" />
+              <Metric title="Pending" value={formatMoney(financeCommand.pendingPayout, "INR")} icon="⏳" />
+              <Metric title="Net Profit" value={formatMoney(financeCommand.netSettlement, "INR")} icon="🏦" />
+            </div>
 
-            <div className="grid xl:grid-cols-[420px_1fr] gap-6">
-              <div className="space-y-6">
-                <Card className="p-5 h-fit">
-                  <h2 className="text-lg font-semibold text-slate-900 mb-1">Add Finance Entry</h2>
-                  <p className="text-sm text-slate-500 mb-4">Add subscriptions, ads revenue, manual income, expenses and pending receivables.</p>
-                  <form onSubmit={handleAddFinance} className="space-y-3">
-                    <input className="input" type="date" value={financeForm.entry_date} onChange={(e) => setFinanceForm({ ...financeForm, entry_date: e.target.value })} />
-                    <input className="input" required placeholder="Title e.g. July Pro Subscription" value={financeForm.title} onChange={(e) => setFinanceForm({ ...financeForm, title: e.target.value })} />
-                    <div className="grid grid-cols-2 gap-2">
-                      <select className="input" value={financeForm.type} onChange={(e) => setFinanceForm({ ...financeForm, type: e.target.value as AdminFinanceEntry["type"] })}>
-                        <option value="income">Income</option>
-                        <option value="expense">Expense</option>
-                        <option value="receivable">Receivable</option>
-                      </select>
-                      <select className="input" value={financeForm.source} onChange={(e) => setFinanceForm({ ...financeForm, source: e.target.value as AdminFinanceEntry["source"] })}>
-                        <option value="manual">Manual</option>
-                        <option value="subscription">Subscription</option>
-                        <option value="ads">Ads</option>
-                        <option value="invoice">Invoice</option>
-                        <option value="other">Other</option>
-                      </select>
-                    </div>
-                    <div className="grid grid-cols-[1fr_90px] gap-2">
-                      <input className="input" type="number" min="0" step="0.01" value={financeForm.amount} onChange={(e) => setFinanceForm({ ...financeForm, amount: Number(e.target.value) })} />
-                      <input className="input" value={financeForm.currency} onChange={(e) => setFinanceForm({ ...financeForm, currency: e.target.value.toUpperCase() })} />
-                    </div>
-                    <select className="input" value={financeForm.status} onChange={(e) => setFinanceForm({ ...financeForm, status: e.target.value as AdminFinanceEntry["status"] })}>
-                      <option value="received">Received</option>
-                      <option value="pending">Pending</option>
-                      <option value="spent">Spent</option>
-                    </select>
-                    <textarea className="input min-h-20" placeholder="Notes / bank / ad network / payment reference" value={financeForm.notes ?? ""} onChange={(e) => setFinanceForm({ ...financeForm, notes: e.target.value })} />
-                    <button className="btn-primary w-full" type="submit">Add Entry</button>
-                  </form>
-                </Card>
-
-                <Card className="p-5">
-                  <h2 className="text-lg font-semibold text-slate-900 mb-4">Source Breakdown</h2>
-                  <div className="space-y-3">
-                    <div className="flex items-center justify-between"><span className="text-sm text-slate-500">Subscription</span><strong>{formatMoney(financeReport.subscriptionRevenue, "INR")}</strong></div>
-                    <div className="flex items-center justify-between"><span className="text-sm text-slate-500">Ads</span><strong>{formatMoney(financeReport.adsRevenue, "INR")}</strong></div>
-                    <div className="flex items-center justify-between"><span className="text-sm text-slate-500">Manual/Other</span><strong>{formatMoney(Math.max(0, financeReport.income - financeReport.subscriptionRevenue - financeReport.adsRevenue), "INR")}</strong></div>
-                    <div className="pt-3 border-t border-slate-100 flex items-center justify-between"><span className="text-sm font-semibold text-slate-700">Net Balance</span><strong className={financeReport.net >= 0 ? "text-green-600" : "text-red-600"}>{formatMoney(financeReport.net, "INR")}</strong></div>
-                  </div>
-                </Card>
-              </div>
-
-              <div className="space-y-6">
-                <Card className="p-5">
-                  <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-5">
+            <div className="grid gap-6 xl:grid-cols-[1.05fr_0.95fr]">
+              <Card className="overflow-hidden border-0 bg-white shadow-xl ring-1 ring-slate-100">
+                <div className="border-b border-slate-100 bg-gradient-to-r from-white to-slate-50 p-5">
+                  <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                     <div>
-                      <h2 className="text-lg font-semibold text-slate-900">Finance Report</h2>
-                      <p className="text-sm text-slate-500">Last 7 days income vs expenses</p>
+                      <h2 className="text-xl font-black text-slate-950">Settlement Breakdown</h2>
+                      <p className="text-sm text-slate-500">Understand exactly where revenue goes before it reaches your bank.</p>
                     </div>
-                    <select className="input md:w-36" value={financeRange} onChange={(e) => setFinanceRange(e.target.value as typeof financeRange)}>
-                      <option value="7">7 days</option>
-                      <option value="30">30 days</option>
-                      <option value="90">90 days</option>
-                      <option value="all">All time</option>
+                    <button className="btn-secondary" onClick={() => exportCsv(financeReport.visible as unknown as Record<string, unknown>[], "finance-command-report.csv")}>Export CSV</button>
+                  </div>
+                </div>
+                <div className="p-5 space-y-4">
+                  {[
+                    { label: "Gross revenue", value: financeCommand.grossRevenue, tone: "bg-emerald-500", prefix: "+" },
+                    { label: "Payment gateway fee", value: financeCommand.gatewayFee, tone: "bg-blue-500", prefix: "-" },
+                    { label: "Estimated GST / tax", value: financeCommand.estimatedTax, tone: "bg-amber-500", prefix: "-" },
+                    { label: "Operating expenses", value: financeCommand.operatingCost, tone: "bg-red-500", prefix: "-" },
+                    { label: "Pending payout / receivable", value: financeCommand.pendingPayout, tone: "bg-purple-500", prefix: "" },
+                  ].map((row) => {
+                    const width = Math.max(6, (Number(row.value) / Math.max(1, financeCommand.grossRevenue || financeCommand.pendingPayout || financeCommand.operatingCost)) * 100);
+                    return (
+                      <div key={row.label} className="rounded-2xl border border-slate-100 bg-slate-50/70 p-4">
+                        <div className="mb-2 flex items-center justify-between gap-3">
+                          <span className="text-sm font-bold text-slate-700">{row.label}</span>
+                          <span className="text-sm font-black text-slate-950">{row.prefix}{formatMoney(Number(row.value), "INR")}</span>
+                        </div>
+                        <div className="h-2 overflow-hidden rounded-full bg-white ring-1 ring-slate-100"><div className={cx("h-full rounded-full", row.tone)} style={{ width: `${Math.min(100, width)}%` }} /></div>
+                      </div>
+                    );
+                  })}
+                  <div className="rounded-3xl border border-emerald-100 bg-emerald-50 p-5">
+                    <div className="flex items-center justify-between gap-4">
+                      <div>
+                        <p className="text-sm font-bold text-emerald-700">Net credited estimate</p>
+                        <p className="text-xs text-emerald-600">Final balance after deductions</p>
+                      </div>
+                      <p className="text-2xl font-black text-emerald-700">{formatMoney(financeCommand.netSettlement, "INR")}</p>
+                    </div>
+                  </div>
+                </div>
+              </Card>
+
+              <Card className="border-0 bg-white p-5 shadow-xl ring-1 ring-slate-100">
+                <div className="mb-5 flex items-start justify-between gap-4">
+                  <div>
+                    <h2 className="text-xl font-black text-slate-950">Revenue Sources</h2>
+                    <p className="text-sm text-slate-500">Subscription, ads and manual source split.</p>
+                  </div>
+                  <select className="input w-32" value={financeRange} onChange={(e) => setFinanceRange(e.target.value as typeof financeRange)}>
+                    <option value="7">7 days</option>
+                    <option value="30">30 days</option>
+                    <option value="90">90 days</option>
+                    <option value="all">All</option>
+                  </select>
+                </div>
+                <div className="space-y-4">
+                  {[
+                    { label: "Subscriptions", value: financeReport.subscriptionRevenue, icon: "⭐", tone: "from-amber-400 to-orange-500" },
+                    { label: "Ads Revenue", value: financeReport.adsRevenue, icon: "📣", tone: "from-sky-400 to-blue-500" },
+                    { label: "Manual / Other", value: financeCommand.manualRevenue, icon: "🧾", tone: "from-slate-500 to-slate-800" },
+                  ].map((source) => {
+                    const percent = financeReport.income > 0 ? (Number(source.value) / financeReport.income) * 100 : 0;
+                    return (
+                      <div key={source.label} className="rounded-3xl border border-slate-100 p-4">
+                        <div className="flex items-center gap-3">
+                          <div className={cx("grid h-11 w-11 place-items-center rounded-2xl bg-gradient-to-br text-white shadow-sm", source.tone)}>{source.icon}</div>
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center justify-between gap-3"><p className="font-black text-slate-900">{source.label}</p><p className="font-black text-slate-950">{formatMoney(Number(source.value), "INR")}</p></div>
+                            <div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-100"><div className={cx("h-full rounded-full bg-gradient-to-r", source.tone)} style={{ width: `${Math.max(3, percent)}%` }} /></div>
+                            <p className="mt-1 text-xs text-slate-500">{percent.toFixed(1)}% of visible income</p>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </Card>
+            </div>
+
+            <div className="grid gap-6 xl:grid-cols-[420px_1fr]">
+              <Card className="h-fit border-0 bg-white p-5 shadow-xl ring-1 ring-slate-100">
+                <h2 className="text-lg font-black text-slate-950">Add Finance Entry</h2>
+                <p className="mb-4 text-sm text-slate-500">Record subscription income, ad payouts, expenses and pending receivables.</p>
+                <form onSubmit={handleAddFinance} className="space-y-3">
+                  <input className="input" type="date" value={financeForm.entry_date} onChange={(e) => setFinanceForm({ ...financeForm, entry_date: e.target.value })} />
+                  <input className="input" required placeholder="Title e.g. Razorpay settlement, Ads payout" value={financeForm.title} onChange={(e) => setFinanceForm({ ...financeForm, title: e.target.value })} />
+                  <div className="grid grid-cols-2 gap-2">
+                    <select className="input" value={financeForm.type} onChange={(e) => setFinanceForm({ ...financeForm, type: e.target.value as AdminFinanceEntry["type"] })}>
+                      <option value="income">Income</option>
+                      <option value="expense">Expense</option>
+                      <option value="receivable">Receivable</option>
+                    </select>
+                    <select className="input" value={financeForm.source} onChange={(e) => setFinanceForm({ ...financeForm, source: e.target.value as AdminFinanceEntry["source"] })}>
+                      <option value="subscription">Subscription</option>
+                      <option value="ads">Ads</option>
+                      <option value="manual">Manual</option>
+                      <option value="invoice">Invoice</option>
+                      <option value="other">Other</option>
                     </select>
                   </div>
-                  <div className="grid grid-cols-7 gap-2 items-end h-36">
+                  <div className="grid grid-cols-[1fr_90px] gap-2">
+                    <input className="input" type="number" min="0" step="0.01" value={financeForm.amount} onChange={(e) => setFinanceForm({ ...financeForm, amount: Number(e.target.value) })} />
+                    <input className="input" value={financeForm.currency} onChange={(e) => setFinanceForm({ ...financeForm, currency: e.target.value.toUpperCase() })} />
+                  </div>
+                  <select className="input" value={financeForm.status} onChange={(e) => setFinanceForm({ ...financeForm, status: e.target.value as AdminFinanceEntry["status"] })}>
+                    <option value="received">Received</option>
+                    <option value="pending">Pending</option>
+                    <option value="spent">Spent</option>
+                  </select>
+                  <textarea className="input min-h-24" placeholder="Notes: settlement ID, ad network, GST, bank reference..." value={financeForm.notes ?? ""} onChange={(e) => setFinanceForm({ ...financeForm, notes: e.target.value })} />
+                  <button className="btn-primary w-full" type="submit">Add Finance Entry</button>
+                </form>
+              </Card>
+
+              <div className="space-y-6">
+                <Card className="border-0 bg-white p-5 shadow-xl ring-1 ring-slate-100">
+                  <div className="mb-5 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                    <div>
+                      <h2 className="text-xl font-black text-slate-950">Income vs Expenses Trend</h2>
+                      <p className="text-sm text-slate-500">Daily comparison for selected range.</p>
+                    </div>
+                    <div className="flex gap-2">
+                      <Pill className="bg-green-50 text-green-700 border-green-200">Income</Pill>
+                      <Pill className="bg-red-50 text-red-700 border-red-200">Expense</Pill>
+                    </div>
+                  </div>
+                  <div className="grid h-44 grid-cols-7 items-end gap-2">
                     {financeReport.trend.map((day) => {
                       const maxValue = Math.max(...financeReport.trend.map((d) => Math.max(d.income, d.expense)), 1);
                       return (
-                        <div key={day.key} className="flex flex-col items-center gap-1">
-                          <div className="w-full flex items-end gap-1 h-24">
-                            <div className="flex-1 bg-green-200 rounded-t" style={{ height: `${Math.max(6, (day.income / maxValue) * 96)}px` }} title={`Income ${formatMoney(day.income, "INR")}`} />
-                            <div className="flex-1 bg-red-200 rounded-t" style={{ height: `${Math.max(6, (day.expense / maxValue) * 96)}px` }} title={`Expense ${formatMoney(day.expense, "INR")}`} />
+                        <div key={day.key} className="flex flex-col items-center gap-2">
+                          <div className="flex h-32 w-full items-end gap-1">
+                            <div className="flex-1 rounded-t-xl bg-emerald-300" style={{ height: `${Math.max(6, (day.income / maxValue) * 128)}px` }} title={`Income ${formatMoney(day.income, "INR")}`} />
+                            <div className="flex-1 rounded-t-xl bg-red-300" style={{ height: `${Math.max(6, (day.expense / maxValue) * 128)}px` }} title={`Expense ${formatMoney(day.expense, "INR")}`} />
                           </div>
-                          <span className="text-[10px] text-slate-400">{day.label}</span>
+                          <span className="text-[10px] font-bold text-slate-400">{day.label}</span>
                         </div>
                       );
                     })}
                   </div>
                 </Card>
 
-                <Card>
-                  <div className="p-5 border-b border-slate-100">
-                    <div className="flex flex-col xl:flex-row xl:items-center xl:justify-between gap-3">
+                <Card className="overflow-hidden border-0 bg-white shadow-xl ring-1 ring-slate-100">
+                  <div className="border-b border-slate-100 p-5">
+                    <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                       <div>
-                        <h2 className="text-lg font-semibold text-slate-900">Finance Ledger</h2>
-                        <p className="text-sm text-slate-500">Manage income, expenses, ads revenue and pending entries.</p>
+                        <h2 className="text-xl font-black text-slate-950">Finance Ledger</h2>
+                        <p className="text-sm text-slate-500">Search, filter and manage every money movement.</p>
                       </div>
-                      <div className="grid sm:grid-cols-4 gap-2 xl:w-[720px]">
-                        <input className="input" placeholder="Search ledger..." value={financeSearch} onChange={(e) => setFinanceSearch(e.target.value)} />
+                      <div className="grid gap-2 sm:grid-cols-3 lg:w-[620px]">
+                        <input className="input" placeholder="Search title, source, notes..." value={financeSearch} onChange={(e) => setFinanceSearch(e.target.value)} />
                         <select className="input" value={financeStatusFilter} onChange={(e) => setFinanceStatusFilter(e.target.value as typeof financeStatusFilter)}>
                           <option value="all">All status</option>
                           <option value="received">Received</option>
@@ -2108,48 +2167,37 @@ export default function Admin() {
                           <option value="spent">Spent</option>
                         </select>
                         <select className="input" value={financeSourceFilter} onChange={(e) => setFinanceSourceFilter(e.target.value as typeof financeSourceFilter)}>
-                          <option value="all">All source</option>
+                          <option value="all">All sources</option>
                           <option value="subscription">Subscription</option>
                           <option value="ads">Ads</option>
                           <option value="manual">Manual</option>
                           <option value="invoice">Invoice</option>
                           <option value="other">Other</option>
                         </select>
-                        <button className="btn-secondary" type="button" onClick={() => exportCsv(financeReport.visible, "finance-ledger.csv")}>Export CSV</button>
                       </div>
                     </div>
                   </div>
                   <div className="overflow-x-auto">
                     <table className="w-full">
                       <thead>
-                        <tr className="border-b border-slate-100 bg-slate-50/50">
-                          <th className="text-left text-xs font-semibold text-slate-500 uppercase px-5 py-3">Date</th>
-                          <th className="text-left text-xs font-semibold text-slate-500 uppercase px-5 py-3">Title</th>
-                          <th className="text-left text-xs font-semibold text-slate-500 uppercase px-5 py-3">Type</th>
-                          <th className="text-left text-xs font-semibold text-slate-500 uppercase px-5 py-3">Source</th>
-                          <th className="text-right text-xs font-semibold text-slate-500 uppercase px-5 py-3">Amount</th>
-                          <th className="text-right text-xs font-black text-slate-500 uppercase tracking-wider px-5 py-3">Action</th>
+                        <tr className="border-b border-slate-100 bg-slate-50/70">
+                          <th className="px-5 py-3 text-left text-xs font-black uppercase tracking-wider text-slate-500">Entry</th>
+                          <th className="px-5 py-3 text-left text-xs font-black uppercase tracking-wider text-slate-500">Type</th>
+                          <th className="px-5 py-3 text-left text-xs font-black uppercase tracking-wider text-slate-500">Source</th>
+                          <th className="px-5 py-3 text-right text-xs font-black uppercase tracking-wider text-slate-500">Amount</th>
+                          <th className="px-5 py-3 text-right text-xs font-black uppercase tracking-wider text-slate-500">Actions</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
                         {financeReport.visible.length === 0 ? (
-                          <tr><td colSpan={6} className="p-8 text-center text-sm text-slate-500">No finance entries found.</td></tr>
+                          <tr><td colSpan={5} className="p-8 text-center text-sm text-slate-500">No finance entries found.</td></tr>
                         ) : financeReport.visible.map((entry) => (
-                          <tr key={entry.id}>
-                            <td className="px-5 py-3.5 text-sm text-slate-500">{entry.entry_date}</td>
-                            <td className="px-5 py-3.5">
-                              <p className="font-medium text-slate-900">{entry.title}</p>
-                              <p className="text-xs text-slate-500 line-clamp-1">{entry.notes || "No notes"}</p>
-                            </td>
-                            <td className="px-5 py-3.5"><Pill className={entry.type === "expense" ? "bg-red-50 text-red-700" : entry.type === "receivable" ? "bg-amber-50 text-amber-700" : "bg-green-50 text-green-700"}>{entry.type}</Pill></td>
-                            <td className="px-5 py-3.5 text-sm text-slate-600 capitalize">{entry.source}<div><Pill className={statusClass(entry.status)}>{entry.status}</Pill></div></td>
-                            <td className={cx("px-5 py-3.5 text-right font-bold", entry.type === "expense" ? "text-red-600" : "text-green-600")}>{entry.type === "expense" ? "-" : "+"}{formatMoney(Number(entry.amount), entry.currency)}</td>
-                            <td className="px-5 py-3.5 text-right">
-                              <div className="flex justify-end gap-2">
-                                {(entry.status === "pending" || entry.type === "receivable") && <button className="btn-secondary text-xs py-1.5" onClick={() => markFinanceReceived(entry)}>Mark Paid</button>}
-                                <button className="btn-danger text-xs py-1.5" onClick={() => deleteFinanceEntry(entry)}>Delete</button>
-                              </div>
-                            </td>
+                          <tr key={entry.id} className="transition hover:bg-slate-50/70">
+                            <td className="px-5 py-4"><p className="font-bold text-slate-900">{entry.title}</p><p className="text-xs text-slate-500">{formatDate(entry.entry_date)} {entry.notes ? `• ${entry.notes}` : ""}</p></td>
+                            <td className="px-5 py-4"><Pill className={entry.type === "expense" ? "bg-red-50 text-red-700 border-red-200" : entry.type === "receivable" ? "bg-amber-50 text-amber-700 border-amber-200" : "bg-green-50 text-green-700 border-green-200"}>{entry.type}</Pill></td>
+                            <td className="px-5 py-4"><div className="space-y-1"><p className="text-sm font-bold capitalize text-slate-700">{entry.source}</p><Pill className={statusClass(entry.status)}>{entry.status}</Pill></div></td>
+                            <td className={cx("px-5 py-4 text-right font-black", entry.type === "expense" ? "text-red-600" : "text-emerald-600")}>{entry.type === "expense" ? "-" : "+"}{formatMoney(Number(entry.amount), entry.currency)}</td>
+                            <td className="px-5 py-4 text-right"><div className="flex justify-end gap-2">{(entry.status === "pending" || entry.type === "receivable") && <button className="btn-secondary text-xs py-1.5" onClick={() => markFinanceReceived(entry)}>Mark Paid</button>}<button className="btn-danger text-xs py-1.5" onClick={() => deleteFinanceEntry(entry)}>Delete</button></div></td>
                           </tr>
                         ))}
                       </tbody>
