@@ -175,20 +175,6 @@ function generatePassword() {
   return `IK-${part}-${digits}`;
 }
 
-function buildStaffInviteText(member: AdminTeamMember) {
-  const portalUrl = member.staff_portal_url || "https://staff.invoicekit.com";
-  return [
-    "Welcome to InvoiceKit Staff Portal",
-    "",
-    `Portal: ${portalUrl}`,
-    `Email: ${member.email}`,
-    `Temporary Password: ${member.temporary_password || "Not available"}`,
-    `Role: ${roleLabels[member.role] || member.role}`,
-    "",
-    "Please login using the staff portal only and change your password after first login.",
-  ].join("\n");
-}
-
 function statusClass(status: string) {
   const map: Record<string, string> = {
     active: "bg-green-50 text-green-700 border-green-200",
@@ -903,7 +889,7 @@ export default function Admin() {
         if (data?.email_sent) {
           setNotice(`Team member created. Welcome email sent to ${teamForm.email}.`);
         } else if (data?.email_error) {
-          setNotice(`Team member login created. Email was not sent. Copy the temporary password from Team Details and share it manually. Reason: ${data.email_error}`);
+          setNotice(`Team member created, but email failed: ${data.email_error}`);
         } else {
           setNotice(data?.message ?? "Team member created. Email not configured yet.");
         }
@@ -1749,16 +1735,9 @@ export default function Admin() {
                           {roleAccess[selectedTeam.role].map((item) => <Pill key={item} className="bg-white text-slate-700 border-slate-200">{item}</Pill>)}
                         </div>
                       </div>
-                      {selectedTeam.invite_error && (
-                        <div className="rounded-xl bg-amber-50 border border-amber-200 p-4">
-                          <p className="text-xs text-amber-600 mb-1 font-semibold uppercase">Email not sent</p>
-                          <p className="text-sm text-amber-800 whitespace-pre-wrap">{selectedTeam.invite_error}</p>
-                          <p className="text-xs text-amber-700 mt-2">Staff account is still created. Use the temporary password above or copy the invite message below.</p>
-                        </div>
-                      )}
+                      {selectedTeam.invite_error && <div className="rounded-xl bg-red-50 border border-red-100 p-4"><p className="text-xs text-red-500 mb-1">Invite Email Error</p><p className="text-sm text-red-700 whitespace-pre-wrap">{selectedTeam.invite_error}</p></div>}
                       {selectedTeam.notes && <div className="rounded-xl bg-slate-50 border border-slate-100 p-4"><p className="text-xs text-slate-500 mb-1">Notes</p><p className="text-sm text-slate-700 whitespace-pre-wrap">{selectedTeam.notes}</p></div>}
-                      <div className="grid md:grid-cols-4 gap-2">
-                        <button className="btn-secondary" onClick={async () => { await navigator.clipboard.writeText(buildStaffInviteText(selectedTeam)); setNotice("Staff invite details copied."); }}>Copy Invite</button>
+                      <div className="grid md:grid-cols-3 gap-2">
                         <button className="btn-secondary" onClick={() => resetTeamTempPassword(selectedTeam)}>Reset Temp Password</button>
                         <button className="btn-secondary" onClick={() => toggleTeamStatus(selectedTeam)}>{selectedTeam.status === "active" ? "Disable Access" : "Enable Access"}</button>
                         <button className="rounded-lg bg-red-50 text-red-700 border border-red-200 px-4 py-2 text-sm font-semibold hover:bg-red-100" onClick={() => deleteTeamMember(selectedTeam)}>Delete Record</button>
@@ -1773,7 +1752,7 @@ export default function Admin() {
 
         {active === "tasks" && (
           <section className="space-y-6">
-            <SectionHeader title="Tasks" subtitle="Team work ko assign, track aur complete karo" />
+            <SectionHeader title="Tasks" subtitle="Assign, track, review and approve staff work" />
             <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
               <Metric title="Pending" value={String(tasks.filter((t) => t.status === "pending").length)} icon="⏳" />
               <Metric title="In Progress" value={String(tasks.filter((t) => t.status === "in_progress").length)} icon="🚧" />
@@ -2382,7 +2361,7 @@ export default function Admin() {
             <div className="w-full max-w-4xl max-h-[92vh] overflow-y-auto rounded-3xl bg-white shadow-2xl border border-slate-200">
               <div className="p-6 border-b border-slate-100 flex items-start justify-between gap-4">
                 <div>
-                  <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Task Review</p>
+                  <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Task Review & Approval</p>
                   <h2 className="text-2xl font-black text-slate-950 mt-1">{selectedAdminTask.title}</h2>
                   <p className="text-sm text-slate-500 mt-1 capitalize">{selectedAdminTask.department || "general"} · {selectedAdminTask.priority} · {adminTaskStatusLabel(selectedAdminTask.status)}</p>
                 </div>
@@ -2413,12 +2392,12 @@ export default function Admin() {
                     <div className="mt-3 h-2 rounded-full bg-slate-100 overflow-hidden"><div className="h-full bg-primary-500" style={{ width: `${selectedAdminTask.progress ?? 0}%` }} /></div>
                   </Card>
                   <Card className="p-4 space-y-2">
-                    <button className="btn-primary w-full" onClick={() => approveTask(selectedAdminTask)}>Approve / Close</button>
-                    <button className="btn-secondary w-full" onClick={() => reopenTask(selectedAdminTask)}>Reopen</button>
+                    <button className="btn-primary w-full" onClick={() => approveTask(selectedAdminTask)}>Approve task</button>
+                    <button className="btn-secondary w-full" onClick={() => reopenTask(selectedAdminTask)}>Return / reopen</button>
                     <button className="w-full rounded-xl border border-red-200 text-red-700 px-4 py-2 text-sm font-semibold hover:bg-red-50" onClick={() => deleteTask(selectedAdminTask)}>Delete Task</button>
                   </Card>
                   <Card className="p-4 text-xs text-slate-500">
-                    Attachments will be added after storage configuration. Staff can add file links in task updates for now.
+                    Review checklist: check staff updates/proof notes, verify customer result if needed, then Approve / Close or Reopen with instructions.
                   </Card>
                 </div>
               </div>

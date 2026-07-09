@@ -86,7 +86,6 @@ export default function StaffDashboard() {
   const [active, setActive] = useState(() => window.location.hash.replace("#", "") || "dashboard");
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [taskComment, setTaskComment] = useState("");
-  const [taskProof, setTaskProof] = useState("");
 
   useEffect(() => {
     const onHash = () => setActive(window.location.hash.replace("#", "") || "dashboard");
@@ -209,16 +208,6 @@ export default function StaffDashboard() {
     await updateTask(task.id, { staff_notes: nextNotes });
   }
 
-  async function submitTaskForReview(task: TaskRow) {
-    const proof = taskProof.trim();
-    const comment = taskComment.trim() || "Work completed and submitted for admin review.";
-    const proofText = proof ? `\nProof / attachment link: ${proof}` : "";
-    const nextNotes = appendLog(task.staff_notes, staff?.name || user?.email || "Staff", `${comment}${proofText}`);
-    setTaskComment("");
-    setTaskProof("");
-    await updateTask(task.id, { status: "done", progress: 100, staff_notes: nextNotes });
-  }
-
   async function updateTicket(ticketId: string, changes: Partial<TicketRow>) {
     setSavingId(ticketId); setMessage(null);
     const payload: Record<string, unknown> = { ...changes, last_staff_update: new Date().toISOString() };
@@ -294,7 +283,7 @@ export default function StaffDashboard() {
             {filteredTasks.length === 0 ? (
               <div className="p-10 text-center text-slate-500">No tasks found.</div>
             ) : filteredTasks.map(task => (
-              <button key={task.id} onClick={() => { setSelectedTaskId(task.id); setTaskComment(""); setTaskProof(""); }} className="w-full text-left p-5 hover:bg-slate-50 transition">
+              <button key={task.id} onClick={() => { setSelectedTaskId(task.id); setTaskComment(""); }} className="w-full text-left p-5 hover:bg-slate-50 transition">
                 <div className="flex flex-col xl:flex-row xl:items-start xl:justify-between gap-4">
                   <div>
                     <div className="flex flex-wrap gap-2 mb-2">
@@ -345,26 +334,29 @@ export default function StaffDashboard() {
                     </div>
                   )}
                   <div className="rounded-2xl border border-slate-200 p-5">
-                    <div className="text-xs font-bold uppercase tracking-wide text-slate-500 mb-3">Work updates</div>
+                    <div className="text-xs font-bold uppercase tracking-wide text-slate-500 mb-3">Work updates & proof notes</div>
                     <div className="min-h-[90px] rounded-2xl bg-slate-50 border border-slate-100 p-4 text-sm text-slate-700 whitespace-pre-wrap">{selectedTask.staff_notes || "No updates yet. Add your first update below."}</div>
-                    <textarea value={taskComment} onChange={(e) => setTaskComment(e.target.value)} placeholder="Write what you did, blockers, customer response, or next step..." className="mt-4 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm min-h-[100px]" />
+                    <textarea value={taskComment} onChange={(e) => setTaskComment(e.target.value)} placeholder="Write what you checked, proof links, blockers, customer response, or final result..." className="mt-4 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm min-h-[100px]" />
                     <button onClick={() => addTaskComment(selectedTask)} disabled={savingId === selectedTask.id || !taskComment.trim()} className="mt-3 rounded-2xl bg-slate-950 text-white px-4 py-2 text-sm font-bold disabled:opacity-50">Add update</button>
                   </div>
                 </div>
 
                 <div className="space-y-4">
                   <div className="rounded-2xl border border-slate-200 p-4">
-                    <div className="text-xs font-bold uppercase tracking-wide text-slate-500 mb-3">Work actions</div>
+                    <div className="text-xs font-bold uppercase tracking-wide text-slate-500 mb-3">Quick actions</div>
                     <div className="grid gap-2">
                       <button onClick={() => quickTaskAction(selectedTask, "in_progress", Math.max(selectedTask.progress ?? 0, 25))} disabled={savingId === selectedTask.id} className="rounded-2xl bg-blue-600 text-white px-4 py-3 text-sm font-bold">Start work</button>
                       <button onClick={() => quickTaskAction(selectedTask, "blocked", selectedTask.progress ?? 25)} disabled={savingId === selectedTask.id} className="rounded-2xl bg-amber-500 text-white px-4 py-3 text-sm font-bold">Need help</button>
+                      <button onClick={() => quickTaskAction(selectedTask, "done", 100)} disabled={savingId === selectedTask.id} className="rounded-2xl bg-emerald-600 text-white px-4 py-3 text-sm font-bold">Submit for review</button>
                     </div>
                   </div>
-                  <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
-                    <div className="text-xs font-bold uppercase tracking-wide text-emerald-700 mb-2">Submit proof for admin review</div>
-                    <p className="text-xs text-emerald-800 mb-3">Add what you checked. Paste a screenshot/file link if you have proof. Admin will review this before closing the task.</p>
-                    <textarea value={taskProof} onChange={(e) => setTaskProof(e.target.value)} placeholder="Proof link / screenshot URL / file URL (optional)" className="w-full rounded-2xl border border-emerald-200 bg-white px-3 py-2 text-sm min-h-[70px]" />
-                    <button onClick={() => submitTaskForReview(selectedTask)} disabled={savingId === selectedTask.id} className="mt-3 w-full rounded-2xl bg-emerald-600 text-white px-4 py-3 text-sm font-bold disabled:opacity-50">Submit for Review</button>
+                  <div className="rounded-2xl bg-emerald-50 border border-emerald-100 p-4 text-xs text-emerald-800">
+                    <div className="font-black uppercase tracking-wide mb-2">Before submit checklist</div>
+                    <ul className="space-y-1 list-disc pl-4">
+                      <li>Open and verify the related customer/user data if this task needs it.</li>
+                      <li>Add a clear work update with what you checked.</li>
+                      <li>Paste proof links or screenshots in the update box if needed.</li>
+                    </ul>
                   </div>
                   <div className="rounded-2xl border border-slate-200 p-4">
                     <div className="text-xs font-bold uppercase tracking-wide text-slate-500 mb-3">Manual progress</div>
@@ -376,7 +368,7 @@ export default function StaffDashboard() {
                     </select>
                   </div>
                   <div className="rounded-2xl bg-slate-50 border border-slate-100 p-4 text-xs text-slate-500">
-                    File upload storage will be connected later. For now, paste screenshot, Drive, or file links in Proof / updates.
+                    Proof upload can be added after storage setup. For now, paste screenshot links, PDF links, or verification notes in Work updates before submitting for review.
                   </div>
                 </div>
               </div>
