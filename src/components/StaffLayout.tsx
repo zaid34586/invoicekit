@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { supabase } from "../lib/supabase";
-import { getStaffPermissions, hasStaffPermission, STAFF_ROLE_LABELS, type StaffMember } from "../lib/staffPermissions";
+import { hasStaffPermission, STAFF_ROLE_LABELS, type StaffMember } from "../lib/staffPermissions";
 
 const navBase = [
   { key: "dashboard", label: "Dashboard", icon: "📊" },
@@ -58,8 +58,7 @@ export default function StaffLayout({ children }: { children: ReactNode }) {
   }
 
   const role = staff?.role ?? "viewer";
-  const permissions = getStaffPermissions(role);
-  const navItems = useMemo(
+const navItems = useMemo(
     () => navBase.filter((item) => ["dashboard", "notifications", "profile", "settings"].includes(item.key) || hasStaffPermission(role, item.key as any)),
     [role]
   );
@@ -140,3 +139,4 @@ export default function StaffLayout({ children }: { children: ReactNode }) {
     </div>
   );
 }
+

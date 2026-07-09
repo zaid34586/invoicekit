@@ -14,6 +14,10 @@ export interface Profile {
   logo_url: string | null;
 
   is_pro: boolean;
+  credits?: number | null;
+  free_pro_until?: string | null;
+  admin_notes?: string | null;
+  is_banned?: boolean | null;
 
   // ── International business fields ─────────────────────────────────────
   country: string | null;       // e.g. "India", "United States"
