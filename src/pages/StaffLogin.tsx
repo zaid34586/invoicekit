@@ -16,9 +16,9 @@ export default function StaffLogin() {
     setError(null);
     setSubmitting(true);
     const normalizedEmail = email.trim().toLowerCase();
-    const { error: signInError } = await signIn(normalizedEmail, password);
+    const { error: signInError } = await signIn(normalizedEmail, password, { skipProfile: true });
     if (signInError) {
-      setError("Invalid staff email or password.");
+      setError(signInError || "Invalid staff email or password.");
       setSubmitting(false);
       return;
     }
