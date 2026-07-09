@@ -7,7 +7,8 @@ interface TaskRow { id: string; title: string; description?: string | null; stat
 interface TicketRow { id: string; subject: string; message?: string | null; status: string; priority: string; created_at: string; staff_notes?: string | null; }
 interface FinanceRow { id: string; type: string; source: string; amount: number; currency: string; status: string; title: string; }
 interface NotificationRow { id: string; title: string; body: string | null; type: string; read_at: string | null; created_at: string; }
-interface StaffCustomerRow { id: string; email: string | null; business_name: string | null; owner_name: string | null; phone: string | null; country: string | null; is_pro: boolean | null; is_banned?: boolean | null; created_at: string | null; credits?: number | null; }
+interface CustomerRow { id: string; user_id?: string | null; email: string | null; business_name: string | null; phone: string | null; country: string | null; plan?: string | null; is_pro?: boolean | null; is_banned?: boolean | null; credits?: number | null; created_at: string; }
+interface StaffInvoiceRow { id: string; user_id: string; invoice_number: string; client_name: string; total: number; status: string; created_at: string; invoice_currency?: string | null; }
 
 const taskStatuses = ["pending", "in_progress", "blocked", "done"];
 const ticketStatuses = ["open", "pending", "resolved", "closed"];
@@ -51,7 +52,18 @@ function appendLog(existing: string | null | undefined, author: string, text: st
   const stamp = new Date().toLocaleString();
   const clean = text.trim();
   if (!clean) return existing ?? "";
-  return `${existing ? `${existing}\n\n` : ""}[${stamp}] ${author}: ${clean}`;
+  return `${existing ? `${existing}
+
+` : ""}[${stamp}] ${author}: ${clean}`;
+}
+
+function planLabel(customer: CustomerRow) {
+  if (customer.is_pro || customer.plan === "pro" || customer.plan === "business") return "Pro";
+  return "Free";
+}
+
+function currencyLabel(code?: string | null) {
+  return code || "INR";
 }
 
 function Section({ title, subtitle, children, actions }: { title: string; subtitle?: string; children: React.ReactNode; actions?: React.ReactNode }) {
@@ -76,20 +88,22 @@ export default function StaffDashboard() {
   const [tickets, setTickets] = useState<TicketRow[]>([]);
   const [finance, setFinance] = useState<FinanceRow[]>([]);
   const [notifications, setNotifications] = useState<NotificationRow[]>([]);
-  const [customers, setCustomers] = useState<StaffCustomerRow[]>([]);
+  const [customers, setCustomers] = useState<CustomerRow[]>([]);
+  const [customerInvoices, setCustomerInvoices] = useState<StaffInvoiceRow[]>([]);
   const [savingId, setSavingId] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [taskFilter, setTaskFilter] = useState("open");
   const [ticketFilter, setTicketFilter] = useState("open");
   const [taskSearch, setTaskSearch] = useState("");
   const [ticketSearch, setTicketSearch] = useState("");
-  const [userSearch, setUserSearch] = useState("");
-  const [selectedCustomer, setSelectedCustomer] = useState<StaffCustomerRow | null>(null);
   const [newPassword, setNewPassword] = useState("");
   const [updatingPassword, setUpdatingPassword] = useState(false);
   const [active, setActive] = useState(() => window.location.hash.replace("#", "") || "dashboard");
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [taskComment, setTaskComment] = useState("");
+  const [taskEvidence, setTaskEvidence] = useState("");
+  const [customerSearch, setCustomerSearch] = useState("");
+  const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(null);
 
   useEffect(() => {
     const onHash = () => setActive(window.location.hash.replace("#", "") || "dashboard");
@@ -128,17 +142,6 @@ export default function StaffDashboard() {
       setTickets((ticketData as TicketRow[]) ?? []);
     }
 
-    if (hasStaffPermission(team.role, "users")) {
-      const teamEmails = await supabase.from("admin_team_members").select("email");
-      const hiddenEmails = new Set((teamEmails.data ?? []).map((m: any) => String(m.email || "").toLowerCase()));
-      const { data: customerData } = await supabase
-        .from("profiles")
-        .select("id, email, business_name, owner_name, phone, country, is_pro, is_banned, created_at, credits")
-        .order("created_at", { ascending: false })
-        .limit(80);
-      setCustomers(((customerData as StaffCustomerRow[]) ?? []).filter((row) => row.email && !hiddenEmails.has(row.email.toLowerCase())));
-    }
-
     const { data: notificationData } = await supabase
       .from("notifications")
       .select("id, title, body, type, read_at, created_at")
@@ -147,6 +150,25 @@ export default function StaffDashboard() {
       .order("created_at", { ascending: false })
       .limit(20);
     setNotifications((notificationData as NotificationRow[]) ?? []);
+
+    if (hasStaffPermission(team.role, "users")) {
+      const { data: customerData } = await supabase
+        .from("profiles")
+        .select("id, user_id, email, business_name, phone, country, plan, is_pro, is_banned, credits, created_at")
+        .order("created_at", { ascending: false })
+        .limit(60);
+      setCustomers((customerData as CustomerRow[]) ?? []);
+
+      const { data: invoiceData } = await supabase
+        .from("invoices")
+        .select("id, user_id, invoice_number, client_name, total, status, created_at, invoice_currency")
+        .order("created_at", { ascending: false })
+        .limit(120);
+      setCustomerInvoices((invoiceData as StaffInvoiceRow[]) ?? []);
+    } else {
+      setCustomers([]);
+      setCustomerInvoices([]);
+    }
 
     if (hasStaffPermission(team.role, "finance")) {
       const { data: financeData } = await supabase
@@ -190,10 +212,12 @@ export default function StaffDashboard() {
   });
 
   const filteredCustomers = customers.filter((customer) => {
-    const search = userSearch.trim().toLowerCase();
+    const search = customerSearch.trim().toLowerCase();
     if (!search) return true;
-    return `${customer.email ?? ""} ${customer.business_name ?? ""} ${customer.owner_name ?? ""} ${customer.phone ?? ""} ${customer.country ?? ""}`.toLowerCase().includes(search);
+    return `${customer.business_name ?? ""} ${customer.email ?? ""} ${customer.phone ?? ""} ${customer.country ?? ""}`.toLowerCase().includes(search);
   });
+  const selectedCustomer = selectedCustomerId ? customers.find((customer) => customer.id === selectedCustomerId) ?? null : null;
+  const selectedCustomerInvoices = selectedCustomer ? customerInvoices.filter((invoice) => invoice.user_id === (selectedCustomer.user_id || selectedCustomer.id)).slice(0, 8) : [];
 
   const selectedTask = selectedTaskId ? tasks.find((task) => task.id === selectedTaskId) ?? null : null;
 
@@ -224,9 +248,30 @@ export default function StaffDashboard() {
   }
 
   async function addTaskComment(task: TaskRow) {
-    const nextNotes = appendLog(task.staff_notes, staff?.name || user?.email || "Staff", taskComment);
+    const evidenceLine = taskEvidence.trim() ? `
+Evidence / attachment link: ${taskEvidence.trim()}` : "";
+    const nextNotes = appendLog(task.staff_notes, staff?.name || user?.email || "Staff", `${taskComment}${evidenceLine}`);
     setTaskComment("");
+    setTaskEvidence("");
     await updateTask(task.id, { staff_notes: nextNotes });
+  }
+
+  async function createCustomerTicket(customer: CustomerRow) {
+    if (!staff) return;
+    setMessage(null);
+    const subject = window.prompt(`Create support ticket for ${customer.business_name || customer.email}`, "Customer follow-up needed");
+    if (!subject) return;
+    const { error } = await supabase.from("admin_support_tickets").insert({
+      user_id: customer.user_id || customer.id,
+      subject,
+      message: `Created by staff from customer workspace. Customer: ${customer.business_name || customer.email}`,
+      priority: "medium",
+      assigned_to: staff.id,
+      status: "open",
+    });
+    if (error) { setMessage(`Ticket creation failed: ${error.message}`); return; }
+    setMessage("Support ticket created and assigned to you.");
+    await load();
   }
 
   async function updateTicket(ticketId: string, changes: Partial<TicketRow>) {
@@ -304,7 +349,7 @@ export default function StaffDashboard() {
             {filteredTasks.length === 0 ? (
               <div className="p-10 text-center text-slate-500">No tasks found.</div>
             ) : filteredTasks.map(task => (
-              <button key={task.id} onClick={() => { setSelectedTaskId(task.id); setTaskComment(""); }} className="w-full text-left p-5 hover:bg-slate-50 transition">
+              <button key={task.id} onClick={() => { setSelectedTaskId(task.id); setTaskComment(""); setTaskEvidence(""); }} className="w-full text-left p-5 hover:bg-slate-50 transition">
                 <div className="flex flex-col xl:flex-row xl:items-start xl:justify-between gap-4">
                   <div>
                     <div className="flex flex-wrap gap-2 mb-2">
@@ -380,15 +425,14 @@ export default function StaffDashboard() {
                       {[0,25,50,75,100].map(v => <option key={v} value={v}>{v}%</option>)}
                     </select>
                   </div>
-                  <div className="rounded-2xl bg-slate-50 border border-slate-100 p-4 text-xs text-slate-600 space-y-2">
-                    <div className="font-bold text-slate-800">How to complete this task</div>
-                    <ol className="list-decimal pl-4 space-y-1">
-                      <li>Click <b>Start work</b> when you begin.</li>
-                      <li>Add updates with proof, file links, or customer response.</li>
-                      <li>Use <b>Need help</b> if admin approval or more info is needed.</li>
-                      <li>Click <b>Mark complete</b> when your work is ready for admin review.</li>
-                    </ol>
-                    <div className="pt-2 text-slate-500">File upload will be enabled after storage setup. For now, paste Google Drive/Supabase Storage links in the update box.</div>
+                  <div className="rounded-2xl border border-slate-200 p-4">
+                    <div className="text-xs font-bold uppercase tracking-wide text-slate-500 mb-2">Evidence / attachment</div>
+                    <input value={taskEvidence} onChange={(e) => setTaskEvidence(e.target.value)} placeholder="Paste Google Drive / screenshot / PDF link" className="w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm" />
+                    <input type="file" className="mt-3 w-full text-xs text-slate-500" onChange={(e) => {
+                      const names = Array.from(e.target.files ?? []).map(file => file.name).join(", ");
+                      if (names) setTaskEvidence((prev) => prev ? `${prev}; Files: ${names}` : `Files: ${names}`);
+                    }} multiple />
+                    <p className="text-xs text-slate-500 mt-2">For now files are recorded as evidence names/links in task updates. Storage upload can be enabled later.</p>
                   </div>
                 </div>
               </div>
@@ -434,54 +478,70 @@ export default function StaffDashboard() {
       <div className="space-y-6">
         <Section
           title="Customer Workspace"
-          subtitle="Read-only customer context for support and operations work. No ban/delete/pro actions are available here."
-          actions={<input value={userSearch} onChange={(e) => setUserSearch(e.target.value)} placeholder="Search customers..." className="rounded-2xl border border-slate-200 px-4 py-2 text-sm" />}
+          subtitle="Read-only customer view for support work. No ban, delete, Pro or balance controls are available here."
+          actions={<input value={customerSearch} onChange={(e) => setCustomerSearch(e.target.value)} placeholder="Search customers..." className="rounded-2xl border border-slate-200 px-4 py-2 text-sm" />}
         >
-          <div className="divide-y divide-slate-100">
-            {filteredCustomers.length === 0 ? (
-              <div className="p-10 text-center text-slate-500">No customers found.</div>
-            ) : filteredCustomers.map((customer) => (
-              <button key={customer.id} onClick={() => setSelectedCustomer(customer)} className="w-full text-left p-5 hover:bg-slate-50 transition">
-                <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
-                  <div>
-                    <div className="font-black text-slate-950">{customer.business_name || customer.owner_name || customer.email}</div>
-                    <div className="text-sm text-slate-500 mt-1">{customer.email} {customer.phone ? `• ${customer.phone}` : ""}</div>
+          <div className="grid xl:grid-cols-[1fr_380px] min-h-[520px]">
+            <div className="divide-y divide-slate-100">
+              {filteredCustomers.length === 0 ? <div className="p-10 text-center text-slate-500">No customers found or access policy not enabled yet.</div> : filteredCustomers.map(customer => {
+                const invoiceCount = customerInvoices.filter(invoice => invoice.user_id === (customer.user_id || customer.id)).length;
+                return (
+                  <button key={customer.id} onClick={() => setSelectedCustomerId(customer.id)} className={`w-full text-left p-5 hover:bg-slate-50 transition ${selectedCustomerId === customer.id ? "bg-blue-50" : ""}`}>
+                    <div className="flex items-start justify-between gap-4">
+                      <div>
+                        <div className="font-black text-slate-950">{customer.business_name || customer.email || "Unnamed customer"}</div>
+                        <div className="text-sm text-slate-500 mt-1">{customer.email || "No email"} {customer.phone ? `• ${customer.phone}` : ""}</div>
+                        <div className="flex flex-wrap gap-2 mt-3">
+                          <Badge tone={customer.is_banned ? "red" : "green"}>{customer.is_banned ? "Banned" : "Active"}</Badge>
+                          <Badge tone={planLabel(customer) === "Pro" ? "purple" : "slate"}>{planLabel(customer)}</Badge>
+                          {customer.country && <Badge tone="blue">{customer.country}</Badge>}
+                        </div>
+                      </div>
+                      <div className="text-right text-xs text-slate-500">
+                        <div className="font-bold text-slate-950">{invoiceCount}</div>
+                        invoices
+                      </div>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+            <aside className="border-t xl:border-t-0 xl:border-l border-slate-100 bg-slate-50/60 p-5">
+              {!selectedCustomer ? (
+                <div className="rounded-3xl bg-white border border-slate-200 p-8 text-center text-slate-500">Select a customer to view support context.</div>
+              ) : (
+                <div className="space-y-4">
+                  <div className="rounded-3xl bg-white border border-slate-200 p-5">
+                    <div className="w-14 h-14 rounded-2xl bg-slate-950 text-white flex items-center justify-center text-xl font-black mb-4">{(selectedCustomer.business_name || selectedCustomer.email || "C").slice(0,1).toUpperCase()}</div>
+                    <h3 className="text-xl font-black text-slate-950">{selectedCustomer.business_name || "Unnamed customer"}</h3>
+                    <p className="text-sm text-slate-500 break-all mt-1">{selectedCustomer.email || "No email"}</p>
+                    <div className="grid grid-cols-2 gap-3 mt-4 text-sm">
+                      <div><div className="text-xs font-bold text-slate-500 uppercase">Phone</div><div className="font-bold text-slate-950">{selectedCustomer.phone || "—"}</div></div>
+                      <div><div className="text-xs font-bold text-slate-500 uppercase">Plan</div><div className="font-bold text-slate-950">{planLabel(selectedCustomer)}</div></div>
+                      <div><div className="text-xs font-bold text-slate-500 uppercase">Balance</div><div className="font-bold text-slate-950">{selectedCustomer.credits ?? 0}</div></div>
+                      <div><div className="text-xs font-bold text-slate-500 uppercase">Joined</div><div className="font-bold text-slate-950">{new Date(selectedCustomer.created_at).toLocaleDateString()}</div></div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 mt-5">
+                      {selectedCustomer.email && <a className="rounded-2xl border border-slate-200 px-4 py-2 text-sm font-bold text-center hover:bg-slate-50" href={`mailto:${selectedCustomer.email}`}>Email</a>}
+                      <button className="rounded-2xl bg-slate-950 text-white px-4 py-2 text-sm font-bold" onClick={() => createCustomerTicket(selectedCustomer)}>Open ticket</button>
+                    </div>
                   </div>
-                  <div className="flex flex-wrap gap-2">
-                    <Badge tone={customer.is_pro ? "green" : "slate"}>{customer.is_pro ? "Pro" : "Free"}</Badge>
-                    <Badge tone={customer.is_banned ? "red" : "blue"}>{customer.is_banned ? "Banned" : "Active"}</Badge>
-                    {customer.country && <Badge tone="purple">{customer.country}</Badge>}
+                  <div className="rounded-3xl bg-white border border-slate-200 p-5">
+                    <div className="font-black text-slate-950 mb-3">Recent invoices</div>
+                    <div className="space-y-2">
+                      {selectedCustomerInvoices.length === 0 ? <div className="text-sm text-slate-500">No invoice history visible.</div> : selectedCustomerInvoices.map(invoice => (
+                        <div key={invoice.id} className="rounded-2xl border border-slate-100 p-3 text-sm">
+                          <div className="flex justify-between gap-3"><span className="font-bold text-slate-950">{invoice.invoice_number}</span><span>{currencyLabel(invoice.invoice_currency)} {Number(invoice.total || 0).toFixed(2)}</span></div>
+                          <div className="text-xs text-slate-500 mt-1">{invoice.client_name} • {invoice.status} • {new Date(invoice.created_at).toLocaleDateString()}</div>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 </div>
-              </button>
-            ))}
+              )}
+            </aside>
           </div>
         </Section>
-
-        {selectedCustomer && (
-          <div className="fixed inset-0 z-50 bg-slate-950/50 backdrop-blur-sm p-4 flex items-center justify-center">
-            <div className="w-full max-w-2xl rounded-3xl bg-white shadow-2xl border border-slate-200 overflow-hidden">
-              <div className="p-6 border-b border-slate-100 flex items-start justify-between gap-4">
-                <div>
-                  <div className="text-xs font-bold uppercase tracking-wide text-slate-500">Customer profile</div>
-                  <h2 className="text-2xl font-black text-slate-950 mt-1">{selectedCustomer.business_name || selectedCustomer.owner_name || selectedCustomer.email}</h2>
-                  <p className="text-sm text-slate-500 mt-1">Read-only support view</p>
-                </div>
-                <button onClick={() => setSelectedCustomer(null)} className="rounded-2xl border border-slate-200 px-4 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50">Close</button>
-              </div>
-              <div className="p-6 grid sm:grid-cols-2 gap-4 text-sm">
-                <div className="rounded-2xl bg-slate-50 border border-slate-100 p-4"><div className="text-xs uppercase font-bold text-slate-500">Email</div><div className="font-bold text-slate-950 break-all mt-1">{selectedCustomer.email || "-"}</div></div>
-                <div className="rounded-2xl bg-slate-50 border border-slate-100 p-4"><div className="text-xs uppercase font-bold text-slate-500">Phone</div><div className="font-bold text-slate-950 mt-1">{selectedCustomer.phone || "-"}</div></div>
-                <div className="rounded-2xl bg-slate-50 border border-slate-100 p-4"><div className="text-xs uppercase font-bold text-slate-500">Plan</div><div className="font-bold text-slate-950 mt-1">{selectedCustomer.is_pro ? "Pro" : "Free"}</div></div>
-                <div className="rounded-2xl bg-slate-50 border border-slate-100 p-4"><div className="text-xs uppercase font-bold text-slate-500">Invoice balance</div><div className="font-bold text-slate-950 mt-1">{selectedCustomer.credits ?? 0}</div></div>
-                <div className="rounded-2xl bg-blue-50 border border-blue-100 p-4 sm:col-span-2">
-                  <div className="font-bold text-blue-950">Allowed staff actions</div>
-                  <p className="text-blue-800 mt-1">Contact customer, understand the issue, create/update support ticket notes, and complete assigned tasks. Admin-only actions like ban, delete, Pro access and invoice balance are hidden here.</p>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
       </div>
     );
   }
