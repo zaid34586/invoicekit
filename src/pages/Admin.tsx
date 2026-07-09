@@ -40,6 +40,7 @@ type AdminTeamMember = {
 
 type AdminTask = {
   id: string;
+  customer_id?: string | null;
   title: string;
   description: string | null;
   assigned_to: string | null;
@@ -169,14 +170,6 @@ const roleAccess: Record<AdminTeamMember["role"], string[]> = {
   viewer: ["Dashboard", "Users", "Invoices", "Analytics"],
 };
 
-const taskTemplates = [
-  { id: "custom", label: "Custom task", title: "", description: "", department: "general", priority: "medium" },
-  { id: "support_followup", label: "Support follow-up", title: "Follow up with customer", description: "Review the customer issue, contact them if needed, update ticket notes, and mark the task complete after resolution.", department: "support", priority: "medium" },
-  { id: "invoice_review", label: "Invoice review", title: "Review customer invoice", description: "Check invoice details, client information, tax fields, and PDF/share output. Add notes if anything needs correction.", department: "support", priority: "medium" },
-  { id: "payment_verify", label: "Payment verification", title: "Verify payment / subscription", description: "Check payment status, subscription record, settlement notes, and update finance notes with the result.", department: "finance", priority: "high" },
-  { id: "gst_verify", label: "GST / business verification", title: "Verify business GST/profile", description: "Verify business name, GSTIN, address, phone, and profile completeness. Add verification notes before completion.", department: "general", priority: "high" },
-];
-
 function generatePassword() {
   const part = Math.random().toString(36).slice(2, 8);
   const digits = Math.floor(1000 + Math.random() * 9000);
@@ -275,8 +268,7 @@ export default function Admin() {
   const [teamSearch, setTeamSearch] = useState("");
   const [teamStatusFilter, setTeamStatusFilter] = useState<"all" | "active" | "disabled">("all");
   const [selectedTeamId, setSelectedTeamId] = useState<string | null>(null);
-  const [taskTemplateId, setTaskTemplateId] = useState("custom");
-  const [taskForm, setTaskForm] = useState({ title: "", description: "", assigned_to: "", department: "general", priority: "medium", due_date: "" });
+  const [taskForm, setTaskForm] = useState({ title: "", description: "", customer_id: "", assigned_to: "", department: "general", priority: "medium", due_date: "" });
   const [selectedAdminTaskId, setSelectedAdminTaskId] = useState<string | null>(null);
   const [adminTaskNote, setAdminTaskNote] = useState("");
   const [financeForm, setFinanceForm] = useState(emptyFormFinance());
@@ -950,24 +942,12 @@ export default function Admin() {
     await load();
   }
 
-  function applyTaskTemplate(templateId: string) {
-    setTaskTemplateId(templateId);
-    const template = taskTemplates.find((item) => item.id === templateId);
-    if (!template || template.id === "custom") return;
-    setTaskForm((current) => ({
-      ...current,
-      title: template.title,
-      description: template.description,
-      department: template.department,
-      priority: template.priority,
-    }));
-  }
-
   async function handleAddTask(e: React.FormEvent) {
     e.preventDefault();
     const { error: insertError } = await supabase.from("admin_tasks").insert({
       title: taskForm.title,
       description: taskForm.description || null,
+      customer_id: taskForm.customer_id || null,
       assigned_to: taskForm.assigned_to || null,
       priority: taskForm.priority,
       department: taskForm.department,
@@ -978,8 +958,7 @@ export default function Admin() {
     });
     if (insertError) return setError(insertError.message);
     await logAction("create_task", "admin_tasks", taskForm.title);
-    setTaskTemplateId("custom");
-    setTaskForm({ title: "", description: "", assigned_to: "", department: "general", priority: "medium", due_date: "" });
+    setTaskForm({ title: "", description: "", customer_id: "", assigned_to: "", department: "general", priority: "medium", due_date: "" });
     setNotice("Task created.");
     await load();
   }
@@ -1775,7 +1754,7 @@ export default function Admin() {
 
         {active === "tasks" && (
           <section className="space-y-6">
-            <SectionHeader title="Tasks" subtitle="Assign work, monitor progress, review staff updates, and close tasks." />
+            <SectionHeader title="Tasks" subtitle="Team work ko assign, track aur complete karo" />
             <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
               <Metric title="Pending" value={String(tasks.filter((t) => t.status === "pending").length)} icon="⏳" />
               <Metric title="In Progress" value={String(tasks.filter((t) => t.status === "in_progress").length)} icon="🚧" />
@@ -1786,11 +1765,11 @@ export default function Admin() {
               <Card className="p-5 h-fit">
                 <h2 className="text-lg font-semibold text-slate-900 mb-4">Assign New Task</h2>
                 <form onSubmit={handleAddTask} className="space-y-3">
-                  <select className="input" value={taskTemplateId} onChange={(e) => applyTaskTemplate(e.target.value)}>
-                    {taskTemplates.map((template) => <option key={template.id} value={template.id}>{template.label}</option>)}
+                  <input className="input" required placeholder="Task title" value={taskForm.title} onChange={(e) => setTaskForm({ ...taskForm, title: e.target.value })} />
+                  <textarea className="input min-h-24" placeholder="Description" value={taskForm.description} onChange={(e) => setTaskForm({ ...taskForm, description: e.target.value })} />
+                  <select className="input" value={taskForm.customer_id} onChange={(e) => setTaskForm({ ...taskForm, customer_id: e.target.value })}>
+                    <option value="">Link customer account (optional)</option>{profiles.map((p) => <option key={p.id} value={p.id}>{p.business_name || p.email || p.id}</option>)}
                   </select>
-                  <input className="input" required placeholder="Task title" value={taskForm.title} onChange={(e) => { setTaskTemplateId("custom"); setTaskForm({ ...taskForm, title: e.target.value }); }} />
-                  <textarea className="input min-h-24" placeholder="Description, expected outcome, customer context, and evidence needed" value={taskForm.description} onChange={(e) => { setTaskTemplateId("custom"); setTaskForm({ ...taskForm, description: e.target.value }); }} />
                   <select className="input" value={taskForm.assigned_to} onChange={(e) => setTaskForm({ ...taskForm, assigned_to: e.target.value })}>
                     <option value="">Unassigned</option>{team.map((m) => <option key={m.id} value={m.id}>{m.name || m.email}</option>)}
                   </select>
@@ -1803,20 +1782,8 @@ export default function Admin() {
                     </select>
                   </div>
                   <input className="input" type="date" value={taskForm.due_date} onChange={(e) => setTaskForm({ ...taskForm, due_date: e.target.value })} />
-                  <button className="btn-primary w-full" type="submit">Assign Task</button>
-                  <p className="text-xs text-slate-500">Staff will see this as a clickable work item with Start Work, Need Help, Add Update and Mark Complete actions.</p>
+                  <button className="btn-primary w-full" type="submit">Create Task</button>
                 </form>
-              </Card>
-              <Card>
-                <div className="p-5 border-b border-slate-100">
-                  <h2 className="text-lg font-semibold text-slate-900">Staff Workflow</h2>
-                  <div className="mt-4 grid grid-cols-1 sm:grid-cols-5 gap-2 text-xs">
-                    {["Assigned", "In Progress", "Need Help", "Completed", "Approved"].map((step, index) => (
-                      <div key={step} className="rounded-2xl border border-slate-200 bg-white p-3 text-center font-bold text-slate-700">{index + 1}. {step}</div>
-                    ))}
-                  </div>
-                  <p className="text-xs text-slate-500 mt-3">Open a task to review staff updates, add admin notes, approve completed work or reopen it.</p>
-                </div>
               </Card>
               <Card>
                 <div className="p-5 border-b border-slate-100 flex items-center justify-between">
@@ -1833,6 +1800,7 @@ export default function Admin() {
                             <button className="w-full text-left" onClick={() => { setSelectedAdminTaskId(task.id); setAdminTaskNote(""); }}>
                               <p className="font-semibold text-sm text-slate-900">{task.title}</p>
                               <p className="text-xs text-slate-500 mt-1 capitalize">{task.department || "general"} · {task.priority} {task.due_date ? `· Due ${task.due_date}` : ""}</p>
+                              {task.customer_id && <p className="text-xs text-emerald-700 bg-emerald-50 border border-emerald-100 rounded-lg px-2 py-1 mt-2">Customer: {profiles.find((p) => p.id === task.customer_id)?.business_name || profiles.find((p) => p.id === task.customer_id)?.email || "Linked customer"}</p>}
                               {task.staff_notes && <p className="text-xs text-blue-700 bg-blue-50 border border-blue-100 rounded-lg p-2 mt-2 line-clamp-2">Staff update: {task.staff_notes}</p>}
                               <div className="mt-3 h-2 rounded-full bg-slate-100 overflow-hidden"><div className="h-full bg-primary-500" style={{ width: `${task.progress ?? 0}%` }} /></div>
                               <p className="text-xs text-primary-700 font-bold mt-2">Open task →</p>
@@ -2402,6 +2370,7 @@ export default function Admin() {
                   <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Task Review</p>
                   <h2 className="text-2xl font-black text-slate-950 mt-1">{selectedAdminTask.title}</h2>
                   <p className="text-sm text-slate-500 mt-1 capitalize">{selectedAdminTask.department || "general"} · {selectedAdminTask.priority} · {adminTaskStatusLabel(selectedAdminTask.status)}</p>
+                  {selectedAdminTask.customer_id && <p className="text-sm text-emerald-700 mt-2">Linked customer: {profiles.find((p) => p.id === selectedAdminTask.customer_id)?.business_name || profiles.find((p) => p.id === selectedAdminTask.customer_id)?.email || selectedAdminTask.customer_id}</p>}
                 </div>
                 <button className="btn-secondary" onClick={() => setSelectedAdminTaskId(null)}>Close</button>
               </div>
