@@ -7,6 +7,7 @@ interface TaskRow { id: string; title: string; description?: string | null; stat
 interface TicketRow { id: string; subject: string; message?: string | null; status: string; priority: string; created_at: string; staff_notes?: string | null; }
 interface FinanceRow { id: string; type: string; source: string; amount: number; currency: string; status: string; title: string; }
 interface NotificationRow { id: string; title: string; body: string | null; type: string; read_at: string | null; created_at: string; }
+interface StaffCustomerRow { id: string; email: string | null; business_name: string | null; owner_name: string | null; phone: string | null; country: string | null; is_pro: boolean | null; is_banned?: boolean | null; created_at: string | null; credits?: number | null; }
 
 const taskStatuses = ["pending", "in_progress", "blocked", "done"];
 const ticketStatuses = ["open", "pending", "resolved", "closed"];
@@ -75,12 +76,15 @@ export default function StaffDashboard() {
   const [tickets, setTickets] = useState<TicketRow[]>([]);
   const [finance, setFinance] = useState<FinanceRow[]>([]);
   const [notifications, setNotifications] = useState<NotificationRow[]>([]);
+  const [customers, setCustomers] = useState<StaffCustomerRow[]>([]);
   const [savingId, setSavingId] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [taskFilter, setTaskFilter] = useState("open");
   const [ticketFilter, setTicketFilter] = useState("open");
   const [taskSearch, setTaskSearch] = useState("");
   const [ticketSearch, setTicketSearch] = useState("");
+  const [userSearch, setUserSearch] = useState("");
+  const [selectedCustomer, setSelectedCustomer] = useState<StaffCustomerRow | null>(null);
   const [newPassword, setNewPassword] = useState("");
   const [updatingPassword, setUpdatingPassword] = useState(false);
   const [active, setActive] = useState(() => window.location.hash.replace("#", "") || "dashboard");
@@ -122,6 +126,17 @@ export default function StaffDashboard() {
         .order("created_at", { ascending: false })
         .limit(40);
       setTickets((ticketData as TicketRow[]) ?? []);
+    }
+
+    if (hasStaffPermission(team.role, "users")) {
+      const teamEmails = await supabase.from("admin_team_members").select("email");
+      const hiddenEmails = new Set((teamEmails.data ?? []).map((m: any) => String(m.email || "").toLowerCase()));
+      const { data: customerData } = await supabase
+        .from("profiles")
+        .select("id, email, business_name, owner_name, phone, country, is_pro, is_banned, created_at, credits")
+        .order("created_at", { ascending: false })
+        .limit(80);
+      setCustomers(((customerData as StaffCustomerRow[]) ?? []).filter((row) => row.email && !hiddenEmails.has(row.email.toLowerCase())));
     }
 
     const { data: notificationData } = await supabase
@@ -172,6 +187,12 @@ export default function StaffDashboard() {
     if (ticketFilter === "open") return ticket.status !== "resolved" && ticket.status !== "closed";
     if (ticketFilter === "urgent") return ticket.priority === "urgent";
     return ticket.status === ticketFilter;
+  });
+
+  const filteredCustomers = customers.filter((customer) => {
+    const search = userSearch.trim().toLowerCase();
+    if (!search) return true;
+    return `${customer.email ?? ""} ${customer.business_name ?? ""} ${customer.owner_name ?? ""} ${customer.phone ?? ""} ${customer.country ?? ""}`.toLowerCase().includes(search);
   });
 
   const selectedTask = selectedTaskId ? tasks.find((task) => task.id === selectedTaskId) ?? null : null;
@@ -359,8 +380,15 @@ export default function StaffDashboard() {
                       {[0,25,50,75,100].map(v => <option key={v} value={v}>{v}%</option>)}
                     </select>
                   </div>
-                  <div className="rounded-2xl bg-slate-50 border border-slate-100 p-4 text-xs text-slate-500">
-                    Attachment upload will be added with storage setup. For now, add file links or notes in updates.
+                  <div className="rounded-2xl bg-slate-50 border border-slate-100 p-4 text-xs text-slate-600 space-y-2">
+                    <div className="font-bold text-slate-800">How to complete this task</div>
+                    <ol className="list-decimal pl-4 space-y-1">
+                      <li>Click <b>Start work</b> when you begin.</li>
+                      <li>Add updates with proof, file links, or customer response.</li>
+                      <li>Use <b>Need help</b> if admin approval or more info is needed.</li>
+                      <li>Click <b>Mark complete</b> when your work is ready for admin review.</li>
+                    </ol>
+                    <div className="pt-2 text-slate-500">File upload will be enabled after storage setup. For now, paste Google Drive/Supabase Storage links in the update box.</div>
                   </div>
                 </div>
               </div>
@@ -400,7 +428,63 @@ export default function StaffDashboard() {
     return <Section title="Settings" subtitle="Staff workspace preferences."><div className="p-5 grid grid-cols-1 md:grid-cols-2 gap-4"><div className="rounded-2xl border border-slate-200 p-4"><div className="font-bold text-slate-950">Notifications</div><p className="text-sm text-slate-500 mt-1">Task and ticket alerts are enabled by default.</p></div><div className="rounded-2xl border border-slate-200 p-4"><div className="font-bold text-slate-950">Security</div><p className="text-sm text-slate-500 mt-1">Use profile section to update your password.</p></div></div></Section>;
   }
 
-  function UsersPage() { return hasStaffPermission(role, "users") ? <Section title="Users" subtitle="Assigned customer support workspace."><div className="p-10 text-center text-slate-500">User support tools will show assigned customers here.</div></Section> : <Blocked />; }
+  function UsersPage() {
+    if (!hasStaffPermission(role, "users")) return <Blocked />;
+    return (
+      <div className="space-y-6">
+        <Section
+          title="Customer Workspace"
+          subtitle="Read-only customer context for support and operations work. No ban/delete/pro actions are available here."
+          actions={<input value={userSearch} onChange={(e) => setUserSearch(e.target.value)} placeholder="Search customers..." className="rounded-2xl border border-slate-200 px-4 py-2 text-sm" />}
+        >
+          <div className="divide-y divide-slate-100">
+            {filteredCustomers.length === 0 ? (
+              <div className="p-10 text-center text-slate-500">No customers found.</div>
+            ) : filteredCustomers.map((customer) => (
+              <button key={customer.id} onClick={() => setSelectedCustomer(customer)} className="w-full text-left p-5 hover:bg-slate-50 transition">
+                <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
+                  <div>
+                    <div className="font-black text-slate-950">{customer.business_name || customer.owner_name || customer.email}</div>
+                    <div className="text-sm text-slate-500 mt-1">{customer.email} {customer.phone ? `• ${customer.phone}` : ""}</div>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <Badge tone={customer.is_pro ? "green" : "slate"}>{customer.is_pro ? "Pro" : "Free"}</Badge>
+                    <Badge tone={customer.is_banned ? "red" : "blue"}>{customer.is_banned ? "Banned" : "Active"}</Badge>
+                    {customer.country && <Badge tone="purple">{customer.country}</Badge>}
+                  </div>
+                </div>
+              </button>
+            ))}
+          </div>
+        </Section>
+
+        {selectedCustomer && (
+          <div className="fixed inset-0 z-50 bg-slate-950/50 backdrop-blur-sm p-4 flex items-center justify-center">
+            <div className="w-full max-w-2xl rounded-3xl bg-white shadow-2xl border border-slate-200 overflow-hidden">
+              <div className="p-6 border-b border-slate-100 flex items-start justify-between gap-4">
+                <div>
+                  <div className="text-xs font-bold uppercase tracking-wide text-slate-500">Customer profile</div>
+                  <h2 className="text-2xl font-black text-slate-950 mt-1">{selectedCustomer.business_name || selectedCustomer.owner_name || selectedCustomer.email}</h2>
+                  <p className="text-sm text-slate-500 mt-1">Read-only support view</p>
+                </div>
+                <button onClick={() => setSelectedCustomer(null)} className="rounded-2xl border border-slate-200 px-4 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50">Close</button>
+              </div>
+              <div className="p-6 grid sm:grid-cols-2 gap-4 text-sm">
+                <div className="rounded-2xl bg-slate-50 border border-slate-100 p-4"><div className="text-xs uppercase font-bold text-slate-500">Email</div><div className="font-bold text-slate-950 break-all mt-1">{selectedCustomer.email || "-"}</div></div>
+                <div className="rounded-2xl bg-slate-50 border border-slate-100 p-4"><div className="text-xs uppercase font-bold text-slate-500">Phone</div><div className="font-bold text-slate-950 mt-1">{selectedCustomer.phone || "-"}</div></div>
+                <div className="rounded-2xl bg-slate-50 border border-slate-100 p-4"><div className="text-xs uppercase font-bold text-slate-500">Plan</div><div className="font-bold text-slate-950 mt-1">{selectedCustomer.is_pro ? "Pro" : "Free"}</div></div>
+                <div className="rounded-2xl bg-slate-50 border border-slate-100 p-4"><div className="text-xs uppercase font-bold text-slate-500">Invoice balance</div><div className="font-bold text-slate-950 mt-1">{selectedCustomer.credits ?? 0}</div></div>
+                <div className="rounded-2xl bg-blue-50 border border-blue-100 p-4 sm:col-span-2">
+                  <div className="font-bold text-blue-950">Allowed staff actions</div>
+                  <p className="text-blue-800 mt-1">Contact customer, understand the issue, create/update support ticket notes, and complete assigned tasks. Admin-only actions like ban, delete, Pro access and invoice balance are hidden here.</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
   function Blocked() { return <div className="rounded-3xl bg-white border border-slate-200 p-10 text-center"><div className="text-4xl mb-3">🔒</div><h2 className="text-xl font-black text-slate-950">Access not available</h2><p className="text-slate-500 mt-2">This section is hidden for your role.</p></div>; }
 
   if (active === "tasks") return <TasksPage />;

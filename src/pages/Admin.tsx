@@ -268,6 +268,13 @@ export default function Admin() {
   const [teamStatusFilter, setTeamStatusFilter] = useState<"all" | "active" | "disabled">("all");
   const [selectedTeamId, setSelectedTeamId] = useState<string | null>(null);
   const [taskForm, setTaskForm] = useState({ title: "", description: "", assigned_to: "", department: "general", priority: "medium", due_date: "" });
+  const taskTemplates = [
+    { label: "Select task template", title: "", description: "", department: "general", priority: "medium" },
+    { label: "Verify GST / business details", title: "Verify customer business details", description: "Check the customer's business name, GST/tax details, phone number and invoice setup. Add notes with what was verified and mark complete when done.", department: "support", priority: "medium" },
+    { label: "Contact customer for issue", title: "Contact customer and collect issue details", description: "Reach out to the customer, understand the problem, add a clear summary in task updates, and create/attach a support ticket if required.", department: "support", priority: "high" },
+    { label: "Review invoice/payment issue", title: "Review invoice or payment issue", description: "Check the related invoice, status, amount, customer notes and any payment proof. Add findings and mark Need Help if admin approval is required.", department: "finance", priority: "high" },
+    { label: "Prepare weekly operations report", title: "Prepare weekly operations report", description: "Summarize completed tasks, open tickets, pending finance issues and user problems. Add the report summary in task updates.", department: "general", priority: "medium" },
+  ];
   const [selectedAdminTaskId, setSelectedAdminTaskId] = useState<string | null>(null);
   const [adminTaskNote, setAdminTaskNote] = useState("");
   const [financeForm, setFinanceForm] = useState(emptyFormFinance());
@@ -943,7 +950,7 @@ export default function Admin() {
 
   async function handleAddTask(e: React.FormEvent) {
     e.preventDefault();
-    const { error: insertError } = await supabase.from("admin_tasks").insert({
+    const { data: createdTask, error: insertError } = await supabase.from("admin_tasks").insert({
       title: taskForm.title,
       description: taskForm.description || null,
       assigned_to: taskForm.assigned_to || null,
@@ -953,11 +960,21 @@ export default function Admin() {
       progress: 0,
       due_date: taskForm.due_date || null,
       created_by: user?.id ?? null,
-    });
+    }).select("id,title,assigned_to").single();
     if (insertError) return setError(insertError.message);
-    await logAction("create_task", "admin_tasks", taskForm.title);
+    if (taskForm.assigned_to && createdTask?.id) {
+      await supabase.from("notifications").insert({
+        audience: "staff",
+        recipient_team_member_id: taskForm.assigned_to,
+        type: "task_assigned",
+        title: "New task assigned",
+        body: taskForm.title,
+        metadata: { task_id: createdTask.id, priority: taskForm.priority, due_date: taskForm.due_date || null },
+      });
+    }
+    await logAction("create_task", "admin_tasks", createdTask?.id || taskForm.title, { title: taskForm.title, assigned_to: taskForm.assigned_to || null });
     setTaskForm({ title: "", description: "", assigned_to: "", department: "general", priority: "medium", due_date: "" });
-    setNotice("Task created.");
+    setNotice(taskForm.assigned_to ? "Task created and staff notified." : "Task created.");
     await load();
   }
 
@@ -1752,7 +1769,7 @@ export default function Admin() {
 
         {active === "tasks" && (
           <section className="space-y-6">
-            <SectionHeader title="Tasks" subtitle="Team work ko assign, track aur complete karo" />
+            <SectionHeader title="Tasks" subtitle="Assign work, track staff progress, review updates and close completed tasks." />
             <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
               <Metric title="Pending" value={String(tasks.filter((t) => t.status === "pending").length)} icon="⏳" />
               <Metric title="In Progress" value={String(tasks.filter((t) => t.status === "in_progress").length)} icon="🚧" />
@@ -1763,6 +1780,13 @@ export default function Admin() {
               <Card className="p-5 h-fit">
                 <h2 className="text-lg font-semibold text-slate-900 mb-4">Assign New Task</h2>
                 <form onSubmit={handleAddTask} className="space-y-3">
+                  <select className="input" defaultValue="" onChange={(e) => {
+                    const template = taskTemplates[Number(e.target.value || 0)];
+                    if (!template?.title) return;
+                    setTaskForm({ ...taskForm, title: template.title, description: template.description, department: template.department, priority: template.priority });
+                  }}>
+                    {taskTemplates.map((template, index) => <option key={template.label} value={index}>{template.label}</option>)}
+                  </select>
                   <input className="input" required placeholder="Task title" value={taskForm.title} onChange={(e) => setTaskForm({ ...taskForm, title: e.target.value })} />
                   <textarea className="input min-h-24" placeholder="Description" value={taskForm.description} onChange={(e) => setTaskForm({ ...taskForm, description: e.target.value })} />
                   <select className="input" value={taskForm.assigned_to} onChange={(e) => setTaskForm({ ...taskForm, assigned_to: e.target.value })}>
@@ -1777,7 +1801,7 @@ export default function Admin() {
                     </select>
                   </div>
                   <input className="input" type="date" value={taskForm.due_date} onChange={(e) => setTaskForm({ ...taskForm, due_date: e.target.value })} />
-                  <button className="btn-primary w-full" type="submit">Create Task</button>
+                  <button className="btn-primary w-full" type="submit">Create Task & Notify Staff</button>
                 </form>
               </Card>
               <Card>
@@ -1788,7 +1812,7 @@ export default function Admin() {
                 <div className="grid md:grid-cols-2 xl:grid-cols-4 gap-4 p-4">
                   {(["pending", "in_progress", "blocked", "done"] as AdminTask["status"][]).map((status) => (
                     <div key={status} className="rounded-xl bg-slate-50 border border-slate-100 p-3">
-                      <p className="text-sm font-bold text-slate-700 capitalize mb-3">{status.replace("_", " ")}</p>
+                      <p className="text-sm font-bold text-slate-700 mb-3">{adminTaskStatusLabel(status)}</p>
                       <div className="space-y-2">
                         {tasks.filter((t) => t.status === status).map((task) => (
                           <div key={task.id} className="rounded-xl bg-white border border-slate-100 p-3 hover:shadow-md transition">
