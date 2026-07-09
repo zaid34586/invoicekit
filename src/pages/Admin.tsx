@@ -40,7 +40,6 @@ type AdminTeamMember = {
 
 type AdminTask = {
   id: string;
-  customer_id?: string | null;
   title: string;
   description: string | null;
   assigned_to: string | null;
@@ -268,7 +267,7 @@ export default function Admin() {
   const [teamSearch, setTeamSearch] = useState("");
   const [teamStatusFilter, setTeamStatusFilter] = useState<"all" | "active" | "disabled">("all");
   const [selectedTeamId, setSelectedTeamId] = useState<string | null>(null);
-  const [taskForm, setTaskForm] = useState({ title: "", description: "", customer_id: "", assigned_to: "", department: "general", priority: "medium", due_date: "" });
+  const [taskForm, setTaskForm] = useState({ title: "", description: "", assigned_to: "", department: "general", priority: "medium", due_date: "" });
   const [selectedAdminTaskId, setSelectedAdminTaskId] = useState<string | null>(null);
   const [adminTaskNote, setAdminTaskNote] = useState("");
   const [financeForm, setFinanceForm] = useState(emptyFormFinance());
@@ -947,7 +946,6 @@ export default function Admin() {
     const { error: insertError } = await supabase.from("admin_tasks").insert({
       title: taskForm.title,
       description: taskForm.description || null,
-      customer_id: taskForm.customer_id || null,
       assigned_to: taskForm.assigned_to || null,
       priority: taskForm.priority,
       department: taskForm.department,
@@ -958,7 +956,7 @@ export default function Admin() {
     });
     if (insertError) return setError(insertError.message);
     await logAction("create_task", "admin_tasks", taskForm.title);
-    setTaskForm({ title: "", description: "", customer_id: "", assigned_to: "", department: "general", priority: "medium", due_date: "" });
+    setTaskForm({ title: "", description: "", assigned_to: "", department: "general", priority: "medium", due_date: "" });
     setNotice("Task created.");
     await load();
   }
@@ -1767,9 +1765,6 @@ export default function Admin() {
                 <form onSubmit={handleAddTask} className="space-y-3">
                   <input className="input" required placeholder="Task title" value={taskForm.title} onChange={(e) => setTaskForm({ ...taskForm, title: e.target.value })} />
                   <textarea className="input min-h-24" placeholder="Description" value={taskForm.description} onChange={(e) => setTaskForm({ ...taskForm, description: e.target.value })} />
-                  <select className="input" value={taskForm.customer_id} onChange={(e) => setTaskForm({ ...taskForm, customer_id: e.target.value })}>
-                    <option value="">Link customer account (optional)</option>{profiles.map((p) => <option key={p.id} value={p.id}>{p.business_name || p.email || p.id}</option>)}
-                  </select>
                   <select className="input" value={taskForm.assigned_to} onChange={(e) => setTaskForm({ ...taskForm, assigned_to: e.target.value })}>
                     <option value="">Unassigned</option>{team.map((m) => <option key={m.id} value={m.id}>{m.name || m.email}</option>)}
                   </select>
@@ -1800,7 +1795,6 @@ export default function Admin() {
                             <button className="w-full text-left" onClick={() => { setSelectedAdminTaskId(task.id); setAdminTaskNote(""); }}>
                               <p className="font-semibold text-sm text-slate-900">{task.title}</p>
                               <p className="text-xs text-slate-500 mt-1 capitalize">{task.department || "general"} · {task.priority} {task.due_date ? `· Due ${task.due_date}` : ""}</p>
-                              {task.customer_id && <p className="text-xs text-emerald-700 bg-emerald-50 border border-emerald-100 rounded-lg px-2 py-1 mt-2">Customer: {profiles.find((p) => p.id === task.customer_id)?.business_name || profiles.find((p) => p.id === task.customer_id)?.email || "Linked customer"}</p>}
                               {task.staff_notes && <p className="text-xs text-blue-700 bg-blue-50 border border-blue-100 rounded-lg p-2 mt-2 line-clamp-2">Staff update: {task.staff_notes}</p>}
                               <div className="mt-3 h-2 rounded-full bg-slate-100 overflow-hidden"><div className="h-full bg-primary-500" style={{ width: `${task.progress ?? 0}%` }} /></div>
                               <p className="text-xs text-primary-700 font-bold mt-2">Open task →</p>
@@ -2370,7 +2364,6 @@ export default function Admin() {
                   <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Task Review</p>
                   <h2 className="text-2xl font-black text-slate-950 mt-1">{selectedAdminTask.title}</h2>
                   <p className="text-sm text-slate-500 mt-1 capitalize">{selectedAdminTask.department || "general"} · {selectedAdminTask.priority} · {adminTaskStatusLabel(selectedAdminTask.status)}</p>
-                  {selectedAdminTask.customer_id && <p className="text-sm text-emerald-700 mt-2">Linked customer: {profiles.find((p) => p.id === selectedAdminTask.customer_id)?.business_name || profiles.find((p) => p.id === selectedAdminTask.customer_id)?.email || selectedAdminTask.customer_id}</p>}
                 </div>
                 <button className="btn-secondary" onClick={() => setSelectedAdminTaskId(null)}>Close</button>
               </div>
@@ -2381,8 +2374,9 @@ export default function Admin() {
                     <p className="text-sm text-slate-700 whitespace-pre-wrap">{selectedAdminTask.description || "No description provided."}</p>
                   </div>
                   <div className="rounded-2xl border border-slate-200 p-5">
-                    <p className="text-xs font-bold uppercase tracking-wide text-slate-500 mb-2">Staff updates</p>
-                    <div className="min-h-[90px] rounded-2xl bg-blue-50 border border-blue-100 p-4 text-sm text-blue-950 whitespace-pre-wrap">{selectedAdminTask.staff_notes || "No staff update yet."}</div>
+                    <p className="text-xs font-bold uppercase tracking-wide text-slate-500 mb-2">Staff proof, comments & work log</p>
+                    <div className="min-h-[120px] rounded-2xl bg-blue-50 border border-blue-100 p-4 text-sm text-blue-950 whitespace-pre-wrap">{selectedAdminTask.staff_notes || "No staff update yet. Staff must add a comment/proof before final review."}</div>
+                    {selectedAdminTask.status === "done" && <div className="mt-3 rounded-2xl border border-emerald-200 bg-emerald-50 p-3 text-sm font-semibold text-emerald-800">Submitted for admin review. Check proof/comments before approving.</div>}
                   </div>
                   <div className="rounded-2xl border border-slate-200 p-5">
                     <p className="text-xs font-bold uppercase tracking-wide text-slate-500 mb-2">Admin notes</p>
@@ -2399,12 +2393,12 @@ export default function Admin() {
                     <div className="mt-3 h-2 rounded-full bg-slate-100 overflow-hidden"><div className="h-full bg-primary-500" style={{ width: `${selectedAdminTask.progress ?? 0}%` }} /></div>
                   </Card>
                   <Card className="p-4 space-y-2">
-                    <button className="btn-primary w-full" onClick={() => approveTask(selectedAdminTask)}>Approve / Close</button>
+                    <button className="btn-primary w-full" onClick={() => approveTask(selectedAdminTask)}>Approve & Close</button>
                     <button className="btn-secondary w-full" onClick={() => reopenTask(selectedAdminTask)}>Reopen</button>
                     <button className="w-full rounded-xl border border-red-200 text-red-700 px-4 py-2 text-sm font-semibold hover:bg-red-50" onClick={() => deleteTask(selectedAdminTask)}>Delete Task</button>
                   </Card>
                   <Card className="p-4 text-xs text-slate-500">
-                    Attachments will be added after storage configuration. Staff can add file links in task updates for now.
+                    Proof links are shown in Staff updates. Storage upload can be connected later; for now staff can paste screenshot, Drive, or file links.
                   </Card>
                 </div>
               </div>
