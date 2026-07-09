@@ -3,12 +3,12 @@ import { useAuth } from "../context/AuthContext";
 import { supabase } from "../lib/supabase";
 import { hasStaffPermission, STAFF_ROLE_LABELS, type StaffMember, type StaffRole } from "../lib/staffPermissions";
 
-interface TaskRow { id: string; title: string; description?: string | null; status: string; priority: string; due_date: string | null; progress?: number | null; staff_notes?: string | null; }
+interface TaskRow { id: string; title: string; description?: string | null; status: string; priority: string; due_date: string | null; progress?: number | null; staff_notes?: string | null; internal_notes?: string | null; department?: string | null; last_staff_update?: string | null; }
 interface TicketRow { id: string; subject: string; message?: string | null; status: string; priority: string; created_at: string; staff_notes?: string | null; }
 interface FinanceRow { id: string; type: string; source: string; amount: number; currency: string; status: string; title: string; }
 interface NotificationRow { id: string; title: string; body: string | null; type: string; read_at: string | null; created_at: string; }
 
-const taskStatuses = ["pending", "in_progress", "done", "blocked"];
+const taskStatuses = ["pending", "in_progress", "blocked", "done"];
 const ticketStatuses = ["open", "pending", "resolved", "closed"];
 
 function StatCard({ label, value, note, icon }: { label: string; value: string | number; note?: string; icon: string }) {
@@ -36,6 +36,21 @@ function Badge({ children, tone = "slate" }: { children: string; tone?: "slate" 
     purple: "bg-purple-50 text-purple-700 border-purple-200",
   }[tone];
   return <span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-bold ${cls}`}>{children}</span>;
+}
+
+function taskStatusLabel(status: string) {
+  if (status === "pending") return "Assigned";
+  if (status === "in_progress") return "In Progress";
+  if (status === "blocked") return "Need Help";
+  if (status === "done") return "Completed";
+  return status.replace("_", " ");
+}
+
+function appendLog(existing: string | null | undefined, author: string, text: string) {
+  const stamp = new Date().toLocaleString();
+  const clean = text.trim();
+  if (!clean) return existing ?? "";
+  return `${existing ? `${existing}\n\n` : ""}[${stamp}] ${author}: ${clean}`;
 }
 
 function Section({ title, subtitle, children, actions }: { title: string; subtitle?: string; children: React.ReactNode; actions?: React.ReactNode }) {
@@ -69,6 +84,8 @@ export default function StaffDashboard() {
   const [newPassword, setNewPassword] = useState("");
   const [updatingPassword, setUpdatingPassword] = useState(false);
   const [active, setActive] = useState(() => window.location.hash.replace("#", "") || "dashboard");
+  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  const [taskComment, setTaskComment] = useState("");
 
   useEffect(() => {
     const onHash = () => setActive(window.location.hash.replace("#", "") || "dashboard");
@@ -91,7 +108,7 @@ export default function StaffDashboard() {
 
     const { data: taskData } = await supabase
       .from("admin_tasks")
-      .select("id, title, description, status, priority, due_date, progress, staff_notes")
+      .select("id, title, description, status, priority, due_date, progress, staff_notes, internal_notes, department, last_staff_update")
       .or(`assigned_to.eq.${team.id},assigned_to.is.null`)
       .order("created_at", { ascending: false })
       .limit(40);
@@ -157,6 +174,8 @@ export default function StaffDashboard() {
     return ticket.status === ticketFilter;
   });
 
+  const selectedTask = selectedTaskId ? tasks.find((task) => task.id === selectedTaskId) ?? null : null;
+
   async function markNotificationRead(notificationId: string) {
     await supabase.from("notifications").update({ read_at: new Date().toISOString() }).eq("id", notificationId);
     await load();
@@ -177,6 +196,16 @@ export default function StaffDashboard() {
     await supabase.from("admin_audit_logs").insert({ actor_user_id: user?.id, action: "staff_task_update", target_type: "task", target_id: taskId, details: { changes, staff_email: user?.email } });
     await supabase.from("notifications").insert({ audience: "admin", type: "task_update", title: "Task updated by staff", body: `${user?.email ?? "Staff"} updated a task.`, metadata: { task_id: taskId, changes } });
     setMessage("Task updated successfully."); await load();
+  }
+
+  async function quickTaskAction(task: TaskRow, status: string, progress: number) {
+    await updateTask(task.id, { status, progress });
+  }
+
+  async function addTaskComment(task: TaskRow) {
+    const nextNotes = appendLog(task.staff_notes, staff?.name || user?.email || "Staff", taskComment);
+    setTaskComment("");
+    await updateTask(task.id, { staff_notes: nextNotes });
   }
 
   async function updateTicket(ticketId: string, changes: Partial<TicketRow>) {
@@ -236,9 +265,110 @@ export default function StaffDashboard() {
   }
 
   function TasksPage() {
-    return <Section title="My Tasks" subtitle="Update status, progress and notes." actions={<div className="flex flex-col sm:flex-row gap-2"><input value={taskSearch} onChange={(e) => setTaskSearch(e.target.value)} placeholder="Search tasks..." className="rounded-2xl border border-slate-200 px-4 py-2 text-sm"/><select value={taskFilter} onChange={(e) => setTaskFilter(e.target.value)} className="rounded-2xl border border-slate-200 px-4 py-2 text-sm"><option value="open">Open</option><option value="due_today">Due today</option><option value="pending">Pending</option><option value="in_progress">In progress</option><option value="blocked">Blocked</option><option value="done">Done</option><option value="all">All</option></select></div>}>
-      <div className="divide-y divide-slate-100">{filteredTasks.length === 0 ? <div className="p-10 text-center text-slate-500">No tasks found.</div> : filteredTasks.map(task => <div key={task.id} className="p-5 space-y-4"><div className="flex flex-col xl:flex-row xl:items-start xl:justify-between gap-4"><div><div className="flex flex-wrap gap-2 mb-2"><Badge tone={task.priority === "urgent" || task.priority === "high" ? "red" : task.priority === "medium" ? "amber" : "slate"}>{task.priority}</Badge><Badge tone={task.status === "done" ? "green" : task.status === "blocked" ? "red" : "blue"}>{task.status.replace("_", " ")}</Badge></div><div className="font-black text-slate-950">{task.title}</div>{task.description && <div className="text-sm text-slate-500 mt-1">{task.description}</div>}<div className="text-xs text-slate-400 mt-2">{task.due_date ? `Due ${task.due_date}` : "No due date"}</div></div><div className="flex gap-2 flex-wrap"><select value={task.status} onChange={(e) => updateTask(task.id, { status: e.target.value })} disabled={savingId === task.id} className="rounded-2xl border border-slate-200 px-3 py-2 text-sm">{taskStatuses.map(status => <option key={status} value={status}>{status.replace("_", " ")}</option>)}</select><select value={String(task.progress ?? 0)} onChange={(e) => updateTask(task.id, { progress: Number(e.target.value) })} disabled={savingId === task.id} className="rounded-2xl border border-slate-200 px-3 py-2 text-sm">{[0,25,50,75,100].map(v => <option key={v} value={v}>{v}%</option>)}</select>{task.status !== "done" && <button onClick={() => updateTask(task.id, { status: "done", progress: 100 })} disabled={savingId === task.id} className="rounded-2xl bg-emerald-600 text-white px-4 py-2 text-sm font-bold">Mark Done</button>}</div></div><div className="h-2 rounded-full bg-slate-100 overflow-hidden"><div className="h-full bg-slate-950" style={{ width: `${task.progress ?? 0}%` }} /></div><textarea defaultValue={task.staff_notes ?? ""} placeholder="Internal note for admin..." className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm min-h-[80px]" onBlur={(e) => { if (e.target.value !== (task.staff_notes ?? "")) updateTask(task.id, { staff_notes: e.target.value }); }} /></div>)}</div>
-    </Section>;
+    return (
+      <div className="space-y-6">
+        <Section
+          title="My Tasks"
+          subtitle="Open a task, start work, add updates and submit it for admin review."
+          actions={
+            <div className="flex flex-col sm:flex-row gap-2">
+              <input value={taskSearch} onChange={(e) => setTaskSearch(e.target.value)} placeholder="Search tasks..." className="rounded-2xl border border-slate-200 px-4 py-2 text-sm" />
+              <select value={taskFilter} onChange={(e) => setTaskFilter(e.target.value)} className="rounded-2xl border border-slate-200 px-4 py-2 text-sm">
+                <option value="open">Open</option><option value="due_today">Due today</option><option value="pending">Assigned</option><option value="in_progress">In progress</option><option value="blocked">Need help</option><option value="done">Completed</option><option value="all">All</option>
+              </select>
+            </div>
+          }
+        >
+          <div className="divide-y divide-slate-100">
+            {filteredTasks.length === 0 ? (
+              <div className="p-10 text-center text-slate-500">No tasks found.</div>
+            ) : filteredTasks.map(task => (
+              <button key={task.id} onClick={() => { setSelectedTaskId(task.id); setTaskComment(""); }} className="w-full text-left p-5 hover:bg-slate-50 transition">
+                <div className="flex flex-col xl:flex-row xl:items-start xl:justify-between gap-4">
+                  <div>
+                    <div className="flex flex-wrap gap-2 mb-2">
+                      <Badge tone={task.priority === "urgent" || task.priority === "high" ? "red" : task.priority === "medium" ? "amber" : "slate"}>{task.priority}</Badge>
+                      <Badge tone={task.status === "done" ? "green" : task.status === "blocked" ? "red" : task.status === "in_progress" ? "blue" : "purple"}>{taskStatusLabel(task.status)}</Badge>
+                      {task.department && <Badge tone="slate">{task.department}</Badge>}
+                    </div>
+                    <div className="font-black text-slate-950">{task.title}</div>
+                    {task.description && <div className="text-sm text-slate-500 mt-1 line-clamp-2">{task.description}</div>}
+                    <div className="text-xs text-slate-400 mt-2">{task.due_date ? `Due ${task.due_date}` : "No due date"}{task.last_staff_update ? ` · Updated ${new Date(task.last_staff_update).toLocaleString()}` : ""}</div>
+                  </div>
+                  <div className="min-w-[180px]">
+                    <div className="text-xs font-bold text-slate-500 mb-1">Progress {task.progress ?? 0}%</div>
+                    <div className="h-2 rounded-full bg-slate-100 overflow-hidden"><div className="h-full bg-slate-950" style={{ width: `${task.progress ?? 0}%` }} /></div>
+                    <div className="text-xs text-primary-700 font-bold mt-2">Open task →</div>
+                  </div>
+                </div>
+              </button>
+            ))}
+          </div>
+        </Section>
+
+        {selectedTask && (
+          <div className="fixed inset-0 z-50 bg-slate-950/50 backdrop-blur-sm p-4 flex items-center justify-center">
+            <div className="w-full max-w-4xl max-h-[92vh] overflow-y-auto rounded-3xl bg-white shadow-2xl border border-slate-200">
+              <div className="p-6 border-b border-slate-100 flex items-start justify-between gap-4">
+                <div>
+                  <div className="flex flex-wrap gap-2 mb-3">
+                    <Badge tone={selectedTask.priority === "urgent" || selectedTask.priority === "high" ? "red" : selectedTask.priority === "medium" ? "amber" : "slate"}>{selectedTask.priority}</Badge>
+                    <Badge tone={selectedTask.status === "done" ? "green" : selectedTask.status === "blocked" ? "red" : selectedTask.status === "in_progress" ? "blue" : "purple"}>{taskStatusLabel(selectedTask.status)}</Badge>
+                  </div>
+                  <h2 className="text-2xl font-black text-slate-950">{selectedTask.title}</h2>
+                  <p className="text-sm text-slate-500 mt-1">{selectedTask.due_date ? `Due ${selectedTask.due_date}` : "No due date"} · Progress {selectedTask.progress ?? 0}%</p>
+                </div>
+                <button onClick={() => setSelectedTaskId(null)} className="rounded-2xl border border-slate-200 px-4 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50">Close</button>
+              </div>
+
+              <div className="p-6 grid lg:grid-cols-[1fr_320px] gap-6">
+                <div className="space-y-5">
+                  <div className="rounded-2xl bg-slate-50 border border-slate-100 p-5">
+                    <div className="text-xs font-bold uppercase tracking-wide text-slate-500 mb-2">Task brief</div>
+                    <p className="text-sm text-slate-700 whitespace-pre-wrap">{selectedTask.description || "No description provided."}</p>
+                  </div>
+                  {selectedTask.internal_notes && (
+                    <div className="rounded-2xl bg-amber-50 border border-amber-100 p-5">
+                      <div className="text-xs font-bold uppercase tracking-wide text-amber-700 mb-2">Admin note</div>
+                      <p className="text-sm text-amber-900 whitespace-pre-wrap">{selectedTask.internal_notes}</p>
+                    </div>
+                  )}
+                  <div className="rounded-2xl border border-slate-200 p-5">
+                    <div className="text-xs font-bold uppercase tracking-wide text-slate-500 mb-3">Work updates</div>
+                    <div className="min-h-[90px] rounded-2xl bg-slate-50 border border-slate-100 p-4 text-sm text-slate-700 whitespace-pre-wrap">{selectedTask.staff_notes || "No updates yet. Add your first update below."}</div>
+                    <textarea value={taskComment} onChange={(e) => setTaskComment(e.target.value)} placeholder="Write what you did, blockers, customer response, or next step..." className="mt-4 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm min-h-[100px]" />
+                    <button onClick={() => addTaskComment(selectedTask)} disabled={savingId === selectedTask.id || !taskComment.trim()} className="mt-3 rounded-2xl bg-slate-950 text-white px-4 py-2 text-sm font-bold disabled:opacity-50">Add update</button>
+                  </div>
+                </div>
+
+                <div className="space-y-4">
+                  <div className="rounded-2xl border border-slate-200 p-4">
+                    <div className="text-xs font-bold uppercase tracking-wide text-slate-500 mb-3">Quick actions</div>
+                    <div className="grid gap-2">
+                      <button onClick={() => quickTaskAction(selectedTask, "in_progress", Math.max(selectedTask.progress ?? 0, 25))} disabled={savingId === selectedTask.id} className="rounded-2xl bg-blue-600 text-white px-4 py-3 text-sm font-bold">Start work</button>
+                      <button onClick={() => quickTaskAction(selectedTask, "blocked", selectedTask.progress ?? 25)} disabled={savingId === selectedTask.id} className="rounded-2xl bg-amber-500 text-white px-4 py-3 text-sm font-bold">Need help</button>
+                      <button onClick={() => quickTaskAction(selectedTask, "done", 100)} disabled={savingId === selectedTask.id} className="rounded-2xl bg-emerald-600 text-white px-4 py-3 text-sm font-bold">Mark complete</button>
+                    </div>
+                  </div>
+                  <div className="rounded-2xl border border-slate-200 p-4">
+                    <div className="text-xs font-bold uppercase tracking-wide text-slate-500 mb-3">Manual progress</div>
+                    <select value={selectedTask.status} onChange={(e) => updateTask(selectedTask.id, { status: e.target.value })} disabled={savingId === selectedTask.id} className="w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm mb-2">
+                      {taskStatuses.map(status => <option key={status} value={status}>{taskStatusLabel(status)}</option>)}
+                    </select>
+                    <select value={String(selectedTask.progress ?? 0)} onChange={(e) => updateTask(selectedTask.id, { progress: Number(e.target.value) })} disabled={savingId === selectedTask.id} className="w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm">
+                      {[0,25,50,75,100].map(v => <option key={v} value={v}>{v}%</option>)}
+                    </select>
+                  </div>
+                  <div className="rounded-2xl bg-slate-50 border border-slate-100 p-4 text-xs text-slate-500">
+                    Attachment upload will be added with storage setup. For now, add file links or notes in updates.
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    );
   }
 
   function TicketsPage() {

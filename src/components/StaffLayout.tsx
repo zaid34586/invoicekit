@@ -58,7 +58,7 @@ export default function StaffLayout({ children }: { children: ReactNode }) {
   }
 
   const role = staff?.role ?? "viewer";
-const navItems = useMemo(
+  const navItems = useMemo(
     () => navBase.filter((item) => ["dashboard", "notifications", "profile", "settings"].includes(item.key) || hasStaffPermission(role, item.key as any)),
     [role]
   );
@@ -139,4 +139,3 @@ const navItems = useMemo(
     </div>
   );
 }
-

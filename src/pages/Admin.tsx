@@ -49,6 +49,9 @@ type AdminTask = {
   progress: number;
   due_date: string | null;
   internal_notes: string | null;
+  staff_notes?: string | null;
+  last_staff_update?: string | null;
+  completed_at?: string | null;
   created_at: string;
 };
 
@@ -83,6 +86,9 @@ type AdminSupportTicket = {
   priority: "low" | "medium" | "high" | "urgent";
   assigned_to: string | null;
   internal_notes: string | null;
+  staff_notes?: string | null;
+  last_staff_update?: string | null;
+  completed_at?: string | null;
   created_at: string;
 };
 
@@ -207,41 +213,19 @@ function SectionHeader({ title, subtitle }: { title: string; subtitle: string })
   );
 }
 
-
-function MiniBars({ data, valueKey, accent = "bg-primary-500" }: { data: Array<Record<string, unknown>>; valueKey: string; accent?: string }) {
-  const values = data.map((item) => Number(item[valueKey] ?? 0));
-  const max = Math.max(1, ...values);
-  return (
-    <div className="flex items-end gap-1 h-28">
-      {data.map((item, index) => {
-        const value = Number(item[valueKey] ?? 0);
-        const height = Math.max(8, Math.round((value / max) * 100));
-        return (
-          <div key={String(item.key ?? index)} className="flex-1 flex flex-col items-center gap-2 min-w-0">
-            <div className="w-full rounded-t-lg bg-slate-100 overflow-hidden flex items-end" style={{ height: "100%" }}>
-              <div className={cx("w-full rounded-t-lg transition-all", accent)} style={{ height: `${height}%` }} title={`${value}`} />
-            </div>
-          </div>
-        );
-      })}
-    </div>
-  );
+function adminTaskStatusLabel(status: string) {
+  if (status === "pending") return "Assigned";
+  if (status === "in_progress") return "In Progress";
+  if (status === "blocked") return "Need Help";
+  if (status === "done") return "Completed";
+  return status.replace("_", " ");
 }
 
-function PremiumStatCard({ title, value, subtitle, icon, accent }: { title: string; value: string | number; subtitle: string; icon: string; accent: string }) {
-  return (
-    <div className="relative overflow-hidden rounded-2xl border border-slate-200 bg-white p-5 shadow-sm hover:-translate-y-0.5 hover:shadow-lg transition">
-      <div className={cx("absolute inset-x-0 top-0 h-1", accent)} />
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">{title}</p>
-          <p className="mt-2 text-2xl font-black text-slate-950">{value}</p>
-          <p className="mt-1 text-xs text-slate-500">{subtitle}</p>
-        </div>
-        <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-slate-950 text-lg shadow-sm">{icon}</div>
-      </div>
-    </div>
-  );
+function appendAdminTaskNote(existing: string | null | undefined, author: string, text: string) {
+  const clean = text.trim();
+  if (!clean) return existing ?? "";
+  const stamp = new Date().toLocaleString();
+  return `${existing ? `${existing}\n\n` : ""}[${stamp}] ${author}: ${clean}`;
 }
 
 function emptyFormFinance(): Omit<AdminFinanceEntry, "id" | "created_at"> {
@@ -284,6 +268,8 @@ export default function Admin() {
   const [teamStatusFilter, setTeamStatusFilter] = useState<"all" | "active" | "disabled">("all");
   const [selectedTeamId, setSelectedTeamId] = useState<string | null>(null);
   const [taskForm, setTaskForm] = useState({ title: "", description: "", assigned_to: "", department: "general", priority: "medium", due_date: "" });
+  const [selectedAdminTaskId, setSelectedAdminTaskId] = useState<string | null>(null);
+  const [adminTaskNote, setAdminTaskNote] = useState("");
   const [financeForm, setFinanceForm] = useState(emptyFormFinance());
   const [financeSearch, setFinanceSearch] = useState("");
   const [financeStatusFilter, setFinanceStatusFilter] = useState<"all" | AdminFinanceEntry["status"]>("all");
@@ -592,18 +578,6 @@ export default function Admin() {
 
     return { visible, income, expenses, pending, todayRevenue, monthlyRevenue, subscriptionRevenue, adsRevenue, net: income - expenses, trend };
   }, [finance, financeRange, financeSearch, financeSourceFilter, financeStatusFilter]);
-
-  const financeCommand = useMemo(() => {
-    const grossRevenue = financeReport.income;
-    const gatewayFee = grossRevenue * 0.02;
-    const estimatedTax = Math.max(0, grossRevenue - financeReport.expenses - gatewayFee) * 0.18;
-    const operatingCost = financeReport.expenses;
-    const netSettlement = grossRevenue - gatewayFee - estimatedTax - operatingCost;
-    const pendingPayout = financeReport.pending;
-    const manualRevenue = Math.max(0, grossRevenue - financeReport.subscriptionRevenue - financeReport.adsRevenue);
-
-    return { grossRevenue, gatewayFee, estimatedTax, operatingCost, netSettlement, pendingPayout, manualRevenue };
-  }, [financeReport]);
 
 
   if (loading) {
@@ -1004,6 +978,32 @@ export default function Admin() {
     await load();
   }
 
+  async function addAdminTaskNote(task: AdminTask) {
+    const nextNotes = appendAdminTaskNote(task.internal_notes, user?.email || "Admin", adminTaskNote);
+    setAdminTaskNote("");
+    const { error: updateError } = await supabase.from("admin_tasks").update({ internal_notes: nextNotes }).eq("id", task.id);
+    if (updateError) return setError(updateError.message);
+    await logAction("add_task_note", "admin_tasks", task.id, { note: adminTaskNote });
+    setNotice("Admin note added.");
+    await load();
+  }
+
+  async function approveTask(task: AdminTask) {
+    const { error: updateError } = await supabase.from("admin_tasks").update({ status: "done", progress: 100 }).eq("id", task.id);
+    if (updateError) return setError(updateError.message);
+    await logAction("approve_task", "admin_tasks", task.id);
+    setNotice("Task approved.");
+    await load();
+  }
+
+  async function reopenTask(task: AdminTask) {
+    const { error: updateError } = await supabase.from("admin_tasks").update({ status: "pending", progress: Math.min(task.progress ?? 0, 25) }).eq("id", task.id);
+    if (updateError) return setError(updateError.message);
+    await logAction("reopen_task", "admin_tasks", task.id);
+    setNotice("Task reopened.");
+    await load();
+  }
+
   async function deleteTask(task: AdminTask) {
     if (!window.confirm(`Delete task: ${task.title}?`)) return;
     const { error: deleteError } = await supabase.from("admin_tasks").delete().eq("id", task.id);
@@ -1125,6 +1125,7 @@ export default function Admin() {
     });
   }, [supportTickets, supportSearch, supportStatusFilter]);
   const selectedTicket = supportTickets.find((ticket) => ticket.id === selectedTicketId) ?? filteredSupportTickets[0] ?? null;
+  const selectedAdminTask = selectedAdminTaskId ? tasks.find((task) => task.id === selectedAdminTaskId) ?? null : null;
   const filteredAuditLogs = useMemo(() => {
     const q = auditSearch.trim().toLowerCase();
     if (!q) return auditLogs;
@@ -1295,155 +1296,38 @@ export default function Admin() {
 
         {active === "dashboard" && (
           <section className="space-y-6">
-            <div className="relative overflow-hidden rounded-3xl bg-slate-950 p-6 text-white shadow-xl">
-              <div className="absolute -right-20 -top-20 h-56 w-56 rounded-full bg-primary-500/30 blur-3xl" />
-              <div className="absolute -bottom-24 left-1/2 h-56 w-56 rounded-full bg-cyan-400/20 blur-3xl" />
-              <div className="relative flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-[0.24em] text-primary-200">Owner Command Center</p>
-                  <h1 className="mt-3 text-3xl font-black tracking-tight sm:text-4xl">InvoiceKit Admin</h1>
-                  <p className="mt-2 max-w-2xl text-sm text-slate-300">Premium overview of revenue, customers, invoices, support, system health, and team operations.</p>
-                </div>
-                <div className="grid grid-cols-3 gap-3 rounded-2xl border border-white/10 bg-white/10 p-3 backdrop-blur">
-                  <div>
-                    <p className="text-[11px] text-slate-300">QA Score</p>
-                    <p className="text-xl font-black">{qaChecks.score}%</p>
-                  </div>
-                  <div>
-                    <p className="text-[11px] text-slate-300">Open Tickets</p>
-                    <p className="text-xl font-black">{supportTickets.filter((t) => ["open", "pending"].includes(t.status)).length}</p>
-                  </div>
-                  <div>
-                    <p className="text-[11px] text-slate-300">Active Team</p>
-                    <p className="text-xl font-black">{teamStats.active}</p>
-                  </div>
-                </div>
-              </div>
+            <SectionHeader title="Admin Dashboard" subtitle="Overview of users, plans, invoices, team work, and revenue" />
+            <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
+              {[
+                ["Total Users", profiles.length, "👥", "text-primary-600 bg-primary-50"],
+                ["Pro Users", metrics.proUsers, "⭐", "text-amber-600 bg-amber-50"],
+                ["Banned Users", profiles.filter((p) => (p as unknown as { is_banned?: boolean }).is_banned).length, "🚫", "text-red-600 bg-red-50"],
+                ["Total Invoices", invoices.length, "📄", "text-blue-600 bg-blue-50"],
+                ["Paid Invoices", metrics.paidInvoices, "✅", "text-green-600 bg-green-50"],
+                ["Overdue", metrics.overdueInvoices, "⚠️", "text-red-600 bg-red-50"],
+                ["Manual Revenue", formatMoney(metrics.receivedFinance, "INR"), "💰", "text-green-600 bg-green-50"],
+                ["Expenses", formatMoney(metrics.expenses, "INR"), "💸", "text-slate-600 bg-slate-100"],
+              ].map(([label, value, icon, color]) => (
+                <Card key={String(label)} className="p-5">
+                  <span className={cx("inline-flex w-10 h-10 rounded-xl items-center justify-center text-base font-bold mb-3", String(color))}>{icon}</span>
+                  <p className="text-xs font-medium text-slate-500 uppercase tracking-wide">{label}</p>
+                  <p className="text-xl font-bold text-slate-900 mt-1">{String(value)}</p>
+                </Card>
+              ))}
             </div>
 
-            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-              <PremiumStatCard title="Gross revenue" value={formatMoney(financeCommand.grossRevenue, "INR")} subtitle="Income recorded in finance ledger" icon="💰" accent="bg-emerald-500" />
-              <PremiumStatCard title="Net settlement" value={formatMoney(financeCommand.netSettlement, "INR")} subtitle="After fees, tax and operating cost" icon="🏦" accent="bg-primary-500" />
-              <PremiumStatCard title="Active users" value={analytics.activeUsers} subtitle={`${analytics.newUsers30} new users in 30 days`} icon="👥" accent="bg-blue-500" />
-              <PremiumStatCard title="Pro conversion" value={`${analytics.conversionRate.toFixed(1)}%`} subtitle={`${metrics.proUsers} paid users from ${profiles.length} total`} icon="⭐" accent="bg-amber-500" />
-            </div>
-
-            <div className="grid gap-6 xl:grid-cols-[1.45fr_0.9fr]">
-              <Card className="overflow-hidden border-0 shadow-lg">
-                <div className="flex flex-col gap-3 border-b border-slate-100 bg-white p-5 sm:flex-row sm:items-center sm:justify-between">
-                  <div>
-                    <h2 className="text-lg font-black text-slate-950">Revenue Performance</h2>
-                    <p className="text-sm text-slate-500">Daily income trend and settlement health.</p>
-                  </div>
-                  <div className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-700">{analytics.revenueGrowth >= 0 ? "+" : ""}{analytics.revenueGrowth.toFixed(1)}% this month</div>
-                </div>
-                <div className="p-5">
-                  <MiniBars data={financeReport.trend} valueKey="income" accent="bg-gradient-to-t from-primary-600 to-cyan-400" />
-                  <div className="mt-4 grid gap-3 sm:grid-cols-4">
-                    <div className="rounded-2xl bg-slate-50 p-4">
-                      <p className="text-xs text-slate-500">Gateway fee</p>
-                      <p className="mt-1 font-black text-slate-900">{formatMoney(financeCommand.gatewayFee, "INR")}</p>
-                    </div>
-                    <div className="rounded-2xl bg-slate-50 p-4">
-                      <p className="text-xs text-slate-500">Tax estimate</p>
-                      <p className="mt-1 font-black text-slate-900">{formatMoney(financeCommand.estimatedTax, "INR")}</p>
-                    </div>
-                    <div className="rounded-2xl bg-slate-50 p-4">
-                      <p className="text-xs text-slate-500">Expenses</p>
-                      <p className="mt-1 font-black text-slate-900">{formatMoney(financeCommand.operatingCost, "INR")}</p>
-                    </div>
-                    <div className="rounded-2xl bg-slate-950 p-4 text-white">
-                      <p className="text-xs text-slate-300">Pending payout</p>
-                      <p className="mt-1 font-black">{formatMoney(financeCommand.pendingPayout, "INR")}</p>
-                    </div>
-                  </div>
-                </div>
-              </Card>
-
-              <Card className="overflow-hidden border-0 shadow-lg">
-                <div className="border-b border-slate-100 p-5">
-                  <h2 className="text-lg font-black text-slate-950">AI Business Insights</h2>
-                  <p className="text-sm text-slate-500">Auto generated signals from your data.</p>
-                </div>
-                <div className="space-y-3 p-5">
-                  {analytics.insights.map((insight) => (
-                    <div key={insight.title} className="rounded-2xl border border-slate-100 bg-slate-50 p-4">
-                      <div className="flex items-start justify-between gap-3">
-                        <div>
-                          <p className="font-bold text-slate-950">{insight.title}</p>
-                          <p className="mt-1 text-sm text-slate-600">{insight.body}</p>
-                        </div>
-                        <span className={cx("h-2.5 w-2.5 rounded-full mt-2", insight.tone === "green" ? "bg-emerald-500" : insight.tone === "red" ? "bg-red-500" : insight.tone === "amber" ? "bg-amber-500" : "bg-slate-400")} />
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </Card>
-            </div>
-
-            <div className="grid gap-6 xl:grid-cols-3">
-              <Card className="overflow-hidden border-0 shadow-lg xl:col-span-2">
-                <div className="flex items-center justify-between border-b border-slate-100 p-5">
-                  <div>
-                    <h2 className="text-lg font-black text-slate-950">Growth Command</h2>
-                    <p className="text-sm text-slate-500">Users and invoice momentum over the last 14 days.</p>
-                  </div>
-                  <button onClick={() => setActive("analytics")} className="rounded-full bg-slate-950 px-4 py-2 text-xs font-bold text-white hover:bg-slate-800">Open analytics</button>
-                </div>
-                <div className="grid gap-5 p-5 lg:grid-cols-2">
-                  <div>
-                    <div className="mb-3 flex items-center justify-between">
-                      <p className="text-sm font-bold text-slate-700">New users</p>
-                      <span className="text-xs text-slate-500">14 days</span>
-                    </div>
-                    <MiniBars data={analytics.userGrowth} valueKey="count" accent="bg-gradient-to-t from-blue-600 to-cyan-400" />
-                  </div>
-                  <div>
-                    <div className="mb-3 flex items-center justify-between">
-                      <p className="text-sm font-bold text-slate-700">Invoices created</p>
-                      <span className="text-xs text-slate-500">14 days</span>
-                    </div>
-                    <MiniBars data={analytics.invoiceGrowth} valueKey="count" accent="bg-gradient-to-t from-violet-600 to-fuchsia-400" />
-                  </div>
-                </div>
-              </Card>
-
-              <Card className="overflow-hidden border-0 shadow-lg">
-                <div className="border-b border-slate-100 p-5">
-                  <h2 className="text-lg font-black text-slate-950">Quick Actions</h2>
-                  <p className="text-sm text-slate-500">Jump into daily operations.</p>
-                </div>
-                <div className="grid gap-3 p-5">
-                  {[
-                    ["Manage users", "users", "👥"],
-                    ["Add invoice balance", "credits", "💳"],
-                    ["Create staff task", "tasks", "📋"],
-                    ["Review support queue", "support", "🎫"],
-                    ["Finance ledger", "finance", "💰"],
-                  ].map(([label, section, icon]) => (
-                    <button key={String(label)} onClick={() => setActive(section as AdminSection)} className="flex items-center justify-between rounded-2xl border border-slate-200 bg-white px-4 py-3 text-left text-sm font-bold text-slate-800 hover:border-primary-200 hover:bg-primary-50 transition">
-                      <span className="flex items-center gap-3"><span>{icon}</span>{label}</span>
-                      <span className="text-slate-400">→</span>
-                    </button>
-                  ))}
-                </div>
-              </Card>
-            </div>
-
-            <div className="grid gap-6 xl:grid-cols-3">
-              <Card className="overflow-hidden border-0 shadow-lg">
-                <div className="border-b border-slate-100 p-5">
-                  <h2 className="text-lg font-black text-slate-950">Recent Users</h2>
+            <div className="grid xl:grid-cols-2 gap-6">
+              <Card>
+                <div className="p-5 border-b border-slate-100 flex justify-between items-center">
+                  <h2 className="text-lg font-semibold text-slate-900">Recent Users</h2>
+                  <button className="text-sm text-primary-600 font-medium" onClick={() => setActive("users")}>Manage users</button>
                 </div>
                 <div className="divide-y divide-slate-100">
                   {profiles.slice(0, 5).map((p) => (
-                    <div key={p.id} className="flex items-center justify-between gap-3 p-4">
-                      <div className="flex items-center gap-3 min-w-0">
-                        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-slate-950 text-sm font-black text-white">{(p.business_name || p.email || "U").slice(0, 1).toUpperCase()}</div>
-                        <div className="min-w-0">
-                          <p className="truncate font-bold text-slate-900">{p.business_name || p.email || "Unnamed"}</p>
-                          <p className="text-xs text-slate-500">{p.country || "No country"} · {formatDate(p.created_at)}</p>
-                        </div>
+                    <div key={p.id} className="p-4 flex items-center justify-between gap-3">
+                      <div>
+                        <p className="font-medium text-slate-900">{p.business_name || p.email || "Unnamed"}</p>
+                        <p className="text-xs text-slate-500">{p.country || "No country"} · {formatDate(p.created_at)}</p>
                       </div>
                       <Pill className={(p as unknown as { is_banned?: boolean }).is_banned ? statusClass("disabled") : p.is_pro ? "bg-amber-50 text-amber-700 border-amber-200" : statusClass("closed")}>
                         {(p as unknown as { is_banned?: boolean }).is_banned ? "Banned" : p.is_pro ? "Pro" : "Free"}
@@ -1453,38 +1337,19 @@ export default function Admin() {
                 </div>
               </Card>
 
-              <Card className="overflow-hidden border-0 shadow-lg">
-                <div className="border-b border-slate-100 p-5">
-                  <h2 className="text-lg font-black text-slate-950">Support Queue</h2>
-                </div>
-                <div className="divide-y divide-slate-100">
-                  {supportTickets.length === 0 ? <p className="p-6 text-sm text-slate-500">No support tickets yet.</p> : supportTickets.slice(0, 5).map((ticket) => (
-                    <div key={ticket.id} className="p-4">
-                      <div className="flex items-center justify-between gap-3">
-                        <p className="font-bold text-slate-900">{ticket.subject}</p>
-                        <Pill className={statusClass(ticket.status)}>{ticket.status}</Pill>
-                      </div>
-                      <p className="mt-1 text-xs text-slate-500">{ticket.priority} priority · {formatDate(ticket.created_at)}</p>
-                    </div>
-                  ))}
-                </div>
-              </Card>
-
-              <Card className="overflow-hidden border-0 shadow-lg">
-                <div className="border-b border-slate-100 p-5">
-                  <h2 className="text-lg font-black text-slate-950">Team Workload</h2>
+              <Card>
+                <div className="p-5 border-b border-slate-100 flex justify-between items-center">
+                  <h2 className="text-lg font-semibold text-slate-900">Task Tracker</h2>
+                  <button className="text-sm text-primary-600 font-medium" onClick={() => setActive("tasks")}>Open tasks</button>
                 </div>
                 <div className="divide-y divide-slate-100">
                   {tasks.length === 0 ? <p className="p-6 text-sm text-slate-500">No tasks yet.</p> : tasks.slice(0, 5).map((task) => (
-                    <div key={task.id} className="p-4">
-                      <div className="flex items-center justify-between gap-3">
-                        <p className="font-bold text-slate-900">{task.title}</p>
-                        <Pill className={statusClass(task.status)}>{task.status.replace("_", " ")}</Pill>
+                    <div key={task.id} className="p-4 flex items-center justify-between gap-3">
+                      <div>
+                        <p className="font-medium text-slate-900">{task.title}</p>
+                        <p className="text-xs text-slate-500">{task.priority} priority {task.due_date ? `· Due ${task.due_date}` : ""}</p>
                       </div>
-                      <div className="mt-3 h-2 rounded-full bg-slate-100">
-                        <div className="h-2 rounded-full bg-slate-950" style={{ width: `${Math.min(100, Math.max(0, task.progress ?? 0))}%` }} />
-                      </div>
-                      <p className="mt-2 text-xs text-slate-500">{task.priority} priority {task.due_date ? `· Due ${task.due_date}` : ""}</p>
+                      <Pill className={statusClass(task.status)}>{task.status.replace("_", " ")}</Pill>
                     </div>
                   ))}
                 </div>
@@ -1495,46 +1360,25 @@ export default function Admin() {
 
         {active === "users" && (
           <section className="space-y-6">
-            <SectionHeader title="User Management" subtitle="Premium customer command center with search, segmentation, invoice balance, plans, account safety, and 360° history" />
+            <SectionHeader title="User Management" subtitle="Search, filter, full user 360 detail, ban/unban, invoice balance, free Pro aur notes" />
 
             <div className="grid grid-cols-2 xl:grid-cols-5 gap-4">
-              <Card className="p-5 border-0 shadow-lg bg-gradient-to-br from-slate-950 to-slate-800 text-white overflow-hidden relative">
-                <div className="absolute -right-6 -top-6 h-20 w-20 rounded-full bg-white/10" />
-                <p className="text-xs font-semibold text-slate-300 uppercase tracking-wider">Visible customers</p>
-                <p className="mt-2 text-3xl font-black">{filteredProfiles.length}</p>
-                <p className="mt-1 text-xs text-slate-300">After current filters</p>
-              </Card>
-              <Card className="p-5 border-0 shadow-lg bg-white">
-                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Active accounts</p>
-                <p className="mt-2 text-3xl font-black text-emerald-600">{profiles.filter((p) => !(p as unknown as { is_banned?: boolean }).is_banned).length}</p>
-                <p className="mt-1 text-xs text-slate-500">Able to use the product</p>
-              </Card>
-              <Card className="p-5 border-0 shadow-lg bg-white">
-                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Restricted</p>
-                <p className="mt-2 text-3xl font-black text-red-600">{profiles.filter((p) => (p as unknown as { is_banned?: boolean }).is_banned).length}</p>
-                <p className="mt-1 text-xs text-slate-500">Banned or blocked users</p>
-              </Card>
-              <Card className="p-5 border-0 shadow-lg bg-white">
-                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Paid users</p>
-                <p className="mt-2 text-3xl font-black text-amber-600">{metrics.proUsers}</p>
-                <p className="mt-1 text-xs text-slate-500">Pro or business plans</p>
-              </Card>
-              <Card className="p-5 border-0 shadow-lg bg-white">
-                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Free users</p>
-                <p className="mt-2 text-3xl font-black text-blue-600">{metrics.freeUsers}</p>
-                <p className="mt-1 text-xs text-slate-500">Free plan accounts</p>
-              </Card>
+              <Metric title="Visible Users" value={String(filteredProfiles.length)} icon="👥" />
+              <Metric title="Active" value={String(profiles.filter((p) => !(p as unknown as { is_banned?: boolean }).is_banned).length)} icon="✅" />
+              <Metric title="Banned" value={String(profiles.filter((p) => (p as unknown as { is_banned?: boolean }).is_banned).length)} icon="🚫" />
+              <Metric title="Pro" value={String(metrics.proUsers)} icon="⭐" />
+              <Metric title="Free" value={String(metrics.freeUsers)} icon="🆓" />
             </div>
 
             <div className="grid xl:grid-cols-[1fr_460px] gap-6">
-              <Card className="overflow-hidden border-0 shadow-xl ring-1 ring-slate-100 bg-white/95 backdrop-blur">
-                <div className="p-5 border-b border-slate-100 space-y-4 bg-gradient-to-r from-white to-slate-50">
+              <Card>
+                <div className="p-5 border-b border-slate-100 space-y-4">
                   <div className="flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between">
                     <div>
-                      <h2 className="text-lg font-black text-slate-950">Customer Directory</h2>
-                      <p className="text-sm text-slate-500">Review accounts, plan status, invoice balance and account controls.</p>
+                      <h2 className="text-lg font-semibold text-slate-900">All Users</h2>
+                      <p className="text-sm text-slate-500">Click Details to manage user account.</p>
                     </div>
-                    <button className="rounded-xl bg-slate-950 px-4 py-2 text-sm font-bold text-white shadow-sm hover:bg-slate-800" onClick={exportUsersCsv}>Export CSV</button>
+                    <button className="btn-secondary text-sm" onClick={exportUsersCsv}>Export CSV</button>
                   </div>
                   <div className="grid md:grid-cols-[1fr_160px_180px] gap-3">
                     <input className="input" placeholder="Search business, email, phone, GSTIN, country..." value={userSearch} onChange={(e) => setUserSearch(e.target.value)} />
@@ -1557,13 +1401,13 @@ export default function Admin() {
                   <table className="w-full">
                     <thead>
                       <tr className="border-b border-slate-100 bg-slate-50/50">
-                        <th className="text-left text-xs font-black text-slate-500 uppercase tracking-wider px-5 py-3">Customer</th>
-                        <th className="text-left text-xs font-black text-slate-500 uppercase tracking-wider px-5 py-3">Plan</th>
-                        <th className="text-left text-xs font-black text-slate-500 uppercase tracking-wider px-5 py-3 hidden md:table-cell">Balance</th>
-                        <th className="text-left text-xs font-black text-slate-500 uppercase tracking-wider px-5 py-3 hidden lg:table-cell">Invoices</th>
-                        <th className="text-left text-xs font-black text-slate-500 uppercase tracking-wider px-5 py-3 hidden xl:table-cell">Clients</th>
-                        <th className="text-left text-xs font-black text-slate-500 uppercase tracking-wider px-5 py-3 hidden 2xl:table-cell">Joined</th>
-                        <th className="text-right text-xs font-black text-slate-500 uppercase tracking-wider px-5 py-3">Action</th>
+                        <th className="text-left text-xs font-semibold text-slate-500 uppercase px-5 py-3">Business</th>
+                        <th className="text-left text-xs font-semibold text-slate-500 uppercase px-5 py-3">Plan</th>
+                        <th className="text-left text-xs font-semibold text-slate-500 uppercase px-5 py-3 hidden md:table-cell">Invoice Balance</th>
+                        <th className="text-left text-xs font-semibold text-slate-500 uppercase px-5 py-3 hidden lg:table-cell">Invoices</th>
+                        <th className="text-left text-xs font-semibold text-slate-500 uppercase px-5 py-3 hidden xl:table-cell">Clients</th>
+                        <th className="text-left text-xs font-semibold text-slate-500 uppercase px-5 py-3 hidden 2xl:table-cell">Joined</th>
+                        <th className="text-right text-xs font-semibold text-slate-500 uppercase px-5 py-3">Action</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
@@ -1575,25 +1419,18 @@ export default function Admin() {
                         const isPro = Boolean(p.is_pro || p.plan === "pro" || p.plan === "business");
                         return (
                           <tr key={p.id} className={cx("hover:bg-slate-50/50 transition", selectedUser?.id === p.id && "bg-primary-50/50")}>
-                            <td className="px-5 py-4">
-                              <div className="flex items-center gap-3">
-                                <div className="h-10 w-10 rounded-2xl bg-gradient-to-br from-slate-950 to-primary-600 text-white grid place-items-center font-black shadow-sm">
-                                  {(p.business_name || p.email || "U").slice(0, 1).toUpperCase()}
-                                </div>
-                                <div>
-                                  <p className="font-bold text-slate-950">{p.business_name || "Unnamed Business"}</p>
-                                  <p className="text-xs text-slate-500">{p.email || "No email"}</p>
-                                  <p className="text-xs text-slate-400">{p.country || "No country"} {p.phone ? `· ${p.phone}` : ""}</p>
-                                </div>
-                              </div>
+                            <td className="px-5 py-3.5">
+                              <p className="font-medium text-slate-900">{p.business_name || "Unnamed"}</p>
+                              <p className="text-xs text-slate-500">{p.email || "No email"}</p>
+                              <p className="text-xs text-slate-400">{p.country || "No country"} {p.phone ? `· ${p.phone}` : ""}</p>
                             </td>
-                            <td className="px-5 py-4"><Pill className={isBanned ? statusClass("disabled") : isPro ? "bg-amber-50 text-amber-700 border-amber-200" : "bg-blue-50 text-blue-700 border-blue-200"}>{isBanned ? "Banned" : isPro ? "Pro" : "Free"}</Pill></td>
-                            <td className="px-5 py-4 hidden md:table-cell"><span className="inline-flex rounded-xl bg-slate-100 px-3 py-1 text-sm font-bold text-slate-800">{Number((p as unknown as { credits?: number }).credits ?? 0)}</span></td>
-                            <td className="px-5 py-4 text-sm font-semibold text-slate-700 hidden lg:table-cell">{userInvoiceCounts.get(authId) ?? 0}</td>
-                            <td className="px-5 py-4 text-sm font-semibold text-slate-700 hidden xl:table-cell">{userClientCounts.get(authId) ?? 0}</td>
-                            <td className="px-5 py-4 text-sm text-slate-500 hidden 2xl:table-cell">{formatDate(p.created_at)}</td>
-                            <td className="px-5 py-4 text-right">
-                              <button className="rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-bold text-slate-700 shadow-sm hover:border-slate-300 hover:bg-slate-50" onClick={() => setSelectedUserId(p.id)}>Manage</button>
+                            <td className="px-5 py-3.5"><Pill className={isBanned ? statusClass("disabled") : isPro ? "bg-amber-50 text-amber-700 border-amber-200" : statusClass("closed")}>{isBanned ? "Banned" : isPro ? "Pro" : "Free"}</Pill></td>
+                            <td className="px-5 py-3.5 text-sm text-slate-600 hidden md:table-cell">{Number((p as unknown as { credits?: number }).credits ?? 0)}</td>
+                            <td className="px-5 py-3.5 text-sm text-slate-600 hidden lg:table-cell">{userInvoiceCounts.get(authId) ?? 0}</td>
+                            <td className="px-5 py-3.5 text-sm text-slate-600 hidden xl:table-cell">{userClientCounts.get(authId) ?? 0}</td>
+                            <td className="px-5 py-3.5 text-sm text-slate-500 hidden 2xl:table-cell">{formatDate(p.created_at)}</td>
+                            <td className="px-5 py-3.5 text-right">
+                              <button className="btn-secondary text-xs py-1.5 px-3" onClick={() => setSelectedUserId(p.id)}>Details</button>
                             </td>
                           </tr>
                         );
@@ -1611,14 +1448,8 @@ export default function Admin() {
                 </div>
               </Card>
 
-              <Card className="p-5 h-fit xl:sticky xl:top-6 border-0 shadow-xl ring-1 ring-slate-100 bg-white">
-                <div className="mb-4 flex items-center justify-between gap-3">
-                  <div>
-                    <h2 className="text-lg font-black text-slate-950">Customer 360</h2>
-                    <p className="text-xs text-slate-500">Account, billing, invoices and controls</p>
-                  </div>
-                  <span className="rounded-full bg-slate-950 px-3 py-1 text-[11px] font-bold uppercase tracking-wider text-white">Live</span>
-                </div>
+              <Card className="p-5 h-fit xl:sticky xl:top-6">
+                <h2 className="text-lg font-semibold text-slate-900 mb-4">User 360 Detail</h2>
                 {selectedUser ? (
                   <div className="space-y-5">
                     <div className="flex items-start justify-between gap-3">
@@ -1639,7 +1470,7 @@ export default function Admin() {
                       <Info label="Invoices" value={String(selectedUserInvoices.length)} />
                       <Info label="Clients" value={String(selectedUserClients.length)} />
                       <Info label="Revenue" value={formatMoney(selectedUserInvoiceRevenue, selectedUser.currency || "INR")} />
-                      <Info label="Extra Invoice Balance" value={String(selectedUserInvoiceBalance)} />
+                      <Info label="Added Invoice Balance" value={String(selectedUserInvoiceBalance)} />
                       <Info label="Used This Month" value={`${selectedUserInvoicesThisMonth} / ${FREE_PLAN_LIMIT} free`} />
                       <Info label="Remaining Invoices" value={selectedUserRemainingInvoices} />
                       <Info label="Joined" value={formatDate(selectedUser.created_at)} />
@@ -1653,9 +1484,9 @@ export default function Admin() {
                     )}
 
                     <div className="grid grid-cols-2 gap-2">
-                      <button className="rounded-xl bg-slate-950 px-4 py-2 text-sm font-bold text-white shadow-sm hover:bg-slate-800" onClick={() => openInvoiceBalanceModal(selectedUser)}>Add Invoices</button>
+                      <button className="btn-secondary" onClick={() => openInvoiceBalanceModal(selectedUser)}>Add Invoices</button>
                       <button className="btn-secondary" onClick={() => handleResetCredits(selectedUser)}>Reset Balance</button>
-                      <button className="rounded-xl bg-amber-500 px-4 py-2 text-sm font-bold text-white shadow-sm hover:bg-amber-600" onClick={() => openFreeProModal(selectedUser)}>Give Free Pro</button>
+                      <button className="btn-primary" onClick={() => openFreeProModal(selectedUser)}>Give Free Pro</button>
                       <button className="btn-secondary" onClick={() => handleRemoveFreePro(selectedUser)}>Remove Pro</button>
                       <button className="btn-secondary col-span-2" onClick={() => handleResetUserPassword(selectedUser)}>Reset Login Password</button>
                       {(selectedUser as unknown as { is_banned?: boolean }).is_banned ? (
@@ -1670,7 +1501,7 @@ export default function Admin() {
                       <div className="flex items-center justify-between mb-3">
                         <div>
                           <p className="font-semibold text-slate-900">Invoice Balance Summary</p>
-                          <p className="text-xs text-slate-500">Monthly free allowance plus admin-added invoice balance</p>
+                          <p className="text-xs text-slate-500">Free monthly invoices + admin-added invoice balance</p>
                         </div>
                         <Pill className={selectedUserIsUnlimited ? "bg-amber-50 text-amber-700 border-amber-200" : "bg-blue-50 text-blue-700 border-blue-200"}>
                           {selectedUserIsUnlimited ? "Unlimited" : `${selectedUserRemainingInvoices} left`}
@@ -1762,7 +1593,7 @@ export default function Admin() {
               <div className="p-5 border-b border-slate-100"><h2 className="text-lg font-semibold text-slate-900">Quick Actions</h2></div>
               <div className="overflow-x-auto">
                 <table className="w-full">
-                  <thead><tr className="border-b border-slate-100 bg-slate-50/50"><th className="text-left text-xs font-semibold text-slate-500 uppercase px-5 py-3">User</th><th className="text-left text-xs font-black text-slate-500 uppercase tracking-wider px-5 py-3">Plan</th><th className="text-left text-xs font-semibold text-slate-500 uppercase px-5 py-3">Invoice Balance</th><th className="text-right text-xs font-semibold text-slate-500 uppercase px-5 py-3">Actions</th></tr></thead>
+                  <thead><tr className="border-b border-slate-100 bg-slate-50/50"><th className="text-left text-xs font-semibold text-slate-500 uppercase px-5 py-3">User</th><th className="text-left text-xs font-semibold text-slate-500 uppercase px-5 py-3">Plan</th><th className="text-left text-xs font-semibold text-slate-500 uppercase px-5 py-3">Invoice Balance</th><th className="text-right text-xs font-semibold text-slate-500 uppercase px-5 py-3">Actions</th></tr></thead>
                   <tbody className="divide-y divide-slate-100">
                     {profiles.map((p) => <tr key={p.id}><td className="px-5 py-3.5"><p className="font-medium text-slate-900">{p.business_name || "Unnamed"}</p><p className="text-xs text-slate-500">{p.email}</p></td><td className="px-5 py-3.5"><Pill className={p.is_pro ? "bg-amber-50 text-amber-700 border-amber-200" : statusClass("closed")}>{p.is_pro ? "Pro" : "Free"}</Pill></td><td className="px-5 py-3.5 font-semibold">{Number((p as unknown as { credits?: number }).credits ?? 0)}</td><td className="px-5 py-3.5 text-right space-x-2"><button className="btn-secondary text-xs py-1.5 px-3" onClick={() => openInvoiceBalanceModal(p)}>Add Invoices</button><button className="btn-primary text-xs py-1.5 px-3" onClick={() => openFreeProModal(p)}>Give Free Pro</button></td></tr>)}
                   </tbody>
@@ -1960,15 +1791,18 @@ export default function Admin() {
                       <p className="text-sm font-bold text-slate-700 capitalize mb-3">{status.replace("_", " ")}</p>
                       <div className="space-y-2">
                         {tasks.filter((t) => t.status === status).map((task) => (
-                          <div key={task.id} className="rounded-lg bg-white border border-slate-100 p-3">
-                            <p className="font-medium text-sm text-slate-900">{task.title}</p>
-                            <p className="text-xs text-slate-500 mt-1 capitalize">{task.department || "general"} · {task.priority} {task.due_date ? `· ${task.due_date}` : ""}</p>
-                            <div className="mt-3 h-2 rounded-full bg-slate-100 overflow-hidden"><div className="h-full bg-primary-500" style={{ width: `${task.progress ?? 0}%` }} /></div>
-                            <div className="mt-2 grid grid-cols-2 gap-2">
-                              <select className="input text-xs py-1.5" value={task.status} onChange={(e) => updateTaskStatus(task, e.target.value as AdminTask["status"])}><option value="pending">Pending</option><option value="in_progress">In Progress</option><option value="blocked">Blocked</option><option value="done">Done</option></select>
+                          <div key={task.id} className="rounded-xl bg-white border border-slate-100 p-3 hover:shadow-md transition">
+                            <button className="w-full text-left" onClick={() => { setSelectedAdminTaskId(task.id); setAdminTaskNote(""); }}>
+                              <p className="font-semibold text-sm text-slate-900">{task.title}</p>
+                              <p className="text-xs text-slate-500 mt-1 capitalize">{task.department || "general"} · {task.priority} {task.due_date ? `· Due ${task.due_date}` : ""}</p>
+                              {task.staff_notes && <p className="text-xs text-blue-700 bg-blue-50 border border-blue-100 rounded-lg p-2 mt-2 line-clamp-2">Staff update: {task.staff_notes}</p>}
+                              <div className="mt-3 h-2 rounded-full bg-slate-100 overflow-hidden"><div className="h-full bg-primary-500" style={{ width: `${task.progress ?? 0}%` }} /></div>
+                              <p className="text-xs text-primary-700 font-bold mt-2">Open task →</p>
+                            </button>
+                            <div className="mt-3 grid grid-cols-2 gap-2">
+                              <select className="input text-xs py-1.5" value={task.status} onChange={(e) => updateTaskStatus(task, e.target.value as AdminTask["status"])}><option value="pending">Assigned</option><option value="in_progress">In Progress</option><option value="blocked">Need Help</option><option value="done">Completed</option></select>
                               <input className="input text-xs py-1.5" type="number" min="0" max="100" value={task.progress ?? 0} onChange={(e) => updateTaskProgress(task, Number(e.target.value))} />
                             </div>
-                            <button className="text-xs text-red-600 mt-2 hover:underline" onClick={() => deleteTask(task)}>Delete</button>
                           </div>
                         ))}
                         {tasks.filter((t) => t.status === status).length === 0 && <p className="text-xs text-slate-400">No tasks</p>}
@@ -1982,184 +1816,103 @@ export default function Admin() {
         )}
 
         {active === "finance" && (
-          <section className="space-y-7">
-            <div className="relative overflow-hidden rounded-[2rem] bg-slate-950 p-6 text-white shadow-2xl ring-1 ring-slate-900/10">
-              <div className="absolute -right-20 -top-24 h-72 w-72 rounded-full bg-emerald-400/20 blur-3xl" />
-              <div className="absolute -bottom-28 left-1/3 h-72 w-72 rounded-full bg-blue-500/20 blur-3xl" />
-              <div className="relative flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
-                <div>
-                  <p className="text-xs font-black uppercase tracking-[0.28em] text-emerald-300">Finance Command Center</p>
-                  <h1 className="mt-3 text-3xl font-black tracking-tight md:text-4xl">Revenue, deductions, payouts and profit in one place.</h1>
-                  <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-300">Track subscription income, ad revenue, manual entries, gateway deductions, estimated tax, expenses and settlement balance before payment gateway integration goes live.</p>
-                </div>
-                <div className="rounded-3xl border border-white/10 bg-white/10 p-5 backdrop-blur min-w-[280px]">
-                  <p className="text-sm text-slate-300">Estimated net amount</p>
-                  <p className="mt-1 text-4xl font-black">{formatMoney(financeCommand.netSettlement, "INR")}</p>
-                  <p className="mt-2 text-xs text-slate-400">Gross revenue minus gateway fees, tax estimate and operating costs.</p>
-                </div>
+          <section className="space-y-6">
+            <SectionHeader title="Revenue & Finance" subtitle="Revenue, ads income, expenses, receivables, balance aur reports track karo" />
+            <div className="grid grid-cols-2 xl:grid-cols-6 gap-4">
+              <Metric title="Total Revenue" value={formatMoney(financeReport.income, "INR")} icon="💰" />
+              <Metric title="This Month" value={formatMoney(financeReport.monthlyRevenue, "INR")} icon="📅" />
+              <Metric title="Today" value={formatMoney(financeReport.todayRevenue, "INR")} icon="📈" />
+              <Metric title="Pending" value={formatMoney(financeReport.pending, "INR")} icon="⏳" />
+              <Metric title="Expenses" value={formatMoney(financeReport.expenses, "INR")} icon="💸" />
+              <Metric title="Net Profit" value={formatMoney(financeReport.net, "INR")} icon="🏦" />
+            </div>
+
+            <div className="grid xl:grid-cols-[420px_1fr] gap-6">
+              <div className="space-y-6">
+                <Card className="p-5 h-fit">
+                  <h2 className="text-lg font-semibold text-slate-900 mb-1">Add Finance Entry</h2>
+                  <p className="text-sm text-slate-500 mb-4">Subscription, ads, manual income, expenses aur pending payments add karo.</p>
+                  <form onSubmit={handleAddFinance} className="space-y-3">
+                    <input className="input" type="date" value={financeForm.entry_date} onChange={(e) => setFinanceForm({ ...financeForm, entry_date: e.target.value })} />
+                    <input className="input" required placeholder="Title e.g. July Pro Subscription" value={financeForm.title} onChange={(e) => setFinanceForm({ ...financeForm, title: e.target.value })} />
+                    <div className="grid grid-cols-2 gap-2">
+                      <select className="input" value={financeForm.type} onChange={(e) => setFinanceForm({ ...financeForm, type: e.target.value as AdminFinanceEntry["type"] })}>
+                        <option value="income">Income</option>
+                        <option value="expense">Expense</option>
+                        <option value="receivable">Receivable</option>
+                      </select>
+                      <select className="input" value={financeForm.source} onChange={(e) => setFinanceForm({ ...financeForm, source: e.target.value as AdminFinanceEntry["source"] })}>
+                        <option value="manual">Manual</option>
+                        <option value="subscription">Subscription</option>
+                        <option value="ads">Ads</option>
+                        <option value="invoice">Invoice</option>
+                        <option value="other">Other</option>
+                      </select>
+                    </div>
+                    <div className="grid grid-cols-[1fr_90px] gap-2">
+                      <input className="input" type="number" min="0" step="0.01" value={financeForm.amount} onChange={(e) => setFinanceForm({ ...financeForm, amount: Number(e.target.value) })} />
+                      <input className="input" value={financeForm.currency} onChange={(e) => setFinanceForm({ ...financeForm, currency: e.target.value.toUpperCase() })} />
+                    </div>
+                    <select className="input" value={financeForm.status} onChange={(e) => setFinanceForm({ ...financeForm, status: e.target.value as AdminFinanceEntry["status"] })}>
+                      <option value="received">Received</option>
+                      <option value="pending">Pending</option>
+                      <option value="spent">Spent</option>
+                    </select>
+                    <textarea className="input min-h-20" placeholder="Notes / bank / ad network / payment reference" value={financeForm.notes ?? ""} onChange={(e) => setFinanceForm({ ...financeForm, notes: e.target.value })} />
+                    <button className="btn-primary w-full" type="submit">Add Entry</button>
+                  </form>
+                </Card>
+
+                <Card className="p-5">
+                  <h2 className="text-lg font-semibold text-slate-900 mb-4">Source Breakdown</h2>
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between"><span className="text-sm text-slate-500">Subscription</span><strong>{formatMoney(financeReport.subscriptionRevenue, "INR")}</strong></div>
+                    <div className="flex items-center justify-between"><span className="text-sm text-slate-500">Ads</span><strong>{formatMoney(financeReport.adsRevenue, "INR")}</strong></div>
+                    <div className="flex items-center justify-between"><span className="text-sm text-slate-500">Manual/Other</span><strong>{formatMoney(Math.max(0, financeReport.income - financeReport.subscriptionRevenue - financeReport.adsRevenue), "INR")}</strong></div>
+                    <div className="pt-3 border-t border-slate-100 flex items-center justify-between"><span className="text-sm font-semibold text-slate-700">Net Balance</span><strong className={financeReport.net >= 0 ? "text-green-600" : "text-red-600"}>{formatMoney(financeReport.net, "INR")}</strong></div>
+                  </div>
+                </Card>
               </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-4 xl:grid-cols-6">
-              <Metric title="Gross Revenue" value={formatMoney(financeCommand.grossRevenue, "INR")} icon="💰" />
-              <Metric title="Gateway Fee" value={`-${formatMoney(financeCommand.gatewayFee, "INR")}`} icon="💳" />
-              <Metric title="Estimated Tax" value={`-${formatMoney(financeCommand.estimatedTax, "INR")}`} icon="🧾" />
-              <Metric title="Expenses" value={`-${formatMoney(financeCommand.operatingCost, "INR")}`} icon="💸" />
-              <Metric title="Pending" value={formatMoney(financeCommand.pendingPayout, "INR")} icon="⏳" />
-              <Metric title="Net Profit" value={formatMoney(financeCommand.netSettlement, "INR")} icon="🏦" />
-            </div>
-
-            <div className="grid gap-6 xl:grid-cols-[1.05fr_0.95fr]">
-              <Card className="overflow-hidden border-0 bg-white shadow-xl ring-1 ring-slate-100">
-                <div className="border-b border-slate-100 bg-gradient-to-r from-white to-slate-50 p-5">
-                  <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                    <div>
-                      <h2 className="text-xl font-black text-slate-950">Settlement Breakdown</h2>
-                      <p className="text-sm text-slate-500">Understand exactly where revenue goes before it reaches your bank.</p>
-                    </div>
-                    <button className="btn-secondary" onClick={() => exportCsv(financeReport.visible as unknown as Record<string, unknown>[], "finance-command-report.csv")}>Export CSV</button>
-                  </div>
-                </div>
-                <div className="p-5 space-y-4">
-                  {[
-                    { label: "Gross revenue", value: financeCommand.grossRevenue, tone: "bg-emerald-500", prefix: "+" },
-                    { label: "Payment gateway fee", value: financeCommand.gatewayFee, tone: "bg-blue-500", prefix: "-" },
-                    { label: "Estimated GST / tax", value: financeCommand.estimatedTax, tone: "bg-amber-500", prefix: "-" },
-                    { label: "Operating expenses", value: financeCommand.operatingCost, tone: "bg-red-500", prefix: "-" },
-                    { label: "Pending payout / receivable", value: financeCommand.pendingPayout, tone: "bg-purple-500", prefix: "" },
-                  ].map((row) => {
-                    const width = Math.max(6, (Number(row.value) / Math.max(1, financeCommand.grossRevenue || financeCommand.pendingPayout || financeCommand.operatingCost)) * 100);
-                    return (
-                      <div key={row.label} className="rounded-2xl border border-slate-100 bg-slate-50/70 p-4">
-                        <div className="mb-2 flex items-center justify-between gap-3">
-                          <span className="text-sm font-bold text-slate-700">{row.label}</span>
-                          <span className="text-sm font-black text-slate-950">{row.prefix}{formatMoney(Number(row.value), "INR")}</span>
-                        </div>
-                        <div className="h-2 overflow-hidden rounded-full bg-white ring-1 ring-slate-100"><div className={cx("h-full rounded-full", row.tone)} style={{ width: `${Math.min(100, width)}%` }} /></div>
-                      </div>
-                    );
-                  })}
-                  <div className="rounded-3xl border border-emerald-100 bg-emerald-50 p-5">
-                    <div className="flex items-center justify-between gap-4">
-                      <div>
-                        <p className="text-sm font-bold text-emerald-700">Net credited estimate</p>
-                        <p className="text-xs text-emerald-600">Final balance after deductions</p>
-                      </div>
-                      <p className="text-2xl font-black text-emerald-700">{formatMoney(financeCommand.netSettlement, "INR")}</p>
-                    </div>
-                  </div>
-                </div>
-              </Card>
-
-              <Card className="border-0 bg-white p-5 shadow-xl ring-1 ring-slate-100">
-                <div className="mb-5 flex items-start justify-between gap-4">
-                  <div>
-                    <h2 className="text-xl font-black text-slate-950">Revenue Sources</h2>
-                    <p className="text-sm text-slate-500">Subscription, ads and manual source split.</p>
-                  </div>
-                  <select className="input w-32" value={financeRange} onChange={(e) => setFinanceRange(e.target.value as typeof financeRange)}>
-                    <option value="7">7 days</option>
-                    <option value="30">30 days</option>
-                    <option value="90">90 days</option>
-                    <option value="all">All</option>
-                  </select>
-                </div>
-                <div className="space-y-4">
-                  {[
-                    { label: "Subscriptions", value: financeReport.subscriptionRevenue, icon: "⭐", tone: "from-amber-400 to-orange-500" },
-                    { label: "Ads Revenue", value: financeReport.adsRevenue, icon: "📣", tone: "from-sky-400 to-blue-500" },
-                    { label: "Manual / Other", value: financeCommand.manualRevenue, icon: "🧾", tone: "from-slate-500 to-slate-800" },
-                  ].map((source) => {
-                    const percent = financeReport.income > 0 ? (Number(source.value) / financeReport.income) * 100 : 0;
-                    return (
-                      <div key={source.label} className="rounded-3xl border border-slate-100 p-4">
-                        <div className="flex items-center gap-3">
-                          <div className={cx("grid h-11 w-11 place-items-center rounded-2xl bg-gradient-to-br text-white shadow-sm", source.tone)}>{source.icon}</div>
-                          <div className="min-w-0 flex-1">
-                            <div className="flex items-center justify-between gap-3"><p className="font-black text-slate-900">{source.label}</p><p className="font-black text-slate-950">{formatMoney(Number(source.value), "INR")}</p></div>
-                            <div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-100"><div className={cx("h-full rounded-full bg-gradient-to-r", source.tone)} style={{ width: `${Math.max(3, percent)}%` }} /></div>
-                            <p className="mt-1 text-xs text-slate-500">{percent.toFixed(1)}% of visible income</p>
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </Card>
-            </div>
-
-            <div className="grid gap-6 xl:grid-cols-[420px_1fr]">
-              <Card className="h-fit border-0 bg-white p-5 shadow-xl ring-1 ring-slate-100">
-                <h2 className="text-lg font-black text-slate-950">Add Finance Entry</h2>
-                <p className="mb-4 text-sm text-slate-500">Record subscription income, ad payouts, expenses and pending receivables.</p>
-                <form onSubmit={handleAddFinance} className="space-y-3">
-                  <input className="input" type="date" value={financeForm.entry_date} onChange={(e) => setFinanceForm({ ...financeForm, entry_date: e.target.value })} />
-                  <input className="input" required placeholder="Title e.g. Razorpay settlement, Ads payout" value={financeForm.title} onChange={(e) => setFinanceForm({ ...financeForm, title: e.target.value })} />
-                  <div className="grid grid-cols-2 gap-2">
-                    <select className="input" value={financeForm.type} onChange={(e) => setFinanceForm({ ...financeForm, type: e.target.value as AdminFinanceEntry["type"] })}>
-                      <option value="income">Income</option>
-                      <option value="expense">Expense</option>
-                      <option value="receivable">Receivable</option>
-                    </select>
-                    <select className="input" value={financeForm.source} onChange={(e) => setFinanceForm({ ...financeForm, source: e.target.value as AdminFinanceEntry["source"] })}>
-                      <option value="subscription">Subscription</option>
-                      <option value="ads">Ads</option>
-                      <option value="manual">Manual</option>
-                      <option value="invoice">Invoice</option>
-                      <option value="other">Other</option>
-                    </select>
-                  </div>
-                  <div className="grid grid-cols-[1fr_90px] gap-2">
-                    <input className="input" type="number" min="0" step="0.01" value={financeForm.amount} onChange={(e) => setFinanceForm({ ...financeForm, amount: Number(e.target.value) })} />
-                    <input className="input" value={financeForm.currency} onChange={(e) => setFinanceForm({ ...financeForm, currency: e.target.value.toUpperCase() })} />
-                  </div>
-                  <select className="input" value={financeForm.status} onChange={(e) => setFinanceForm({ ...financeForm, status: e.target.value as AdminFinanceEntry["status"] })}>
-                    <option value="received">Received</option>
-                    <option value="pending">Pending</option>
-                    <option value="spent">Spent</option>
-                  </select>
-                  <textarea className="input min-h-24" placeholder="Notes: settlement ID, ad network, GST, bank reference..." value={financeForm.notes ?? ""} onChange={(e) => setFinanceForm({ ...financeForm, notes: e.target.value })} />
-                  <button className="btn-primary w-full" type="submit">Add Finance Entry</button>
-                </form>
-              </Card>
 
               <div className="space-y-6">
-                <Card className="border-0 bg-white p-5 shadow-xl ring-1 ring-slate-100">
-                  <div className="mb-5 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                <Card className="p-5">
+                  <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-5">
                     <div>
-                      <h2 className="text-xl font-black text-slate-950">Income vs Expenses Trend</h2>
-                      <p className="text-sm text-slate-500">Daily comparison for selected range.</p>
+                      <h2 className="text-lg font-semibold text-slate-900">Finance Report</h2>
+                      <p className="text-sm text-slate-500">Last 7 days income vs expenses</p>
                     </div>
-                    <div className="flex gap-2">
-                      <Pill className="bg-green-50 text-green-700 border-green-200">Income</Pill>
-                      <Pill className="bg-red-50 text-red-700 border-red-200">Expense</Pill>
-                    </div>
+                    <select className="input md:w-36" value={financeRange} onChange={(e) => setFinanceRange(e.target.value as typeof financeRange)}>
+                      <option value="7">7 days</option>
+                      <option value="30">30 days</option>
+                      <option value="90">90 days</option>
+                      <option value="all">All time</option>
+                    </select>
                   </div>
-                  <div className="grid h-44 grid-cols-7 items-end gap-2">
+                  <div className="grid grid-cols-7 gap-2 items-end h-36">
                     {financeReport.trend.map((day) => {
                       const maxValue = Math.max(...financeReport.trend.map((d) => Math.max(d.income, d.expense)), 1);
                       return (
-                        <div key={day.key} className="flex flex-col items-center gap-2">
-                          <div className="flex h-32 w-full items-end gap-1">
-                            <div className="flex-1 rounded-t-xl bg-emerald-300" style={{ height: `${Math.max(6, (day.income / maxValue) * 128)}px` }} title={`Income ${formatMoney(day.income, "INR")}`} />
-                            <div className="flex-1 rounded-t-xl bg-red-300" style={{ height: `${Math.max(6, (day.expense / maxValue) * 128)}px` }} title={`Expense ${formatMoney(day.expense, "INR")}`} />
+                        <div key={day.key} className="flex flex-col items-center gap-1">
+                          <div className="w-full flex items-end gap-1 h-24">
+                            <div className="flex-1 bg-green-200 rounded-t" style={{ height: `${Math.max(6, (day.income / maxValue) * 96)}px` }} title={`Income ${formatMoney(day.income, "INR")}`} />
+                            <div className="flex-1 bg-red-200 rounded-t" style={{ height: `${Math.max(6, (day.expense / maxValue) * 96)}px` }} title={`Expense ${formatMoney(day.expense, "INR")}`} />
                           </div>
-                          <span className="text-[10px] font-bold text-slate-400">{day.label}</span>
+                          <span className="text-[10px] text-slate-400">{day.label}</span>
                         </div>
                       );
                     })}
                   </div>
                 </Card>
 
-                <Card className="overflow-hidden border-0 bg-white shadow-xl ring-1 ring-slate-100">
-                  <div className="border-b border-slate-100 p-5">
-                    <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                <Card>
+                  <div className="p-5 border-b border-slate-100">
+                    <div className="flex flex-col xl:flex-row xl:items-center xl:justify-between gap-3">
                       <div>
-                        <h2 className="text-xl font-black text-slate-950">Finance Ledger</h2>
-                        <p className="text-sm text-slate-500">Search, filter and manage every money movement.</p>
+                        <h2 className="text-lg font-semibold text-slate-900">Finance Ledger</h2>
+                        <p className="text-sm text-slate-500">Income, expense, ads aur pending entries manage karo.</p>
                       </div>
-                      <div className="grid gap-2 sm:grid-cols-3 lg:w-[620px]">
-                        <input className="input" placeholder="Search title, source, notes..." value={financeSearch} onChange={(e) => setFinanceSearch(e.target.value)} />
+                      <div className="grid sm:grid-cols-4 gap-2 xl:w-[720px]">
+                        <input className="input" placeholder="Search ledger..." value={financeSearch} onChange={(e) => setFinanceSearch(e.target.value)} />
                         <select className="input" value={financeStatusFilter} onChange={(e) => setFinanceStatusFilter(e.target.value as typeof financeStatusFilter)}>
                           <option value="all">All status</option>
                           <option value="received">Received</option>
@@ -2167,37 +1920,48 @@ export default function Admin() {
                           <option value="spent">Spent</option>
                         </select>
                         <select className="input" value={financeSourceFilter} onChange={(e) => setFinanceSourceFilter(e.target.value as typeof financeSourceFilter)}>
-                          <option value="all">All sources</option>
+                          <option value="all">All source</option>
                           <option value="subscription">Subscription</option>
                           <option value="ads">Ads</option>
                           <option value="manual">Manual</option>
                           <option value="invoice">Invoice</option>
                           <option value="other">Other</option>
                         </select>
+                        <button className="btn-secondary" type="button" onClick={() => exportCsv(financeReport.visible, "finance-ledger.csv")}>Export CSV</button>
                       </div>
                     </div>
                   </div>
                   <div className="overflow-x-auto">
                     <table className="w-full">
                       <thead>
-                        <tr className="border-b border-slate-100 bg-slate-50/70">
-                          <th className="px-5 py-3 text-left text-xs font-black uppercase tracking-wider text-slate-500">Entry</th>
-                          <th className="px-5 py-3 text-left text-xs font-black uppercase tracking-wider text-slate-500">Type</th>
-                          <th className="px-5 py-3 text-left text-xs font-black uppercase tracking-wider text-slate-500">Source</th>
-                          <th className="px-5 py-3 text-right text-xs font-black uppercase tracking-wider text-slate-500">Amount</th>
-                          <th className="px-5 py-3 text-right text-xs font-black uppercase tracking-wider text-slate-500">Actions</th>
+                        <tr className="border-b border-slate-100 bg-slate-50/50">
+                          <th className="text-left text-xs font-semibold text-slate-500 uppercase px-5 py-3">Date</th>
+                          <th className="text-left text-xs font-semibold text-slate-500 uppercase px-5 py-3">Title</th>
+                          <th className="text-left text-xs font-semibold text-slate-500 uppercase px-5 py-3">Type</th>
+                          <th className="text-left text-xs font-semibold text-slate-500 uppercase px-5 py-3">Source</th>
+                          <th className="text-right text-xs font-semibold text-slate-500 uppercase px-5 py-3">Amount</th>
+                          <th className="text-right text-xs font-semibold text-slate-500 uppercase px-5 py-3">Action</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
                         {financeReport.visible.length === 0 ? (
-                          <tr><td colSpan={5} className="p-8 text-center text-sm text-slate-500">No finance entries found.</td></tr>
+                          <tr><td colSpan={6} className="p-8 text-center text-sm text-slate-500">No finance entries found.</td></tr>
                         ) : financeReport.visible.map((entry) => (
-                          <tr key={entry.id} className="transition hover:bg-slate-50/70">
-                            <td className="px-5 py-4"><p className="font-bold text-slate-900">{entry.title}</p><p className="text-xs text-slate-500">{formatDate(entry.entry_date)} {entry.notes ? `• ${entry.notes}` : ""}</p></td>
-                            <td className="px-5 py-4"><Pill className={entry.type === "expense" ? "bg-red-50 text-red-700 border-red-200" : entry.type === "receivable" ? "bg-amber-50 text-amber-700 border-amber-200" : "bg-green-50 text-green-700 border-green-200"}>{entry.type}</Pill></td>
-                            <td className="px-5 py-4"><div className="space-y-1"><p className="text-sm font-bold capitalize text-slate-700">{entry.source}</p><Pill className={statusClass(entry.status)}>{entry.status}</Pill></div></td>
-                            <td className={cx("px-5 py-4 text-right font-black", entry.type === "expense" ? "text-red-600" : "text-emerald-600")}>{entry.type === "expense" ? "-" : "+"}{formatMoney(Number(entry.amount), entry.currency)}</td>
-                            <td className="px-5 py-4 text-right"><div className="flex justify-end gap-2">{(entry.status === "pending" || entry.type === "receivable") && <button className="btn-secondary text-xs py-1.5" onClick={() => markFinanceReceived(entry)}>Mark Paid</button>}<button className="btn-danger text-xs py-1.5" onClick={() => deleteFinanceEntry(entry)}>Delete</button></div></td>
+                          <tr key={entry.id}>
+                            <td className="px-5 py-3.5 text-sm text-slate-500">{entry.entry_date}</td>
+                            <td className="px-5 py-3.5">
+                              <p className="font-medium text-slate-900">{entry.title}</p>
+                              <p className="text-xs text-slate-500 line-clamp-1">{entry.notes || "No notes"}</p>
+                            </td>
+                            <td className="px-5 py-3.5"><Pill className={entry.type === "expense" ? "bg-red-50 text-red-700" : entry.type === "receivable" ? "bg-amber-50 text-amber-700" : "bg-green-50 text-green-700"}>{entry.type}</Pill></td>
+                            <td className="px-5 py-3.5 text-sm text-slate-600 capitalize">{entry.source}<div><Pill className={statusClass(entry.status)}>{entry.status}</Pill></div></td>
+                            <td className={cx("px-5 py-3.5 text-right font-bold", entry.type === "expense" ? "text-red-600" : "text-green-600")}>{entry.type === "expense" ? "-" : "+"}{formatMoney(Number(entry.amount), entry.currency)}</td>
+                            <td className="px-5 py-3.5 text-right">
+                              <div className="flex justify-end gap-2">
+                                {(entry.status === "pending" || entry.type === "receivable") && <button className="btn-secondary text-xs py-1.5" onClick={() => markFinanceReceived(entry)}>Mark Paid</button>}
+                                <button className="btn-danger text-xs py-1.5" onClick={() => deleteFinanceEntry(entry)}>Delete</button>
+                              </div>
+                            </td>
                           </tr>
                         ))}
                       </tbody>
@@ -2222,7 +1986,7 @@ export default function Admin() {
         {active === "analytics" && (
           <section className="space-y-6">
             <div className="flex flex-col lg:flex-row gap-3 lg:items-end lg:justify-between">
-              <SectionHeader title="Analytics & Business Intelligence" subtitle="Growth, revenue trends, customer mix, traffic readiness and business health insights." />
+              <SectionHeader title="Analytics & AI Insights" subtitle="Business health, growth, revenue trends aur automatic insights" />
               <div className="flex gap-2 flex-wrap">
                 <button className="btn-secondary" onClick={() => exportCsv(analytics.customerRevenue as unknown as Record<string, unknown>[], "top-customers-report.csv")}>Export Customers</button>
                 <button className="btn-secondary" onClick={() => exportCsv(analytics.insights as unknown as Record<string, unknown>[], "ai-insights-report.csv")}>Export Insights</button>
@@ -2234,13 +1998,6 @@ export default function Admin() {
               <Metric title="Net Profit" value={formatMoney(analytics.netProfit, "INR")} icon="📈" />
               <Metric title="Active Users" value={String(analytics.activeUsers)} icon="✅" />
               <Metric title="Pro Conversion" value={`${analytics.conversionRate.toFixed(1)}%`} icon="⭐" />
-            </div>
-
-            <div className="grid lg:grid-cols-4 gap-4">
-              <Card className="p-5"><p className="text-xs font-semibold uppercase text-slate-400">Subscription Revenue</p><p className="text-2xl font-black text-slate-900 mt-1">{formatMoney(financeReport.subscriptionRevenue, "INR")}</p><p className="text-xs text-slate-500 mt-2">Revenue source: paid plans and manual subscription entries.</p></Card>
-              <Card className="p-5"><p className="text-xs font-semibold uppercase text-slate-400">Ads Revenue</p><p className="text-2xl font-black text-slate-900 mt-1">{formatMoney(financeReport.adsRevenue, "INR")}</p><p className="text-xs text-slate-500 mt-2">Track ad network income separately from subscriptions.</p></Card>
-              <Card className="p-5"><p className="text-xs font-semibold uppercase text-slate-400">Direct / Manual Revenue</p><p className="text-2xl font-black text-slate-900 mt-1">{formatMoney(financeCommand.manualRevenue, "INR")}</p><p className="text-xs text-slate-500 mt-2">Manual payments, invoice income and other sources.</p></Card>
-              <Card className="p-5"><p className="text-xs font-semibold uppercase text-slate-400">Traffic Tracking</p><p className="text-2xl font-black text-slate-900 mt-1">Ready</p><p className="text-xs text-slate-500 mt-2">Connect analytics events later for organic, ads, direct and referral traffic.</p></Card>
             </div>
 
             <div className="grid xl:grid-cols-[1.2fr_0.8fr] gap-6">
@@ -2328,102 +2085,63 @@ export default function Admin() {
         )}
         {active === "support" && (
           <section className="space-y-6">
-            <SectionHeader title="Support Command Center" subtitle="Manage customer issues, assign agents, track priority, and close tickets from one professional workspace." />
+            <SectionHeader title="Support Center" subtitle="Tickets create, assign, resolve aur track karo" />
             <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
-              <Metric title="Open Tickets" value={String(supportTickets.filter((t) => t.status === "open").length)} icon="🎫" />
-              <Metric title="Pending Review" value={String(supportTickets.filter((t) => t.status === "pending").length)} icon="⏳" />
+              <Metric title="Open" value={String(supportTickets.filter((t) => t.status === "open").length)} icon="🎫" />
+              <Metric title="Pending" value={String(supportTickets.filter((t) => t.status === "pending").length)} icon="⏳" />
               <Metric title="Resolved" value={String(supportTickets.filter((t) => t.status === "resolved").length)} icon="✅" />
               <Metric title="Urgent" value={String(supportTickets.filter((t) => t.priority === "urgent").length)} icon="🚨" />
             </div>
-
             <div className="grid xl:grid-cols-[420px_1fr] gap-6">
-              <div className="space-y-6">
-                <Card className="p-5">
-                  <div className="flex items-start justify-between gap-3 mb-4">
-                    <div>
-                      <h2 className="text-lg font-semibold text-slate-900">Create Support Ticket</h2>
-                      <p className="text-sm text-slate-500">Use this only when a user issue is reported by email, chat, phone, or manual admin review.</p>
-                    </div>
-                    <span className="h-10 w-10 rounded-2xl bg-primary-50 text-primary-700 grid place-items-center">🎧</span>
+              <Card className="p-5 h-fit">
+                <h2 className="text-lg font-semibold text-slate-900 mb-4">Create Ticket</h2>
+                <form onSubmit={handleCreateSupportTicket} className="space-y-3">
+                  <select className="input" value={supportForm.user_id} onChange={(e) => setSupportForm({ ...supportForm, user_id: e.target.value })}>
+                    <option value="">No user selected</option>{profiles.map((p) => <option key={p.id} value={p.id}>{p.business_name || p.email || p.id}</option>)}
+                  </select>
+                  <input className="input" required placeholder="Subject" value={supportForm.subject} onChange={(e) => setSupportForm({ ...supportForm, subject: e.target.value })} />
+                  <textarea className="input min-h-24" placeholder="User message / issue" value={supportForm.message} onChange={(e) => setSupportForm({ ...supportForm, message: e.target.value })} />
+                  <div className="grid grid-cols-2 gap-2">
+                    <select className="input" value={supportForm.priority} onChange={(e) => setSupportForm({ ...supportForm, priority: e.target.value })}><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option><option value="urgent">Urgent</option></select>
+                    <select className="input" value={supportForm.assigned_to} onChange={(e) => setSupportForm({ ...supportForm, assigned_to: e.target.value })}><option value="">Unassigned</option>{supportAgents.map((m) => <option key={m.id} value={m.id}>{m.name || m.email}</option>)}</select>
                   </div>
-                  <form onSubmit={handleCreateSupportTicket} className="space-y-3">
-                    <select className="input" value={supportForm.user_id} onChange={(e) => setSupportForm({ ...supportForm, user_id: e.target.value })}>
-                      <option value="">Select customer (optional)</option>{profiles.map((p) => <option key={p.id} value={p.id}>{p.business_name || p.email || p.id}</option>)}
-                    </select>
-                    <input className="input" required placeholder="Issue subject" value={supportForm.subject} onChange={(e) => setSupportForm({ ...supportForm, subject: e.target.value })} />
-                    <textarea className="input min-h-28" placeholder="Describe the customer problem, error, request, or complaint" value={supportForm.message} onChange={(e) => setSupportForm({ ...supportForm, message: e.target.value })} />
-                    <div className="grid grid-cols-2 gap-2">
-                      <select className="input" value={supportForm.priority} onChange={(e) => setSupportForm({ ...supportForm, priority: e.target.value })}><option value="low">Low Priority</option><option value="medium">Medium Priority</option><option value="high">High Priority</option><option value="urgent">Urgent Priority</option></select>
-                      <select className="input" value={supportForm.assigned_to} onChange={(e) => setSupportForm({ ...supportForm, assigned_to: e.target.value })}><option value="">Assign later</option>{supportAgents.map((m) => <option key={m.id} value={m.id}>{m.name || m.email}</option>)}</select>
-                    </div>
-                    <textarea className="input min-h-20" placeholder="Private internal note for staff/admin only" value={supportForm.internal_notes} onChange={(e) => setSupportForm({ ...supportForm, internal_notes: e.target.value })} />
-                    <button className="btn-primary w-full" type="submit">Create Ticket</button>
-                  </form>
-                </Card>
-
-                <Card className="p-5">
-                  <h2 className="text-lg font-semibold text-slate-900 mb-4">Support Pipeline</h2>
-                  <div className="space-y-3">
-                    {["open", "pending", "resolved", "closed"].map((status) => {
-                      const count = supportTickets.filter((t) => t.status === status).length;
-                      const total = Math.max(supportTickets.length, 1);
-                      return (
-                        <div key={status}>
-                          <div className="flex items-center justify-between text-sm mb-1"><span className="capitalize text-slate-600">{status}</span><span className="font-semibold text-slate-900">{count}</span></div>
-                          <div className="h-2 rounded-full bg-slate-100 overflow-hidden"><div className="h-full rounded-full bg-primary-500" style={{ width: `${Math.round((count / total) * 100)}%` }} /></div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </Card>
-              </div>
-
+                  <textarea className="input min-h-20" placeholder="Internal notes" value={supportForm.internal_notes} onChange={(e) => setSupportForm({ ...supportForm, internal_notes: e.target.value })} />
+                  <button className="btn-primary w-full" type="submit">Create Ticket</button>
+                </form>
+              </Card>
               <div className="space-y-6">
                 <Card>
-                  <div className="p-5 border-b border-slate-100 flex flex-col xl:flex-row gap-3 xl:items-center xl:justify-between">
-                    <div>
-                      <h2 className="text-lg font-semibold text-slate-900">Ticket Inbox</h2>
-                      <p className="text-sm text-slate-500">Search, assign, resolve, and export customer issues.</p>
-                    </div>
+                  <div className="p-5 border-b border-slate-100 flex flex-col lg:flex-row gap-3 lg:items-center lg:justify-between">
+                    <h2 className="text-lg font-semibold text-slate-900">Ticket Inbox</h2>
                     <div className="flex gap-2 flex-wrap">
-                      <input className="input lg:w-72" placeholder="Search subject or message..." value={supportSearch} onChange={(e) => setSupportSearch(e.target.value)} />
+                      <input className="input lg:w-72" placeholder="Search tickets..." value={supportSearch} onChange={(e) => setSupportSearch(e.target.value)} />
                       <select className="input w-40" value={supportStatusFilter} onChange={(e) => setSupportStatusFilter(e.target.value as typeof supportStatusFilter)}><option value="all">All Status</option><option value="open">Open</option><option value="pending">Pending</option><option value="resolved">Resolved</option><option value="closed">Closed</option></select>
                       <button className="btn-secondary" onClick={() => exportCsv(filteredSupportTickets as unknown as Record<string, unknown>[], "support-tickets.csv")}>Export CSV</button>
                     </div>
                   </div>
-                  <div className="divide-y divide-slate-100 max-h-[540px] overflow-y-auto">
-                    {filteredSupportTickets.length === 0 ? <div className="p-10 text-center"><div className="mx-auto h-14 w-14 rounded-2xl bg-slate-100 grid place-items-center text-2xl mb-3">🎫</div><p className="text-sm font-medium text-slate-700">No support tickets found</p><p className="text-xs text-slate-500 mt-1">New user issues will appear here once tickets are created.</p></div> : filteredSupportTickets.map((t) => (
-                      <button key={t.id} className={cx("w-full p-5 text-left hover:bg-slate-50 transition", selectedTicket?.id === t.id && "bg-primary-50/40")} onClick={() => setSelectedTicketId(t.id)}>
-                        <div className="flex items-start justify-between gap-4">
-                          <div className="min-w-0"><p className="font-semibold text-slate-900 truncate">{t.subject}</p><p className="text-sm text-slate-500 line-clamp-2 mt-1">{t.message || "No customer message provided."}</p><p className="text-xs text-slate-400 mt-2">Created {formatDate(t.created_at)}</p></div>
-                          <div className="flex gap-2 shrink-0"><Pill className={statusClass(t.priority)}>{t.priority}</Pill><Pill className={statusClass(t.status)}>{t.status}</Pill></div>
-                        </div>
+                  <div className="divide-y divide-slate-100">
+                    {filteredSupportTickets.length === 0 ? <p className="p-8 text-center text-sm text-slate-500">No support tickets found.</p> : filteredSupportTickets.map((t) => (
+                      <button key={t.id} className={cx("w-full p-5 text-left flex items-center justify-between hover:bg-slate-50", selectedTicket?.id === t.id && "bg-primary-50/40")} onClick={() => setSelectedTicketId(t.id)}>
+                        <div><p className="font-medium text-slate-900">{t.subject}</p><p className="text-sm text-slate-500 line-clamp-1">{t.message || "No message"}</p><p className="text-xs text-slate-400 mt-1">{formatDate(t.created_at)}</p></div>
+                        <div className="flex gap-2"><Pill className={statusClass(t.priority)}>{t.priority}</Pill><Pill className={statusClass(t.status)}>{t.status}</Pill></div>
                       </button>
                     ))}
                   </div>
                 </Card>
-
                 <Card className="p-5">
-                  <div className="flex items-center justify-between gap-3 mb-4">
-                    <h2 className="text-lg font-semibold text-slate-900">Ticket Detail</h2>
-                    {selectedTicket && <Pill className={statusClass(selectedTicket.status)}>{selectedTicket.status}</Pill>}
-                  </div>
+                  <h2 className="text-lg font-semibold text-slate-900 mb-4">Ticket Detail</h2>
                   {selectedTicket ? (
-                    <div className="space-y-5">
-                      <div className="rounded-2xl border border-slate-100 bg-slate-50 p-5"><p className="text-xl font-bold text-slate-900">{selectedTicket.subject}</p><p className="text-sm text-slate-600 mt-2 whitespace-pre-wrap">{selectedTicket.message || "No customer message provided."}</p></div>
-                      <div className="grid md:grid-cols-3 gap-3"><Info label="Priority" value={selectedTicket.priority} /><Info label="Created" value={formatDate(selectedTicket.created_at)} /><Info label="Assigned Agent" value={team.find((m) => m.id === selectedTicket.assigned_to)?.name || team.find((m) => m.id === selectedTicket.assigned_to)?.email || "Unassigned"} /></div>
+                    <div className="space-y-4">
+                      <div className="flex items-start justify-between gap-3"><div><p className="text-xl font-bold text-slate-900">{selectedTicket.subject}</p><p className="text-sm text-slate-500">{selectedTicket.message || "No message"}</p></div><Pill className={statusClass(selectedTicket.status)}>{selectedTicket.status}</Pill></div>
+                      <div className="grid md:grid-cols-3 gap-3"><Info label="Priority" value={selectedTicket.priority} /><Info label="Created" value={formatDate(selectedTicket.created_at)} /><Info label="Assigned" value={team.find((m) => m.id === selectedTicket.assigned_to)?.name || team.find((m) => m.id === selectedTicket.assigned_to)?.email || "Unassigned"} /></div>
                       <div className="grid md:grid-cols-2 gap-2">
                         <select className="input" value={selectedTicket.status} onChange={(e) => updateTicketStatus(selectedTicket, e.target.value as AdminSupportTicket["status"])}><option value="open">Open</option><option value="pending">Pending</option><option value="resolved">Resolved</option><option value="closed">Closed</option></select>
                         <select className="input" value={selectedTicket.assigned_to || ""} onChange={(e) => updateTicketAssignment(selectedTicket, e.target.value)}><option value="">Unassigned</option>{supportAgents.map((m) => <option key={m.id} value={m.id}>{m.name || m.email}</option>)}</select>
                       </div>
-                      <div className="rounded-xl bg-amber-50 border border-amber-100 p-4"><p className="text-xs text-amber-700 font-semibold mb-1">Internal Notes</p><p className="text-sm text-amber-800 whitespace-pre-wrap">{selectedTicket.internal_notes || "No private note added yet."}</p></div>
-                      <div className="flex flex-wrap gap-2">
-                        <button className="btn-secondary" onClick={() => updateTicketStatus(selectedTicket, "resolved")}>Mark Resolved</button>
-                        <button className="btn-secondary" onClick={() => updateTicketStatus(selectedTicket, "closed")}>Close Ticket</button>
-                        <button className="btn-danger" onClick={() => deleteTicket(selectedTicket)}>Delete Ticket</button>
-                      </div>
+                      {selectedTicket.internal_notes && <div className="rounded-xl bg-slate-50 border border-slate-100 p-4"><p className="text-xs text-slate-500 mb-1">Internal Notes</p><p className="text-sm text-slate-700 whitespace-pre-wrap">{selectedTicket.internal_notes}</p></div>}
+                      <button className="btn-danger" onClick={() => deleteTicket(selectedTicket)}>Delete Ticket</button>
                     </div>
-                  ) : <p className="text-sm text-slate-500">Select a ticket to view details.</p>}
+                  ) : <p className="text-sm text-slate-500">Select a ticket.</p>}
                 </Card>
               </div>
             </div>
@@ -2633,6 +2351,55 @@ export default function Admin() {
               <div className="p-5 border-t border-slate-100 flex justify-end gap-2">
                 <button className="btn-secondary" onClick={() => setBalanceModal(null)}>Cancel</button>
                 <button className="btn-primary" disabled={adminActionBusy} onClick={() => submitInvoiceBalance()}>{adminActionBusy ? "Saving..." : "Add Balance"}</button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {selectedAdminTask && (
+          <div className="fixed inset-0 z-50 bg-slate-950/50 backdrop-blur-sm p-4 flex items-center justify-center">
+            <div className="w-full max-w-4xl max-h-[92vh] overflow-y-auto rounded-3xl bg-white shadow-2xl border border-slate-200">
+              <div className="p-6 border-b border-slate-100 flex items-start justify-between gap-4">
+                <div>
+                  <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Task Review</p>
+                  <h2 className="text-2xl font-black text-slate-950 mt-1">{selectedAdminTask.title}</h2>
+                  <p className="text-sm text-slate-500 mt-1 capitalize">{selectedAdminTask.department || "general"} · {selectedAdminTask.priority} · {adminTaskStatusLabel(selectedAdminTask.status)}</p>
+                </div>
+                <button className="btn-secondary" onClick={() => setSelectedAdminTaskId(null)}>Close</button>
+              </div>
+              <div className="p-6 grid lg:grid-cols-[1fr_320px] gap-6">
+                <div className="space-y-5">
+                  <div className="rounded-2xl bg-slate-50 border border-slate-100 p-5">
+                    <p className="text-xs font-bold uppercase tracking-wide text-slate-500 mb-2">Task brief</p>
+                    <p className="text-sm text-slate-700 whitespace-pre-wrap">{selectedAdminTask.description || "No description provided."}</p>
+                  </div>
+                  <div className="rounded-2xl border border-slate-200 p-5">
+                    <p className="text-xs font-bold uppercase tracking-wide text-slate-500 mb-2">Staff updates</p>
+                    <div className="min-h-[90px] rounded-2xl bg-blue-50 border border-blue-100 p-4 text-sm text-blue-950 whitespace-pre-wrap">{selectedAdminTask.staff_notes || "No staff update yet."}</div>
+                  </div>
+                  <div className="rounded-2xl border border-slate-200 p-5">
+                    <p className="text-xs font-bold uppercase tracking-wide text-slate-500 mb-2">Admin notes</p>
+                    <div className="min-h-[80px] rounded-2xl bg-slate-50 border border-slate-100 p-4 text-sm text-slate-700 whitespace-pre-wrap">{selectedAdminTask.internal_notes || "No admin notes yet."}</div>
+                    <textarea value={adminTaskNote} onChange={(e) => setAdminTaskNote(e.target.value)} placeholder="Write review note or instruction for staff..." className="input min-h-24 mt-3" />
+                    <button className="btn-primary mt-3" disabled={!adminTaskNote.trim()} onClick={() => addAdminTaskNote(selectedAdminTask)}>Add Note</button>
+                  </div>
+                </div>
+                <div className="space-y-4">
+                  <Card className="p-4">
+                    <p className="text-xs font-bold uppercase tracking-wide text-slate-500 mb-3">Status</p>
+                    <select className="input mb-2" value={selectedAdminTask.status} onChange={(e) => updateTaskStatus(selectedAdminTask, e.target.value as AdminTask["status"])}><option value="pending">Assigned</option><option value="in_progress">In Progress</option><option value="blocked">Need Help</option><option value="done">Completed</option></select>
+                    <input className="input" type="number" min="0" max="100" value={selectedAdminTask.progress ?? 0} onChange={(e) => updateTaskProgress(selectedAdminTask, Number(e.target.value))} />
+                    <div className="mt-3 h-2 rounded-full bg-slate-100 overflow-hidden"><div className="h-full bg-primary-500" style={{ width: `${selectedAdminTask.progress ?? 0}%` }} /></div>
+                  </Card>
+                  <Card className="p-4 space-y-2">
+                    <button className="btn-primary w-full" onClick={() => approveTask(selectedAdminTask)}>Approve / Close</button>
+                    <button className="btn-secondary w-full" onClick={() => reopenTask(selectedAdminTask)}>Reopen</button>
+                    <button className="w-full rounded-xl border border-red-200 text-red-700 px-4 py-2 text-sm font-semibold hover:bg-red-50" onClick={() => deleteTask(selectedAdminTask)}>Delete Task</button>
+                  </Card>
+                  <Card className="p-4 text-xs text-slate-500">
+                    Attachments will be added after storage configuration. Staff can add file links in task updates for now.
+                  </Card>
+                </div>
               </div>
             </div>
           </div>
