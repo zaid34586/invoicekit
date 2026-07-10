@@ -6,7 +6,6 @@ import { ADMIN_EMAIL, FREE_PLAN_LIMIT, formatDate } from "../lib/constants";
 import { formatMoney } from "../lib/currency";
 import type { Profile, Invoice, Client } from "../lib/types";
 import StatusBadge from "../components/StatusBadge";
-import RivoxLogo from "../components/RivoxLogo";
 import AdminSubscriptionManager from "../components/AdminSubscriptionManager";
 import CommunicationCenter from "../components/CommunicationCenter";
 
@@ -1265,15 +1264,15 @@ export default function Admin() {
 
   return (
     <div className="space-y-5 animate-fade-in">
-      <div className="flex flex-col gap-4 rounded-3xl border border-slate-200 bg-white/90 p-5 shadow-sm backdrop-blur sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex items-center gap-4">
-          <RivoxLogo showWordmark iconClassName="w-12 h-12" wordmarkClassName="text-2xl text-slate-950" />
-          <div className="hidden sm:block border-l border-slate-200 pl-4">
-            <p className="text-sm font-black text-slate-950">Owner Administration</p>
-            <p className="text-xs text-slate-500">Subscriptions, users, staff and operations</p>
-          </div>
+      <div className="flex flex-col gap-3 rounded-3xl border border-slate-200 bg-white/90 p-5 shadow-sm backdrop-blur sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <p className="text-xs font-black uppercase tracking-[0.18em] text-primary-600">Owner workspace</p>
+          <p className="mt-1 text-lg font-black text-slate-950">Administration & operations</p>
+          <p className="text-sm text-slate-500">Manage subscriptions, users, staff, support and internal communication.</p>
         </div>
-        <div className="rounded-2xl bg-slate-950 px-4 py-2 text-sm font-bold text-white">Rivox Command Center</div>
+        <div className="inline-flex w-fit items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-700">
+          <span className="h-2 w-2 rounded-full bg-emerald-500" /> Production console
+        </div>
       </div>
       <div className="grid lg:grid-cols-[260px_1fr] gap-6">
       <aside className="lg:sticky lg:top-6 h-fit">

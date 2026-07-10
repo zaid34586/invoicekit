@@ -2,6 +2,7 @@ import { useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { supabase } from "../lib/supabase";
+import RivoxLogo from "../components/RivoxLogo";
 
 export default function StaffLogin() {
   const { signIn, signOut } = useAuth();
@@ -53,9 +54,9 @@ export default function StaffLogin() {
       <div className="relative min-h-screen grid grid-cols-1 lg:grid-cols-2">
         <div className="hidden lg:flex flex-col justify-between p-12 text-white">
           <div className="flex items-center gap-3">
-            <div className="w-12 h-12 rounded-2xl bg-white text-slate-950 flex items-center justify-center font-black">IK</div>
+            <RivoxLogo inverse iconClassName="w-12 h-12" wordmarkClassName="text-xl" />
             <div>
-              <div className="font-black text-xl">Rivox Staff</div>
+              <div className="sr-only">Rivox Staff</div>
               <div className="text-sm text-slate-300">Operations workspace</div>
             </div>
           </div>
@@ -74,8 +75,8 @@ export default function StaffLogin() {
         <div className="flex items-center justify-center px-4 py-10">
           <div className="w-full max-w-md">
             <div className="lg:hidden text-center mb-8 text-white">
-              <div className="w-14 h-14 rounded-2xl bg-white text-slate-950 flex items-center justify-center mx-auto mb-4 font-black">IK</div>
-              <h1 className="text-2xl font-black">Rivox Staff</h1>
+              <RivoxLogo inverse className="mb-4 justify-center" iconClassName="w-14 h-14" wordmarkClassName="text-2xl" />
+              <h1 className="sr-only">Rivox Staff</h1>
             </div>
 
             <form onSubmit={handleSubmit} className="bg-white rounded-[2rem] p-7 sm:p-8 shadow-2xl border border-white/70 space-y-5">

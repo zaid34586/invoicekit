@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { supabase } from "../lib/supabase";
 import { ADMIN_EMAIL } from "../lib/constants";
+import RivoxLogo from "../components/RivoxLogo";
 
 // Owner-only console login. This route is intentionally hidden from the normal
 // product navigation and never creates accounts.
@@ -54,11 +55,9 @@ export default function AdminLogin() {
       <div className="relative grid min-h-screen grid-cols-1 lg:grid-cols-[1.05fr_0.95fr]">
         <section className="hidden flex-col justify-between px-12 py-10 lg:flex xl:px-16">
           <div className="flex items-center gap-3">
-            <div className="flex h-14 w-14 items-center justify-center rounded-2xl border border-white/15 bg-white text-xl font-black text-slate-950 shadow-2xl shadow-blue-500/20">
-              IK
-            </div>
+            <RivoxLogo inverse iconClassName="h-14 w-14" wordmarkClassName="text-xl" />
             <div>
-              <p className="text-lg font-bold tracking-tight">Rivox Admin</p>
+              <p className="text-lg font-bold tracking-tight sr-only">Rivox Admin</p>
               <p className="text-sm text-blue-100/70">Owner operations console</p>
             </div>
           </div>
@@ -93,10 +92,8 @@ export default function AdminLogin() {
         <section className="flex min-h-screen items-center justify-center px-5 py-10 sm:px-8">
           <div className="w-full max-w-md">
             <div className="mb-8 text-center lg:hidden">
-              <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-white text-xl font-black text-slate-950">
-                IK
-              </div>
-              <h1 className="text-2xl font-black">Rivox Admin</h1>
+              <RivoxLogo inverse className="mb-4 justify-center" iconClassName="h-14 w-14" wordmarkClassName="text-2xl" />
+              <h1 className="sr-only">Rivox Admin</h1>
               <p className="mt-1 text-sm text-slate-400">Owner operations console</p>
             </div>
 
