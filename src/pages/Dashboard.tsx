@@ -146,7 +146,7 @@ function QuickActionCard({
   comingSoon?: boolean;
 }) {
   const content = (
-    <div className="card p-5 hover:shadow-md hover:border-slate-300 transition-all duration-300 group cursor-pointer relative overflow-hidden">
+    <div className="group relative cursor-pointer overflow-hidden rounded-2xl border border-slate-200/80 bg-gradient-to-br from-white to-violet-50/40 p-5 shadow-[0_14px_40px_-28px_rgba(79,70,229,.55)] transition-all duration-300 hover:-translate-y-1 hover:border-violet-200 hover:shadow-[0_22px_50px_-24px_rgba(79,70,229,.45)]">
       {comingSoon && (
         <span className="absolute top-3 right-3 text-xs bg-slate-100 text-slate-500 px-2 py-0.5 rounded-full font-medium">
           Coming Soon
@@ -638,12 +638,15 @@ export default function Dashboard() {
       {/* Two Column Layout */}
       <div className="grid gap-6 xl:grid-cols-3">
         {/* Activity Feed */}
-        <div className="lg:col-span-2 card">
-          <div className="p-5 border-b border-slate-100">
-            <h2 className="text-lg font-semibold text-slate-900">
-              Invoice Activity
-            </h2>
-            <p className="text-sm text-slate-500">Recent invoice actions</p>
+        <div className="relative overflow-hidden rounded-[28px] border border-slate-200/80 bg-white shadow-[0_24px_70px_-38px_rgba(30,41,59,.45)] lg:col-span-2">
+          <div className="pointer-events-none absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-violet-600 via-indigo-500 to-cyan-400" />
+          <div className="flex items-center justify-between border-b border-slate-100 p-5">
+            <div>
+              <p className="text-xs font-bold uppercase tracking-[0.18em] text-violet-500">Live workspace</p>
+              <h2 className="mt-1 text-xl font-bold text-slate-950">Recent invoice activity</h2>
+              <p className="text-sm text-slate-500">Latest updates across your billing workflow</p>
+            </div>
+            <Link to="/invoices" className="rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-600 transition hover:border-violet-200 hover:bg-violet-50 hover:text-violet-700">View all</Link>
           </div>
           <div className="p-4">
             {loading ? (
@@ -764,12 +767,12 @@ export default function Dashboard() {
         </div>
 
         {/* Upcoming Due Invoices */}
-        <div className="card">
-          <div className="p-5 border-b border-slate-100">
-            <h2 className="text-lg font-semibold text-slate-900">
-              Upcoming Due
-            </h2>
-            <p className="text-sm text-slate-500">Due within next 7 days</p>
+        <div className="relative overflow-hidden rounded-[28px] border border-slate-200/80 bg-gradient-to-b from-white to-amber-50/25 shadow-[0_24px_70px_-38px_rgba(30,41,59,.45)]">
+          <div className="pointer-events-none absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-amber-400 via-orange-400 to-rose-400" />
+          <div className="border-b border-slate-100 p-5">
+            <p className="text-xs font-bold uppercase tracking-[0.18em] text-amber-600">Cash flow watch</p>
+            <h2 className="mt-1 text-xl font-bold text-slate-950">Upcoming payments</h2>
+            <p className="text-sm text-slate-500">Invoices due within the next 7 days</p>
           </div>
           <div className="p-4">
             {loading ? (
@@ -819,7 +822,7 @@ export default function Dashboard() {
                     <Link
                       key={inv.id}
                       to={`/invoice/${inv.id}`}
-                      className="block p-3 rounded-lg border border-slate-200 hover:border-primary-300 hover:bg-primary-50/30 transition-all group"
+                      className="group block rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm transition-all hover:-translate-y-0.5 hover:border-violet-200 hover:bg-violet-50/40 hover:shadow-md"
                     >
                       <div className="flex items-center justify-between mb-1">
                         <span className="font-medium text-slate-900 text-sm">
@@ -858,7 +861,8 @@ export default function Dashboard() {
       </div>
 
       {/* Quick Actions Panel */}
-      <section className="rounded-[30px] border border-slate-200/80 bg-white/70 p-6 shadow-sm backdrop-blur">
+      <section className="relative overflow-hidden rounded-[30px] border border-slate-200/80 bg-gradient-to-br from-white via-white to-violet-50/60 p-6 shadow-[0_24px_70px_-40px_rgba(79,70,229,.5)] backdrop-blur">
+        <div className="pointer-events-none absolute -right-24 -top-24 h-56 w-56 rounded-full bg-violet-200/35 blur-3xl" />
         <div className="mb-5 flex items-end justify-between">
           <div><p className="text-xs font-bold uppercase tracking-[0.18em] text-violet-500">Move faster</p><h2 className="mt-1 text-xl font-bold text-slate-950">Quick Actions</h2></div>
           <span className="text-sm text-slate-400">Common workflows</span>

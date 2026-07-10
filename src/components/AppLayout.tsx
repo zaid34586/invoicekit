@@ -202,7 +202,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
               </svg>
             </button>
             <NavLink to="/dashboard" className="group flex items-center gap-3">
-              <img src="/rivox-mark.svg" alt="Rivox" className="h-10 w-10 drop-shadow-sm transition-transform duration-200 group-hover:scale-105" />
+              <img src="/favicon.svg" alt="Rivox" className="h-10 w-10 drop-shadow-sm transition-transform duration-200 group-hover:scale-105" />
               <div className="leading-none">
                 <span className="block text-[22px] font-black tracking-[-0.04em] text-slate-950">Rivox</span>
                 <span className="mt-1 block text-[9px] font-bold uppercase tracking-[0.22em] text-violet-500">Business OS</span>
