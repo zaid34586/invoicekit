@@ -54,7 +54,8 @@ function StatCard({
   }
 
   return (
-    <div className="card p-5 hover:shadow-md transition-shadow duration-300">
+    <div className="group relative overflow-hidden rounded-3xl border border-white/80 bg-white p-5 shadow-[0_18px_48px_-28px_rgba(15,23,42,.4)] transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_24px_60px_-25px_rgba(79,70,229,.28)]">
+      <div className="pointer-events-none absolute -right-10 -top-10 h-24 w-24 rounded-full bg-violet-50" />
       <div className="flex items-start justify-between">
         <div>
           <p className="text-sm font-medium text-slate-500 mb-1">{label}</p>
@@ -525,12 +526,15 @@ function exportExcel() {
   ];
 
   return (
-    <div className="max-w-7xl mx-auto space-y-8 animate-fade-in pb-8">
-      {/* Header */}
-      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+    <div className="max-w-[1500px] mx-auto space-y-7 animate-fade-in pb-10">
+      {/* Premium analytics header */}
+      <section className="relative overflow-hidden rounded-[32px] bg-gradient-to-br from-slate-950 via-indigo-950 to-violet-900 p-7 text-white shadow-[0_28px_80px_-30px_rgba(79,70,229,.62)] sm:p-8">
+        <div className="pointer-events-none absolute -right-20 -top-24 h-72 w-72 rounded-full bg-violet-500/25 blur-3xl" />
+      <div className="relative flex flex-col lg:flex-row lg:items-center lg:justify-between gap-5">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">Reports & Analytics</h1>
-          <p className="text-sm text-slate-500 mt-1">
+          <p className="text-xs font-bold uppercase tracking-[0.2em] text-violet-300">Decision center</p>
+          <h1 className="mt-2 text-3xl font-black tracking-tight text-white sm:text-4xl">Reports & Analytics</h1>
+          <p className="mt-2 text-sm text-indigo-100">
             Track your business performance and insights
           </p>
         </div>
@@ -544,8 +548,8 @@ function exportExcel() {
                 onClick={() => setDateFilter(filter)}
                 className={`px-3 py-2 rounded-lg text-sm font-medium transition-all ${
                   dateFilter === filter
-                    ? "bg-primary-600 text-white"
-                    : "bg-white text-slate-600 hover:bg-slate-100 border border-slate-200"
+                    ? "bg-white text-violet-700 shadow-lg"
+                    : "border border-white/15 bg-white/10 text-indigo-100 hover:bg-white/20"
                 }`}
               >
                 {filter === "today" ? "Today" : filter === "week" ? "This Week" : filter === "month" ? "This Month" : "This Year"}
@@ -555,8 +559,8 @@ function exportExcel() {
               onClick={() => setDateFilter("custom")}
               className={`px-3 py-2 rounded-lg text-sm font-medium transition-all ${
                 dateFilter === "custom"
-                  ? "bg-primary-600 text-white"
-                  : "bg-white text-slate-600 hover:bg-slate-100 border border-slate-200"
+                  ? "bg-white text-violet-700 shadow-lg"
+                  : "border border-white/15 bg-white/10 text-indigo-100 hover:bg-white/20"
               }`}
             >
               Custom
@@ -564,9 +568,10 @@ function exportExcel() {
           </div>
         </div>
       </div>
+      </section>
 
       {/* Filters */}
-      <div className="card p-4">
+      <div className="rounded-2xl border border-slate-200/80 bg-white/90 p-4 shadow-sm backdrop-blur">
         <div className="flex flex-wrap items-center gap-4">
           <div className="flex items-center gap-2">
             <label className="text-sm font-medium text-slate-700">Status:</label>
@@ -656,7 +661,7 @@ function exportExcel() {
         <>
           {/* Section 1: Revenue Analytics */}
           <section>
-            <h2 className="text-lg font-semibold text-slate-900 mb-4">Revenue Analytics</h2>
+            <div className="mb-4"><p className="text-xs font-bold uppercase tracking-[0.16em] text-violet-500">Money movement</p><h2 className="mt-1 text-xl font-bold text-slate-950">Revenue Analytics</h2></div>
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
               <StatCard
                 label="Total Revenue"
@@ -711,7 +716,7 @@ function exportExcel() {
 
           {/* Section 2: Invoice Analytics */}
           <section>
-            <h2 className="text-lg font-semibold text-slate-900 mb-4">Invoice Analytics</h2>
+            <div className="mb-4"><p className="text-xs font-bold uppercase tracking-[0.16em] text-blue-500">Invoice pipeline</p><h2 className="mt-1 text-xl font-bold text-slate-950">Invoice Analytics</h2></div>
             <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
               <StatCard
                 label="Total Invoices"
@@ -773,7 +778,7 @@ function exportExcel() {
 
           {/* Section 3: Client Analytics */}
           <section>
-            <h2 className="text-lg font-semibold text-slate-900 mb-4">Client Analytics</h2>
+            <div className="mb-4"><p className="text-xs font-bold uppercase tracking-[0.16em] text-emerald-500">Customer value</p><h2 className="mt-1 text-xl font-bold text-slate-950">Client Analytics</h2></div>
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
               <StatCard
                 label="Total Clients"

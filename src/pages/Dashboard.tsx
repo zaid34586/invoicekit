@@ -50,7 +50,8 @@ function StatCard({
   }
 
   return (
-    <div className="card p-5 hover:shadow-md transition-shadow duration-300 group">
+    <div className="group relative overflow-hidden rounded-3xl border border-white/70 bg-white/90 p-5 shadow-[0_18px_50px_-26px_rgba(15,23,42,.35)] backdrop-blur transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_24px_60px_-24px_rgba(79,70,229,.35)]">
+      <div className="pointer-events-none absolute -right-10 -top-12 h-28 w-28 rounded-full bg-gradient-to-br from-violet-100 to-transparent opacity-80" />
       <div className="flex items-start justify-between">
         <div className="flex-1">
           <p className="text-sm font-medium text-slate-500 mb-1">{label}</p>
@@ -254,7 +255,8 @@ function RevenueChart({
   const total = data.reduce((a, b) => a + b, 0);
 
   return (
-    <div className="card p-6">
+    <div className="relative overflow-hidden rounded-3xl border border-slate-200/80 bg-white p-6 shadow-[0_22px_70px_-35px_rgba(30,41,59,.4)]">
+      <div className="pointer-events-none absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-violet-600 via-indigo-500 to-cyan-400" />
       <div className="flex items-center justify-between mb-6">
         <div>
           <h3 className="text-lg font-semibold text-slate-900">
@@ -388,13 +390,16 @@ export default function Dashboard() {
     : "bg-slate-100 text-slate-600";
 
   return (
-    <div className="max-w-7xl mx-auto space-y-8 animate-fade-in pb-8">
-      {/* Header Section */}
-      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+    <div className="max-w-[1500px] mx-auto space-y-7 animate-fade-in pb-10">
+      {/* Premium hero */}
+      <section className="relative overflow-hidden rounded-[32px] bg-gradient-to-br from-slate-950 via-indigo-950 to-violet-900 px-6 py-7 text-white shadow-[0_28px_80px_-30px_rgba(79,70,229,.65)] sm:px-8">
+        <div className="pointer-events-none absolute -right-24 -top-24 h-72 w-72 rounded-full bg-violet-500/25 blur-3xl" />
+        <div className="pointer-events-none absolute bottom-0 left-1/3 h-32 w-72 rounded-full bg-cyan-400/10 blur-3xl" />
+      <div className="relative flex flex-col lg:flex-row lg:items-center lg:justify-between gap-5">
         <div className="flex items-center gap-4">
           <div>
             <div className="flex items-center gap-3 mb-1">
-              <h1 className="text-2xl font-bold text-slate-900">
+              <h1 className="text-3xl font-black tracking-tight text-white sm:text-4xl">
                 Welcome back{profile?.business_name ? `, ${profile.business_name}` : ""}
               </h1>
               <Link
@@ -404,8 +409,8 @@ export default function Dashboard() {
   {planName}
 </Link>
             </div>
-            <p className="text-slate-500">
-              Here's what's happening with your business today.
+            <p className="mt-2 max-w-xl text-sm text-indigo-100 sm:text-base">
+              A live view of revenue, invoices, clients and the work that needs your attention.
             </p>
           </div>
         </div>
@@ -414,7 +419,7 @@ export default function Dashboard() {
         <div className="flex items-center gap-3">
           <Link
             to="/new"
-            className="btn-primary px-5 py-2.5"
+            className="inline-flex items-center gap-2 rounded-xl bg-white px-5 py-3 font-bold text-violet-700 shadow-lg shadow-black/10 transition hover:-translate-y-0.5 hover:bg-violet-50"
           >
             <svg
               className="w-5 h-5"
@@ -431,7 +436,7 @@ export default function Dashboard() {
             </svg>
             New Invoice
           </Link>
-          <Link to="/clients" className="btn-secondary px-5 py-2.5">
+          <Link to="/clients" className="inline-flex items-center gap-2 rounded-xl border border-white/20 bg-white/10 px-5 py-3 font-semibold text-white backdrop-blur transition hover:bg-white/20">
             <svg
               className="w-5 h-5"
               fill="none"
@@ -449,7 +454,7 @@ export default function Dashboard() {
           </Link>
          <Link
   to="/billing"
-  className="btn-secondary px-5 py-2.5 flex items-center gap-2"
+  className="inline-flex items-center gap-2 rounded-xl border border-white/20 bg-white/10 px-5 py-3 font-semibold text-white backdrop-blur transition hover:bg-white/20"
 >
   <svg
     className="w-5 h-5"
@@ -469,9 +474,10 @@ export default function Dashboard() {
 </Link>
         </div>
       </div>
+      </section>
 
       {/* Analytics Cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-5">
         <StatCard
           label="Total Revenue"
          value={formatMoney(totalRevenue, profile?.currency ?? "USD")}
@@ -630,7 +636,7 @@ export default function Dashboard() {
       </div>
 
       {/* Two Column Layout */}
-      <div className="grid lg:grid-cols-3 gap-6">
+      <div className="grid gap-6 xl:grid-cols-3">
         {/* Activity Feed */}
         <div className="lg:col-span-2 card">
           <div className="p-5 border-b border-slate-100">
@@ -852,10 +858,11 @@ export default function Dashboard() {
       </div>
 
       {/* Quick Actions Panel */}
-      <div>
-        <h2 className="text-lg font-semibold text-slate-900 mb-4">
-          Quick Actions
-        </h2>
+      <section className="rounded-[30px] border border-slate-200/80 bg-white/70 p-6 shadow-sm backdrop-blur">
+        <div className="mb-5 flex items-end justify-between">
+          <div><p className="text-xs font-bold uppercase tracking-[0.18em] text-violet-500">Move faster</p><h2 className="mt-1 text-xl font-bold text-slate-950">Quick Actions</h2></div>
+          <span className="text-sm text-slate-400">Common workflows</span>
+        </div>
         <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
           <QuickActionCard
             title="Create Invoice"
@@ -963,7 +970,7 @@ export default function Dashboard() {
             comingSoon
           />
         </div>
-      </div>
+      </section>
 
       {/* Free Plan Banner */}
       {!isPro && (

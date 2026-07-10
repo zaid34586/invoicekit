@@ -1,6 +1,1 @@
-<svg width="240" height="64" viewBox="0 0 240 64" fill="none" xmlns="http://www.w3.org/2000/svg">
-  <defs><linearGradient id="g" x1="4" y1="4" x2="60" y2="60" gradientUnits="userSpaceOnUse"><stop stop-color="#6366F1"/><stop offset="0.55" stop-color="#4F46E5"/><stop offset="1" stop-color="#6D28D9"/></linearGradient></defs>
-  <rect x="2" y="2" width="60" height="60" rx="18" fill="url(#g)"/>
-  <path d="M17 17H47L27.5 32H47L17 47L31.5 32H17V17Z" fill="white"/>
-  <text x="78" y="44" font-family="Inter, Arial, sans-serif" font-size="38" font-weight="800" letter-spacing="-1.8" fill="#0F172A">Rivox</text>
-</svg>
+<svg width="260" height="64" viewBox="0 0 260 64" fill="none" xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="a" x1="8" y1="5" x2="57" y2="61" gradientUnits="userSpaceOnUse"><stop stop-color="#7C3AED"/><stop offset=".52" stop-color="#4F46E5"/><stop offset="1" stop-color="#0EA5E9"/></linearGradient><linearGradient id="b" x1="21" y1="17" x2="45" y2="48" gradientUnits="userSpaceOnUse"><stop stop-color="white"/><stop offset="1" stop-color="#DDD6FE"/></linearGradient></defs><rect x="3" y="3" width="58" height="58" rx="19" fill="url(#a)"/><path d="M19 18.5h17.8c7.6 0 12.2 3.8 12.2 10.1 0 4.8-2.8 8-7.5 9.2L49 46H38.5l-6.4-7.2H29V46H19V18.5Zm10 7.7v5.5h7.2c2 0 3.1-.9 3.1-2.7 0-1.9-1.1-2.8-3.1-2.8H29Z" fill="url(#b)"/><circle cx="48" cy="17" r="4" fill="#67E8F9"/><text x="77" y="44" font-family="Inter,Arial,sans-serif" font-size="38" font-weight="850" letter-spacing="-1.8" fill="#0F172A">Rivox</text></svg>

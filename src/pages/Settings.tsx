@@ -56,6 +56,7 @@ export default function Settings() {
   const [uploading, setUploading] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const [businessStats, setBusinessStats] = useState({ clients: 0, invoices: 0, revenue: 0, paid: 0 });
 
   // Auto-derived from businessCountry — never manually edited
   const config = getConfig(businessCountry);
@@ -74,6 +75,22 @@ export default function Settings() {
       setLogoUrl(profile.logo_url ?? null);
     }
   }, [profile]);
+
+
+  useEffect(() => {
+    async function loadBusinessStats() {
+      if (!user) return;
+      const [invoiceRes, clientRes] = await Promise.all([
+        supabase.from("invoices").select("status,total,invoice_total").eq("user_id", user.id),
+        supabase.from("clients").select("id").eq("user_id", user.id),
+      ]);
+      const rows = invoiceRes.data ?? [];
+      const paidRows = rows.filter((row) => row.status === "paid");
+      const revenue = paidRows.reduce((sum, row) => sum + Number(row.invoice_total ?? row.total ?? 0), 0);
+      setBusinessStats({ clients: clientRes.data?.length ?? 0, invoices: rows.length, revenue, paid: paidRows.length });
+    }
+    loadBusinessStats();
+  }, [user]);
 
   // When country changes: reset state (old state may not belong to new country)
   function handleCountryChange(newCountry: string) {
@@ -210,6 +227,17 @@ export default function Settings() {
               <div className="flex items-center justify-between"><h3 className="font-semibold text-slate-900">Profile status</h3><span className="rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-semibold text-emerald-700">Active</span></div>
               <div className="mt-5 h-2 rounded-full bg-white"><div className="h-full w-full rounded-full bg-gradient-to-r from-violet-600 to-indigo-500" /></div>
               <p className="mt-3 text-sm text-slate-600">Your business profile is ready and will appear on new invoices.</p>
+            </div>
+            <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+              <div className="flex items-center justify-between"><div><p className="text-xs font-bold uppercase tracking-[0.16em] text-violet-500">Business health</p><h3 className="mt-1 font-semibold text-slate-900">Live workspace summary</h3></div><span className="rounded-xl bg-violet-50 px-3 py-1 text-xs font-bold text-violet-700">Rivox</span></div>
+              <div className="mt-5 grid grid-cols-2 gap-3">
+                {[
+                  ["Clients", businessStats.clients.toLocaleString()],
+                  ["Invoices", businessStats.invoices.toLocaleString()],
+                  ["Paid", businessStats.paid.toLocaleString()],
+                  ["Revenue", new Intl.NumberFormat(undefined,{style:"currency",currency:config.currency,maximumFractionDigits:0}).format(businessStats.revenue)],
+                ].map(([label,value]) => <div key={label} className="rounded-2xl border border-slate-100 bg-slate-50 p-4"><p className="text-xs font-medium text-slate-400">{label}</p><p className="mt-1 text-lg font-black text-slate-950">{value}</p></div>)}
+              </div>
             </div>
             <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
               <h3 className="font-semibold text-slate-900">Applied automatically</h3>

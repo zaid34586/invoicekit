@@ -18,10 +18,10 @@ function NavItem({
       to={to}
       onClick={onClick}
       className={({ isActive }) =>
-        `flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all ${
+        `group flex items-center gap-3 px-3 py-3 rounded-xl text-sm font-semibold transition-all duration-200 ${
           isActive
-            ? "bg-primary-50 text-primary-700"
-            : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
+            ? "bg-gradient-to-r from-violet-600 to-indigo-600 text-white shadow-lg shadow-violet-200/70"
+            : "text-slate-600 hover:bg-violet-50 hover:text-violet-700"
         }`
       }
     >
@@ -166,7 +166,8 @@ function UserMenu() {
 
 function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
   return (
-    <nav className="flex flex-col gap-1 px-3 py-4">
+    <nav className="flex flex-col gap-1.5 px-4 py-6">
+      <div className="mb-3 px-3 text-[10px] font-bold uppercase tracking-[0.2em] text-slate-400">Workspace</div>
       <NavItem to="/dashboard" icon={<svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" /></svg>} label="Dashboard" onClick={onNavigate} />
       <NavItem to="/new" icon={<svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" /></svg>} label="New Invoice" onClick={onNavigate} />
       <NavItem to="/invoices" icon={<svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" /></svg>} label="All Invoices" onClick={onNavigate} />
@@ -187,9 +188,9 @@ export default function AppLayout({ children }: { children: ReactNode }) {
   }, [location.pathname]);
 
   return (
-    <div className="min-h-screen bg-slate-50">
-      <header className="sticky top-0 z-40 bg-white border-b border-slate-200">
-        <div className="flex items-center justify-between h-16 px-4 sm:px-6">
+    <div className="min-h-screen bg-[radial-gradient(circle_at_top_right,_rgba(124,58,237,0.08),_transparent_30%),linear-gradient(to_bottom,#f8fafc,#f1f5f9)]">
+      <header className="sticky top-0 z-40 border-b border-slate-200/80 bg-white/90 backdrop-blur-xl">
+        <div className="flex items-center justify-between h-[72px] px-4 sm:px-7">
           <div className="flex items-center gap-3">
             <button
               onClick={() => setSidebarOpen(!sidebarOpen)}
@@ -200,11 +201,12 @@ export default function AppLayout({ children }: { children: ReactNode }) {
                 <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" />
               </svg>
             </button>
-            <NavLink to="/dashboard" className="flex items-center gap-2">
-              <div className="w-9 h-9 bg-primary-600 rounded-lg flex items-center justify-center">
-                <span className="text-white text-lg font-bold">⚡</span>
+            <NavLink to="/dashboard" className="group flex items-center gap-3">
+              <img src="/rivox-mark.svg" alt="Rivox" className="h-10 w-10 drop-shadow-sm transition-transform duration-200 group-hover:scale-105" />
+              <div className="leading-none">
+                <span className="block text-[22px] font-black tracking-[-0.04em] text-slate-950">Rivox</span>
+                <span className="mt-1 block text-[9px] font-bold uppercase tracking-[0.22em] text-violet-500">Business OS</span>
               </div>
-              <span className="text-xl font-bold text-slate-900">Rivox</span>
             </NavLink>
           </div>
           <UserMenu />
@@ -212,7 +214,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
       </header>
 
       <div className="flex">
-        <aside className="hidden lg:block w-60 flex-shrink-0 bg-white border-r border-slate-200 min-h-[calc(100vh-4rem)] sticky top-16">
+        <aside className="hidden lg:block w-64 flex-shrink-0 border-r border-slate-200/80 bg-white/85 backdrop-blur-xl min-h-[calc(100vh-4.5rem)] sticky top-[72px]">
           <SidebarContent />
         </aside>
 
