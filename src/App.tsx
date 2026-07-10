@@ -19,6 +19,7 @@ import Account from "./pages/Account";
 import Billing from "./pages/Billing";
 import Reports from "./pages/Reports";
 import Settings from "./pages/Settings";
+import Support from "./pages/Support";
 import Admin from "./pages/Admin";
 import AdminLogin from "./pages/AdminLogin";
 import StaffLogin from "./pages/StaffLogin";
@@ -280,6 +281,14 @@ export default function App() {
         element={
           <ProtectedRoute>
             <AppLayout><Settings /></AppLayout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/support"
+        element={
+          <ProtectedRoute>
+            <AppLayout><Support /></AppLayout>
           </ProtectedRoute>
         }
       />
