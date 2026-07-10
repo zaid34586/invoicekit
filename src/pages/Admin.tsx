@@ -6,13 +6,18 @@ import { ADMIN_EMAIL, FREE_PLAN_LIMIT, formatDate } from "../lib/constants";
 import { formatMoney } from "../lib/currency";
 import type { Profile, Invoice, Client } from "../lib/types";
 import StatusBadge from "../components/StatusBadge";
+import RivoxLogo from "../components/RivoxLogo";
+import AdminSubscriptionManager from "../components/AdminSubscriptionManager";
+import CommunicationCenter from "../components/CommunicationCenter";
 
 type AdminSection =
   | "dashboard"
   | "users"
   | "credits"
+  | "subscriptions"
   | "team"
   | "tasks"
+  | "communication"
   | "finance"
   | "invoices"
   | "analytics"
@@ -136,8 +141,10 @@ const sections: { id: AdminSection; label: string; icon: string; group: string }
   { id: "dashboard", label: "Dashboard", icon: "📊", group: "Overview" },
   { id: "users", label: "Users", icon: "👥", group: "Users" },
   { id: "credits", label: "Invoice Balance & Plans", icon: "💳", group: "Users" },
+  { id: "subscriptions", label: "Pricing & Offers", icon: "🏷️", group: "Money" },
   { id: "team", label: "Team Members", icon: "👨‍💼", group: "Operations" },
   { id: "tasks", label: "Tasks", icon: "📋", group: "Operations" },
+  { id: "communication", label: "Communication", icon: "💬", group: "Operations" },
   { id: "finance", label: "Revenue & Finance", icon: "💰", group: "Money" },
   { id: "invoices", label: "All Invoices", icon: "📄", group: "Money" },
   { id: "analytics", label: "Analytics", icon: "📈", group: "Insights" },
@@ -1257,7 +1264,18 @@ export default function Admin() {
   }, [profiles, invoices, finance]);
 
   return (
-    <div className="grid lg:grid-cols-[260px_1fr] gap-6 animate-fade-in">
+    <div className="space-y-5 animate-fade-in">
+      <div className="flex flex-col gap-4 rounded-3xl border border-slate-200 bg-white/90 p-5 shadow-sm backdrop-blur sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-center gap-4">
+          <RivoxLogo showWordmark iconClassName="w-12 h-12" wordmarkClassName="text-2xl text-slate-950" />
+          <div className="hidden sm:block border-l border-slate-200 pl-4">
+            <p className="text-sm font-black text-slate-950">Owner Administration</p>
+            <p className="text-xs text-slate-500">Subscriptions, users, staff and operations</p>
+          </div>
+        </div>
+        <div className="rounded-2xl bg-slate-950 px-4 py-2 text-sm font-bold text-white">Rivox Command Center</div>
+      </div>
+      <div className="grid lg:grid-cols-[260px_1fr] gap-6">
       <aside className="lg:sticky lg:top-6 h-fit">
         <Card className="p-3 overflow-hidden">
           <div className="px-3 py-3 border-b border-slate-100 mb-2">
@@ -1356,6 +1374,12 @@ export default function Admin() {
               </Card>
             </div>
           </section>
+        )}
+
+        {active === "subscriptions" && <AdminSubscriptionManager />}
+
+        {active === "communication" && (
+          <CommunicationCenter actorName={user?.email || "Owner Admin"} actorRole="Owner Admin" canManageChannels />
         )}
 
         {active === "users" && (
@@ -2445,6 +2469,7 @@ export default function Admin() {
         )}
 
       </main>
+      </div>
     </div>
   );
 }

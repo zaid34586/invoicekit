@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "../context/AuthContext";
 import { supabase } from "../lib/supabase";
 import { hasStaffPermission, STAFF_ROLE_LABELS, type StaffMember, type StaffRole } from "../lib/staffPermissions";
+import CommunicationCenter from "../components/CommunicationCenter";
 
 interface TaskRow { id: string; title: string; description?: string | null; status: string; priority: string; due_date: string | null; progress?: number | null; staff_notes?: string | null; internal_notes?: string | null; department?: string | null; last_staff_update?: string | null; }
 interface TicketRow { id: string; subject: string; message?: string | null; status: string; priority: string; created_at: string; staff_notes?: string | null; }
@@ -385,6 +386,18 @@ export default function StaffDashboard() {
     </Section>;
   }
 
+
+  function CommunicationPage() {
+    if (!hasStaffPermission(role, "communication")) return <Blocked />;
+    return (
+      <CommunicationCenter
+        actorName={staff?.name || user?.email || "Staff"}
+        actorRole={role ? STAFF_ROLE_LABELS[role] : "Staff"}
+        canManageChannels={role === "full_access"}
+      />
+    );
+  }
+
   function NotificationsPage() {
     return <Section title="Notifications" subtitle="Unread role and task updates." actions={notifications.length > 0 && <button onClick={markAllNotificationsRead} className="rounded-2xl bg-slate-950 text-white px-4 py-2 text-sm font-bold">Mark all read</button>}>
       <div className="divide-y divide-slate-100">{notifications.length === 0 ? <div className="p-10 text-center text-slate-500">No unread notifications.</div> : notifications.map(n => <div key={n.id} className="p-5 flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4"><div><div className="font-black text-slate-950">{n.title}</div>{n.body && <div className="text-sm text-slate-500 mt-1">{n.body}</div>}<div className="text-xs text-slate-400 mt-2">{new Date(n.created_at).toLocaleString()} • {n.type.replace("_", " ")}</div></div><button onClick={() => markNotificationRead(n.id)} className="rounded-2xl border border-slate-200 px-4 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50">Mark read</button></div>)}</div>
@@ -416,6 +429,7 @@ export default function StaffDashboard() {
   if (active === "users") return <UsersPage />;
   if (active === "finance") return <FinancePage />;
   if (active === "reports") return <ReportsPage />;
+  if (active === "communication") return <CommunicationPage />;
   if (active === "notifications") return <NotificationsPage />;
   if (active === "profile") return <ProfilePage />;
   if (active === "settings") return <SettingsPage />;

@@ -18,6 +18,7 @@ export type StaffPermission =
   | "tasks"
   | "finance"
   | "reports"
+  | "communication"
   | "read_only";
 
 export const STAFF_ROLE_LABELS: Record<StaffRole, string> = {
@@ -29,11 +30,11 @@ export const STAFF_ROLE_LABELS: Record<StaffRole, string> = {
 };
 
 export const STAFF_ROLE_PERMISSIONS: Record<StaffRole, StaffPermission[]> = {
-  full_access: ["dashboard", "users", "tickets", "tasks", "finance", "reports"],
-  limited: ["dashboard", "users", "tickets", "tasks"],
-  support: ["dashboard", "users", "tickets", "tasks"],
-  finance: ["dashboard", "finance", "reports", "tasks"],
-  viewer: ["dashboard", "read_only", "reports"],
+  full_access: ["dashboard", "users", "tickets", "tasks", "finance", "reports", "communication"],
+  limited: ["dashboard", "users", "tickets", "tasks", "communication"],
+  support: ["dashboard", "users", "tickets", "tasks", "communication"],
+  finance: ["dashboard", "finance", "reports", "tasks", "communication"],
+  viewer: ["dashboard", "read_only", "reports", "communication"],
 };
 
 export function hasStaffPermission(role: StaffRole | null | undefined, permission: StaffPermission) {

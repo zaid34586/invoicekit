@@ -12,6 +12,7 @@ const navBase = [
   { key: "users", label: "Users", icon: "👥" },
   { key: "finance", label: "Finance", icon: "💰" },
   { key: "reports", label: "Reports", icon: "📈" },
+  { key: "communication", label: "Communication", icon: "💬" },
   { key: "notifications", label: "Notifications", icon: "🔔" },
   { key: "profile", label: "Profile", icon: "👤" },
   { key: "settings", label: "Settings", icon: "⚙️" },
@@ -60,7 +61,7 @@ export default function StaffLayout({ children }: { children: ReactNode }) {
 
   const role = staff?.role ?? "viewer";
   const navItems = useMemo(
-    () => navBase.filter((item) => ["dashboard", "notifications", "profile", "settings"].includes(item.key) || hasStaffPermission(role, item.key as any)),
+    () => navBase.filter((item) => ["dashboard", "communication", "notifications", "profile", "settings"].includes(item.key) || hasStaffPermission(role, item.key as any)),
     [role]
   );
 
@@ -70,11 +71,8 @@ export default function StaffLayout({ children }: { children: ReactNode }) {
         <aside className="hidden lg:flex w-80 bg-slate-950 text-white flex-col fixed inset-y-0 left-0">
           <div className="p-6 border-b border-white/10">
             <div className="flex items-center gap-3">
-              <RivoxLogo showWordmark={false} iconClassName="w-11 h-11" />
-              <div>
-                <div className="font-bold text-lg">Rivox Staff</div>
-                <div className="text-xs text-slate-400">Team operations portal</div>
-              </div>
+              <RivoxLogo showWordmark iconClassName="w-11 h-11" wordmarkClassName="text-xl text-white" />
+              <div className="sr-only">Rivox Staff portal</div>
             </div>
           </div>
 

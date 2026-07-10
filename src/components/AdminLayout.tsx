@@ -18,7 +18,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
         <div className="w-full flex items-center justify-between h-16 px-4 sm:px-6 lg:px-8">
           <div className="flex items-center gap-3">
             <div className="relative">
-              <RivoxLogo showWordmark={false} iconClassName="w-10 h-10" />
+              <RivoxLogo showWordmark iconClassName="w-10 h-10" wordmarkClassName="text-lg text-slate-950" />
               <span className="absolute -right-1 -top-1 h-3 w-3 rounded-full border-2 border-white bg-emerald-500" />
             </div>
             <div>
