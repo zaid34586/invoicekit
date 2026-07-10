@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 220 56" role="img" aria-label="Rivox logo">
+  <defs><linearGradient id="a" x1="4" y1="4" x2="52" y2="52" gradientUnits="userSpaceOnUse"><stop stop-color="#2563EB"/><stop offset="1" stop-color="#7C3AED"/></linearGradient></defs>
+  <rect x="0" y="0" width="56" height="56" rx="15" fill="#07111F"/>
+  <path d="M14 13h16c8 0 13 4.4 13 11.3 0 4.7-2.5 8.2-6.7 10l7.5 8.7H33.3l-6.5-6H23v6h-9V13Zm9 7v10h6.5c3 0 4.8-1.8 4.8-5s-1.8-5-4.8-5H23Z" fill="url(#a)"/>
+  <text x="72" y="38" font-family="Inter,Arial,sans-serif" font-size="34" font-weight="800" letter-spacing="-1" fill="#0F172A">Rivox</text>
+</svg>

@@ -1,0 +1,9 @@
+Rivox rebrand patch
+
+This patch changes public branding from InvoiceKit to Rivox across customer, admin, staff, PDF, reports, emails, metadata, package identity, and domain placeholders.
+
+Important:
+- The current Vercel production URL in src/config/env.ts was intentionally kept unchanged so the existing deployment does not break.
+- Internal auth metadata keys such as invoicekit_banned were intentionally kept unchanged for database compatibility.
+- Future custom domains are set as app.rivox.com, admin.rivox.com, and staff.rivox.com placeholders.
+- Build verified with npm run build.

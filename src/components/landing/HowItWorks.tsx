@@ -23,7 +23,7 @@ export default function HowItWorks() {
 
         <div className="text-center">
           <h2 className="text-4xl font-bold text-slate-900">
-            How InvoiceKit Works
+            How Rivox Works
           </h2>
 
           <p className="mt-4 text-slate-600">

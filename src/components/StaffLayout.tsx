@@ -71,7 +71,7 @@ export default function StaffLayout({ children }: { children: ReactNode }) {
             <div className="flex items-center gap-3">
               <div className="w-11 h-11 rounded-2xl bg-white text-slate-950 flex items-center justify-center font-black">IK</div>
               <div>
-                <div className="font-bold text-lg">InvoiceKit Staff</div>
+                <div className="font-bold text-lg">Rivox Staff</div>
                 <div className="text-xs text-slate-400">Team operations portal</div>
               </div>
             </div>
@@ -111,7 +111,7 @@ export default function StaffLayout({ children }: { children: ReactNode }) {
         <div className="flex-1 lg:pl-80">
           <header className="sticky top-0 z-20 bg-white/90 backdrop-blur border-b border-slate-200">
             <div className="h-16 px-4 sm:px-6 lg:px-8 flex items-center justify-between">
-              <div className="lg:hidden font-bold text-slate-950">InvoiceKit Staff</div>
+              <div className="lg:hidden font-bold text-slate-950">Rivox Staff</div>
               <div className="hidden lg:block">
                 <div className="text-sm text-slate-500">Staff workspace</div>
                 <div className="font-semibold text-slate-950 capitalize">{active.replace("_", " ")}</div>

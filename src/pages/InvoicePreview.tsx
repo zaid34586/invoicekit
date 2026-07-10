@@ -172,7 +172,7 @@ export default function InvoicePreview() {
 
   function handleEmail() {
     if (!invoice || !profile) return;
-    const subject = `Invoice ${invoice.invoice_number} from ${profile.business_name || "InvoiceKit"}`;
+    const subject = `Invoice ${invoice.invoice_number} from ${profile.business_name || "Rivox"}`;
     const body =
       `Hello ${invoice.client_name},\n\n` +
       `Please find your invoice details below:\n\n` +
@@ -717,7 +717,7 @@ invoice.client_country ?? "United States",
           </p>
           {!profile?.is_pro && (
             <p className="text-xs text-slate-400 mt-2">
-              Created with InvoiceKit
+              Created with Rivox
             </p>
           )}
         </div>

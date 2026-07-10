@@ -62,7 +62,7 @@ export default function Login() {
                 <span className="text-white text-xl font-bold">IK</span>
               </div>
               <span className="text-2xl font-bold text-slate-900">
-                InvoiceKit
+                Rivox
               </span>
             </Link>
           </div>

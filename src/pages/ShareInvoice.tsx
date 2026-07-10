@@ -97,7 +97,7 @@ export default function ShareInvoice() {
             <div className="w-8 h-8 bg-primary-600 rounded-lg flex items-center justify-center">
               <span className="text-white text-sm font-bold">⚡</span>
             </div>
-            <span className="font-bold text-slate-900">InvoiceKit</span>
+            <span className="font-bold text-slate-900">Rivox</span>
           </div>
           {invoice.status !== "paid" && invoice.status !== "draft" && (
             <button
@@ -322,7 +322,7 @@ export default function ShareInvoice() {
             </p>
             {!profile?.is_pro && (
               <p className="text-xs text-slate-400 mt-2">
-                Created with InvoiceKit
+                Created with Rivox
               </p>
             )}
           </div>
@@ -331,7 +331,7 @@ export default function ShareInvoice() {
         <p className="text-center text-xs text-slate-400">
           Powered by{" "}
           <Link to="/" className="text-primary-600 font-medium hover:underline">
-            InvoiceKit
+            Rivox
           </Link>
         </p>
       </div>

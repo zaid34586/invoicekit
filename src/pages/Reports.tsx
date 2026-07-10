@@ -379,7 +379,7 @@ function exportPDF() {
   const doc = new jsPDF();
 
   doc.setFontSize(18);
-  doc.text("InvoiceKit Reports", 20, 20);
+  doc.text("Rivox Reports", 20, 20);
 
   doc.setFontSize(12);
 

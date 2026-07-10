@@ -372,7 +372,7 @@ export function generateInvoicePDF(
     doc.setFont("helvetica", "normal");
     doc.setFontSize(8);
     doc.setTextColor(...gray);
-    doc.text("Created with InvoiceKit", pageWidth / 2, pageHeight - 32, {
+    doc.text("Created with Rivox", pageWidth / 2, pageHeight - 32, {
       align: "center",
     });
   }

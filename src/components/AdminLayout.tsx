@@ -25,7 +25,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
               <span className="absolute -right-1 -top-1 h-3 w-3 rounded-full border-2 border-white bg-emerald-500" />
             </div>
             <div>
-              <span className="font-black text-sm block leading-tight text-slate-950">InvoiceKit Admin</span>
+              <span className="font-black text-sm block leading-tight text-slate-950">Rivox Admin</span>
               <span className="text-[11px] text-slate-500 hidden sm:block">Premium owner command center</span>
             </div>
           </div>

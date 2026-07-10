@@ -109,7 +109,7 @@ export default function Signup() {
               <div className="w-10 h-10 bg-primary-600 rounded-lg flex items-center justify-center">
                 <span className="text-white text-xl font-bold">IK</span>
               </div>
-              <span className="text-2xl font-bold text-slate-900">InvoiceKit</span>
+              <span className="text-2xl font-bold text-slate-900">Rivox</span>
             </Link>
           </div>
 

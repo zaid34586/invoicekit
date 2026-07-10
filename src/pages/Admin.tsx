@@ -120,7 +120,7 @@ type AdminSystemSettings = {
 
 const DEFAULT_SYSTEM_SETTINGS: AdminSystemSettings = {
   maintenance_mode: false,
-  maintenance_message: "We are improving InvoiceKit. Please check back soon.",
+  maintenance_message: "We are improving Rivox. Please check back soon.",
   allow_admin_bypass: true,
   public_signup: true,
   invoice_sharing: true,
@@ -682,7 +682,7 @@ export default function Admin() {
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = `invoicekit-users-${new Date().toISOString().slice(0, 10)}.csv`;
+    link.download = `rivox-users-${new Date().toISOString().slice(0, 10)}.csv`;
     document.body.appendChild(link);
     link.click();
     link.remove();
@@ -1645,7 +1645,7 @@ export default function Admin() {
                   <button className="btn-primary w-full" type="submit">Create Team Member + Send Email</button>
                 </form>
                 <div className="text-xs text-slate-500 mt-3 space-y-1">
-                  <p>Staff portal URL: <b>https://staff.invoicekit.com</b></p>
+                  <p>Staff portal URL: <b>https://staff.rivox.com</b></p>
                   <p>Email automation ke liye Supabase secret <b>RESEND_API_KEY</b> set hona chahiye. Function create hote hi staff ko login URL, email aur temporary password bhejega.</p>
                 </div>
               </Card>
@@ -1727,7 +1727,7 @@ export default function Admin() {
                         <Info label="Auth User" value={selectedTeam.auth_user_id ? "Created" : "Not linked"} />
                         <Info label="Temp Password" value={selectedTeam.temporary_password || "—"} />
                         <Info label="Invite Email" value={selectedTeam.invite_status ? `${selectedTeam.invite_status}${selectedTeam.invite_email_sent_at ? ` • ${formatDate(selectedTeam.invite_email_sent_at)}` : ""}` : "—"} />
-                        <Info label="Staff Portal" value={selectedTeam.staff_portal_url || "https://staff.invoicekit.com"} />
+                        <Info label="Staff Portal" value={selectedTeam.staff_portal_url || "https://staff.rivox.com"} />
                       </div>
                       <div className="rounded-xl bg-slate-50 border border-slate-100 p-4">
                         <p className="text-xs font-semibold text-slate-500 uppercase mb-2">Allowed Modules</p>
@@ -2261,7 +2261,7 @@ export default function Admin() {
                 </div>
                 <button
                   className="btn-secondary"
-                  onClick={() => exportCsv(qaChecks.checks.map((item) => ({ Area: item.area, Check: item.check, Status: item.status, Detail: item.detail })), `invoicekit-production-qa-${new Date().toISOString().slice(0, 10)}.csv`)}
+                  onClick={() => exportCsv(qaChecks.checks.map((item) => ({ Area: item.area, Check: item.check, Status: item.status, Detail: item.detail })), `rivox-production-qa-${new Date().toISOString().slice(0, 10)}.csv`)}
                 >
                   Export QA CSV
                 </button>

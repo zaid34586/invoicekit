@@ -2,8 +2,8 @@ import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const ADMIN_EMAIL = "mz7123272@gmail.com";
-const DEFAULT_STAFF_PORTAL_URL = "https://staff.invoicekit.com";
-const DEFAULT_ADMIN_PORTAL_URL = "https://admin.invoicekit.com";
+const DEFAULT_STAFF_PORTAL_URL = "https://staff.rivox.com";
+const DEFAULT_ADMIN_PORTAL_URL = "https://admin.rivox.com";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -43,19 +43,19 @@ function buildWelcomeEmail(params: {
   const safeStaffUrl = escapeHtml(params.staffPortalUrl);
   const safeAdminUrl = escapeHtml(params.adminPortalUrl);
 
-  const subject = "Welcome to InvoiceKit Staff Portal";
-  const text = `Hello ${displayName},\n\nYour InvoiceKit staff account has been created.\n\nStaff portal: ${params.staffPortalUrl}\nEmail: ${params.email}\nTemporary password: ${params.password}\nRole: ${params.role}\n\nLogin using the staff portal only. The owner admin portal is separate: ${params.adminPortalUrl}\n\nPlease change your password after first login.\n\nInvoiceKit Team`;
+  const subject = "Welcome to Rivox Staff Portal";
+  const text = `Hello ${displayName},\n\nYour Rivox staff account has been created.\n\nStaff portal: ${params.staffPortalUrl}\nEmail: ${params.email}\nTemporary password: ${params.password}\nRole: ${params.role}\n\nLogin using the staff portal only. The owner admin portal is separate: ${params.adminPortalUrl}\n\nPlease change your password after first login.\n\nRivox Team`;
 
   const html = `
   <div style="font-family:Inter,Arial,sans-serif;background:#f8fafc;padding:32px;color:#0f172a;">
     <div style="max-width:640px;margin:0 auto;background:#ffffff;border:1px solid #e2e8f0;border-radius:18px;overflow:hidden;">
       <div style="background:#4f46e5;color:#fff;padding:26px 30px;">
-        <h1 style="margin:0;font-size:24px;">Welcome to InvoiceKit</h1>
+        <h1 style="margin:0;font-size:24px;">Welcome to Rivox</h1>
         <p style="margin:8px 0 0;color:#e0e7ff;">Your staff account is ready.</p>
       </div>
       <div style="padding:30px;">
         <p style="font-size:16px;line-height:1.6;">Hello <b>${safeName}</b>,</p>
-        <p style="font-size:15px;line-height:1.6;">Your InvoiceKit staff account has been created. Use the details below to sign in.</p>
+        <p style="font-size:15px;line-height:1.6;">Your Rivox staff account has been created. Use the details below to sign in.</p>
         <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:14px;padding:18px;margin:22px 0;">
           <p style="margin:0 0 10px;font-size:14px;"><b>Staff Portal</b><br><a href="${safeStaffUrl}" style="color:#4f46e5;">${safeStaffUrl}</a></p>
           <p style="margin:0 0 10px;font-size:14px;"><b>Email</b><br>${safeEmail}</p>
@@ -96,7 +96,7 @@ async function sendWelcomeEmail(params: {
     };
   }
 
-  const from = Deno.env.get("STAFF_INVITE_FROM") || "InvoiceKit <onboarding@resend.dev>";
+  const from = Deno.env.get("STAFF_INVITE_FROM") || "Rivox <onboarding@resend.dev>";
   const email = buildWelcomeEmail({
     name: params.name,
     email: params.to,

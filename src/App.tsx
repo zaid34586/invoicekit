@@ -19,7 +19,6 @@ import Account from "./pages/Account";
 import Billing from "./pages/Billing";
 import Reports from "./pages/Reports";
 import Settings from "./pages/Settings";
-import Support from "./pages/Support";
 import Admin from "./pages/Admin";
 import AdminLogin from "./pages/AdminLogin";
 import StaffLogin from "./pages/StaffLogin";
@@ -34,8 +33,8 @@ import { ADMIN_EMAIL } from "./lib/constants";
 function getPortalHost() {
   const host = window.location.hostname.toLowerCase();
   return {
-    isStaffHost: host === "staff.invoicekit.com" || host.startsWith("staff."),
-    isAdminHost: host === "admin.invoicekit.com" || host.startsWith("admin."),
+    isStaffHost: host === "staff.rivox.com" || host.startsWith("staff."),
+    isAdminHost: host === "admin.rivox.com" || host.startsWith("admin."),
   };
 }
 
@@ -281,14 +280,6 @@ export default function App() {
         element={
           <ProtectedRoute>
             <AppLayout><Settings /></AppLayout>
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/support"
-        element={
-          <ProtectedRoute>
-            <AppLayout><Support /></AppLayout>
           </ProtectedRoute>
         }
       />

@@ -2,7 +2,7 @@ import { useState } from "react";
 
 const faqs = [
   {
-    question: "Is InvoiceKit free to use?",
+    question: "Is Rivox free to use?",
     answer:
       "Yes. You can create up to 3 invoices every month on the Free plan."
   },
@@ -12,9 +12,9 @@ const faqs = [
       "Yes. Every invoice can be downloaded as a professional PDF."
   },
   {
-    question: "Does InvoiceKit support GST?",
+    question: "Does Rivox support GST?",
     answer:
-      "Yes. InvoiceKit supports GSTIN, HSN/SAC, CGST, SGST and IGST."
+      "Yes. Rivox supports GSTIN, HSN/SAC, CGST, SGST and IGST."
   },
   {
     question: "Can I send invoices by Email or WhatsApp?",
@@ -41,7 +41,7 @@ export default function FAQ() {
           </h2>
 
           <p className="mt-4 text-slate-600">
-            Everything you need to know about InvoiceKit.
+            Everything you need to know about Rivox.
           </p>
         </div>
 

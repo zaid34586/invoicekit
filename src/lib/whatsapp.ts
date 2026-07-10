@@ -29,7 +29,7 @@ export function buildWhatsAppLink(invoice: Invoice, profile: Profile): string {
     `Hello ${invoice.client_name}, your invoice ${invoice.invoice_number} ` +
     `for ${amount} is ready. Due: ${formatDate(invoice.due_date)}. ` +
     `Items: ${itemsList}. Total (incl ${taxLabel}): ${amount}. ` +
-    `Thanks, ${profile.business_name || "InvoiceKit User"}`;
+    `Thanks, ${profile.business_name || "Rivox User"}`;
 
   return `https://wa.me/${phone}?text=${encodeURIComponent(message)}`;
 }

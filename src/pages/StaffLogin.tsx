@@ -55,7 +55,7 @@ export default function StaffLogin() {
           <div className="flex items-center gap-3">
             <div className="w-12 h-12 rounded-2xl bg-white text-slate-950 flex items-center justify-center font-black">IK</div>
             <div>
-              <div className="font-black text-xl">InvoiceKit Staff</div>
+              <div className="font-black text-xl">Rivox Staff</div>
               <div className="text-sm text-slate-300">Operations workspace</div>
             </div>
           </div>
@@ -75,7 +75,7 @@ export default function StaffLogin() {
           <div className="w-full max-w-md">
             <div className="lg:hidden text-center mb-8 text-white">
               <div className="w-14 h-14 rounded-2xl bg-white text-slate-950 flex items-center justify-center mx-auto mb-4 font-black">IK</div>
-              <h1 className="text-2xl font-black">InvoiceKit Staff</h1>
+              <h1 className="text-2xl font-black">Rivox Staff</h1>
             </div>
 
             <form onSubmit={handleSubmit} className="bg-white rounded-[2rem] p-7 sm:p-8 shadow-2xl border border-white/70 space-y-5">
@@ -86,7 +86,7 @@ export default function StaffLogin() {
               {error && <div className="rounded-2xl bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">{error}</div>}
               <div>
                 <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-2">Work email</label>
-                <input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-slate-950" placeholder="support@invoicekit.com" autoComplete="username" />
+                <input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-slate-950" placeholder="support@rivox.com" autoComplete="username" />
               </div>
               <div>
                 <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-2">Password</label>

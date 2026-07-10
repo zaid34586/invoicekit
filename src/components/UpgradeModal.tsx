@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { useRegion } from "../context/RegionContext";
-import { GLOBAL_PLANS, INDIA_PLANS, formatPlanPrice } from "../lib/pricing";
-import { startLemonCheckout } from "../lib/lemonSqueezy";
+import { INDIA_PLANS, GLOBAL_PLANS } from "../lib/pricing";
 
 interface UpgradeModalProps {
   isOpen: boolean;
@@ -13,7 +12,7 @@ const FEATURES = [
   "PDF with your branding",
   "Client address book",
   "Priority support",
-  "Remove InvoiceKit watermark",
+  "Remove Rivox watermark",
 ];
 
 export default function UpgradeModal({ isOpen, onClose }: UpgradeModalProps) {
@@ -24,19 +23,17 @@ const plans =
     ? INDIA_PLANS
     : GLOBAL_PLANS;
   const [subscribing, setSubscribing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
   if (!isOpen) return null;
 
-  async function handleSubscribe() {
-    try {
-      setError(null);
-      setSubscribing(true);
-      await startLemonCheckout("pro", "monthly");
-    } catch (checkoutError) {
-      setError(checkoutError instanceof Error ? checkoutError.message : "Unable to start checkout.");
+  function handleSubscribe() {
+    setSubscribing(true);
+    setTimeout(() => {
       setSubscribing(false);
-    }
+      alert(
+        "Payment integration will be available soon."
+      );
+    }, 800);
   }
 
   return (
@@ -60,9 +57,9 @@ const plans =
           <div className="inline-flex items-center justify-center w-14 h-14 bg-gradient-to-br from-primary-500 to-primary-700 rounded-2xl mb-4 shadow-lg">
             <span className="text-2xl">⭐</span>
           </div>
-          <h2 className="text-2xl font-bold text-slate-900">InvoiceKit Pro</h2>
+          <h2 className="text-2xl font-bold text-slate-900">Rivox Pro</h2>
           <p className="text-3xl font-bold text-primary-600 mt-2">
-            {formatPlanPrice(plans.pro, "monthly")}
+            {plans.pro.symbol}{plans.pro.price}
             <span className="text-base font-normal text-slate-500">/month</span>
           </p>
         </div>
@@ -79,8 +76,6 @@ const plans =
             </li>
           ))}
         </ul>
-
-        {error && <p className="mb-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
 
         <button
           onClick={handleSubscribe}

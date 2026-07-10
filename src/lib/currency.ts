@@ -1,4 +1,4 @@
-// ─── Currency engine for InvoiceKit ────────────────────────────────────────
+// ─── Currency engine for Rivox ────────────────────────────────────────
 // This file is the single source of truth for currency logic.
 // It is intentionally kept separate from subscription/billing concerns.
 import { getGlobalCountryConfig } from "./globalConfig";

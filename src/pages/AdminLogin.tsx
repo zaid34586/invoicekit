@@ -58,7 +58,7 @@ export default function AdminLogin() {
               IK
             </div>
             <div>
-              <p className="text-lg font-bold tracking-tight">InvoiceKit Admin</p>
+              <p className="text-lg font-bold tracking-tight">Rivox Admin</p>
               <p className="text-sm text-blue-100/70">Owner operations console</p>
             </div>
           </div>
@@ -72,7 +72,7 @@ export default function AdminLogin() {
               Control revenue, users and operations from one premium console.
             </h1>
             <p className="mt-6 max-w-xl text-lg leading-8 text-slate-300">
-              Review business health, manage staff, support customers and protect your InvoiceKit workspace.
+              Review business health, manage staff, support customers and protect your Rivox workspace.
             </p>
           </div>
 
@@ -96,7 +96,7 @@ export default function AdminLogin() {
               <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-white text-xl font-black text-slate-950">
                 IK
               </div>
-              <h1 className="text-2xl font-black">InvoiceKit Admin</h1>
+              <h1 className="text-2xl font-black">Rivox Admin</h1>
               <p className="mt-1 text-sm text-slate-400">Owner operations console</p>
             </div>
 
@@ -112,7 +112,7 @@ export default function AdminLogin() {
                 </div>
                 <h2 className="text-3xl font-black tracking-tight">Admin sign in</h2>
                 <p className="mt-2 text-sm leading-6 text-slate-300">
-                  Restricted access for the InvoiceKit owner account only.
+                  Restricted access for the Rivox owner account only.
                 </p>
               </div>
 
@@ -131,7 +131,7 @@ export default function AdminLogin() {
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     className="w-full rounded-2xl border border-white/10 bg-slate-950/60 px-4 py-4 text-sm text-white outline-none transition placeholder:text-slate-600 focus:border-blue-400/70 focus:ring-4 focus:ring-blue-500/20"
-                    placeholder="owner@invoicekit.com"
+                    placeholder="owner@rivox.com"
                     autoComplete="username"
                   />
                 </div>
