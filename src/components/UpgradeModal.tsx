@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useRegion } from "../context/RegionContext";
-import { INDIA_PLANS, GLOBAL_PLANS } from "../lib/pricing";
+import { GLOBAL_PLANS, INDIA_PLANS, formatPlanPrice } from "../lib/pricing";
 
 interface UpgradeModalProps {
   isOpen: boolean;
@@ -59,7 +59,7 @@ const plans =
           </div>
           <h2 className="text-2xl font-bold text-slate-900">InvoiceKit Pro</h2>
           <p className="text-3xl font-bold text-primary-600 mt-2">
-            {plans.pro.symbol}{plans.pro.price}
+            {formatPlanPrice(plans.pro, "monthly")}
             <span className="text-base font-normal text-slate-500">/month</span>
           </p>
         </div>

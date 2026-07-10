@@ -1,39 +1,26 @@
-import { useEffect, useState } from "react";
-import { useRegion } from "../context/RegionContext";
-import { INDIA_PLANS, GLOBAL_PLANS } from "../lib/pricing";
+import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "../context/AuthContext";
-import { supabase } from "../lib/supabase";
+import { useRegion } from "../context/RegionContext";
 import { FREE_PLAN_LIMIT } from "../lib/constants";
+import {
+  BillingCycle,
+  COUPON_PREVIEWS,
+  GLOBAL_PLANS,
+  INDIA_PLANS,
+  Plan,
+  PricingPlan,
+  YEARLY_DISCOUNT_PERCENT,
+  formatPlanPrice,
+  getAnnualTotal,
+  getPlanLimitLabel,
+} from "../lib/pricing";
+import { supabase } from "../lib/supabase";
 
-// Placeholder billing history data
 const BILLING_HISTORY = [
-  {
-    id: "1",
-    date: "2026-06-15",
-    invoiceNumber: "INV-2026-001",
-    plan: "Pro",
-    amount: 399,
-    status: "paid",
-  },
-  {
-    id: "2",
-    date: "2026-05-15",
-    invoiceNumber: "INV-2026-002",
-    plan: "Pro",
-    amount: 399,
-    status: "paid",
-  },
-  {
-    id: "3",
-    date: "2026-04-15",
-    invoiceNumber: "INV-2026-003",
-    plan: "Free",
-    amount: 0,
-    status: "paid",
-  },
+  { id: "1", date: "2026-06-15", invoiceNumber: "BILL-2026-001", plan: "Manual Pro", amount: 0, status: "active" },
 ];
 
-function ConfirmModal({
+function Modal({
   isOpen,
   title,
   message,
@@ -53,26 +40,19 @@ function ConfirmModal({
   if (!isOpen) return null;
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div
-        className="absolute inset-0 bg-slate-900/50 backdrop-blur-sm"
-        onClick={onClose}
-      />
-      <div className="relative card max-w-sm w-full p-6 animate-scale-in">
-        <h3 className="text-lg font-semibold text-slate-900 mb-2">{title}</h3>
-        <p className="text-sm text-slate-600 mb-6">{message}</p>
-        <div className="flex gap-3 justify-end">
-          <button onClick={onClose} className="btn-secondary px-4 py-2 text-sm">
-            Cancel
-          </button>
+      <div className="absolute inset-0 bg-slate-950/60 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl animate-scale-in">
+        <h3 className="text-lg font-bold text-slate-950">{title}</h3>
+        <p className="mt-2 text-sm leading-6 text-slate-600">{message}</p>
+        <div className="mt-6 flex justify-end gap-3">
+          <button onClick={onClose} className="btn-secondary px-4 py-2 text-sm">Cancel</button>
           <button
             onClick={() => {
               onConfirm();
               onClose();
             }}
-            className={`px-4 py-2 text-sm text-white rounded-lg ${
-              variant === "danger"
-                ? "bg-red-600 hover:bg-red-700"
-                : "bg-primary-600 hover:bg-primary-700"
+            className={`rounded-lg px-4 py-2 text-sm font-semibold text-white ${
+              variant === "danger" ? "bg-red-600 hover:bg-red-700" : "bg-primary-600 hover:bg-primary-700"
             }`}
           >
             {confirmLabel}
@@ -83,128 +63,89 @@ function ConfirmModal({
   );
 }
 
-function PaymentComingSoonModal({
-  isOpen,
-  onClose,
-}: {
-  isOpen: boolean;
-  onClose: () => void;
-}) {
-  if (!isOpen) return null;
+function BillingToggle({ cycle, setCycle }: { cycle: BillingCycle; setCycle: (cycle: BillingCycle) => void }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div
-        className="absolute inset-0 bg-slate-900/50 backdrop-blur-sm"
-        onClick={onClose}
-      />
-      <div className="relative card max-w-sm w-full p-6 animate-scale-in text-center">
-        <div className="w-12 h-12 bg-primary-100 rounded-full flex items-center justify-center mx-auto mb-4">
-          <svg
-            className="w-6 h-6 text-primary-600"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-            strokeWidth={2}
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
-            />
-          </svg>
-        </div>
-        <h3 className="text-lg font-semibold text-slate-900 mb-2">
-          Coming Soon
-        </h3>
-        <p className="text-sm text-slate-600 mb-6">
-          Payment system will be available soon. Stay tuned!
-        </p>
-        <button onClick={onClose} className="btn-primary px-6 py-2 text-sm">
-          Got it
-        </button>
-      </div>
+    <div className="inline-flex items-center rounded-full border border-slate-200 bg-white p-1 shadow-sm">
+      <button
+        onClick={() => setCycle("monthly")}
+        className={`rounded-full px-4 py-2 text-sm font-semibold transition ${cycle === "monthly" ? "bg-slate-900 text-white" : "text-slate-600"}`}
+      >
+        Monthly
+      </button>
+      <button
+        onClick={() => setCycle("yearly")}
+        className={`rounded-full px-4 py-2 text-sm font-semibold transition ${cycle === "yearly" ? "bg-primary-600 text-white" : "text-slate-600"}`}
+      >
+        Yearly <span className="text-xs">Save {YEARLY_DISCOUNT_PERCENT}%</span>
+      </button>
     </div>
   );
 }
 
-function PricingCard({
-  name,
-  price,
-  description,
-  features,
-  buttonText,
-  onButtonClick,
-  current,
-  popular,
+function PlanCard({
+  plan,
+  cycle,
+  currentPlan,
+  onUpgrade,
 }: {
-  name: string;
-  price: string | null;
-  description: string;
-  features: string[];
-  buttonText: string;
-  onButtonClick: () => void;
-  current?: boolean;
-  popular?: boolean;
+  plan: PricingPlan;
+  cycle: BillingCycle;
+  currentPlan: Plan;
+  onUpgrade: (plan: PricingPlan) => void;
 }) {
+  const isCurrent = currentPlan === plan.id;
+  const isFree = plan.id === "free";
   return (
-    <div
-      className={`relative card p-6 flex flex-col ${
-        popular ? "ring-2 ring-primary-500" : ""
-      }`}
-    >
-      {popular && (
-        <div className="absolute -top-3 left-1/2 -translate-x-1/2">
-          <span className="bg-primary-600 text-white text-xs font-semibold px-3 py-1 rounded-full">
-            Most Popular
-          </span>
-        </div>
+    <div className={`relative flex flex-col rounded-2xl border bg-white p-6 shadow-sm ${plan.featured ? "border-primary-500 ring-4 ring-primary-100" : "border-slate-200"}`}>
+      {plan.featured && (
+        <span className="absolute -top-3 left-6 rounded-full bg-primary-600 px-3 py-1 text-xs font-bold text-white">
+          Most Popular
+        </span>
       )}
-      <div className="mb-4">
-        <h3 className="text-lg font-semibold text-slate-900">{name}</h3>
-        <p className="text-sm text-slate-500 mt-1">{description}</p>
+      <div>
+        <p className="text-xs font-bold uppercase tracking-wide text-primary-600">{plan.tagline}</p>
+        <h3 className="mt-2 text-xl font-bold text-slate-950">{plan.name}</h3>
+        <p className="mt-2 min-h-[44px] text-sm leading-6 text-slate-600">{plan.description}</p>
       </div>
-      <div className="mb-6">
-        {price ? (
-          <div className="flex items-baseline gap-1">
-            <span className="text-3xl font-bold text-slate-900">{price}</span>
-            <span className="text-slate-500 text-sm">/month</span>
-          </div>
-        ) : (
-          <span className="text-3xl font-bold text-slate-900">Free</span>
+
+      <div className="mt-5">
+        <span className="text-4xl font-black text-slate-950">{formatPlanPrice(plan, cycle)}</span>
+        {!isFree && <span className="ml-1 text-sm text-slate-500">/month</span>}
+        {cycle === "yearly" && !isFree && (
+          <p className="mt-1 text-xs font-semibold text-emerald-600">
+            {plan.symbol}{getAnnualTotal(plan).toLocaleString("en-US")}/year billed yearly
+          </p>
         )}
       </div>
-      <ul className="space-y-3 mb-6 flex-1">
-        {features.map((feature) => (
-          <li key={feature} className="flex items-start gap-2">
-            <svg
-              className="w-5 h-5 text-green-500 flex-shrink-0 mt-0.5"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-              strokeWidth={2}
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M5 13l4 4L19 7"
-              />
-            </svg>
-            <span className="text-sm text-slate-600">{feature}</span>
+
+      <div className="mt-5 rounded-xl bg-slate-50 p-4 text-sm">
+        <p className="font-bold text-slate-900">{getPlanLimitLabel(plan.invoiceLimit, "invoices/month")}</p>
+        <p className="mt-1 text-slate-500">
+          {plan.teamMembers === 0 ? "No team seats" : plan.teamMembers === "unlimited" ? "Unlimited team seats" : `${plan.teamMembers} team seats`}
+        </p>
+      </div>
+
+      <ul className="mt-5 flex-1 space-y-2">
+        {plan.features.slice(0, 6).map((feature) => (
+          <li key={feature} className="flex gap-2 text-sm text-slate-700">
+            <span className="text-emerald-600">✓</span>
+            <span>{feature}</span>
           </li>
         ))}
       </ul>
+
       <button
-        onClick={onButtonClick}
-        disabled={current}
-        className={`w-full py-2.5 rounded-lg font-medium text-sm transition-all ${
-          current
-            ? "bg-slate-100 text-slate-500 cursor-not-allowed"
-            : popular
-            ? "btn-primary"
-            : "btn-secondary"
+        onClick={() => onUpgrade(plan)}
+        disabled={isCurrent || isFree}
+        className={`mt-6 w-full rounded-xl px-4 py-3 text-sm font-bold transition ${
+          isCurrent || isFree
+            ? "cursor-not-allowed bg-slate-100 text-slate-500"
+            : plan.featured
+            ? "bg-primary-600 text-white hover:bg-primary-700"
+            : "border border-slate-300 bg-white text-slate-800 hover:bg-slate-50"
         }`}
       >
-        {current ? "Current Plan" : buttonText}
+        {isCurrent ? "Current Plan" : isFree ? "Free Plan" : plan.cta}
       </button>
     </div>
   );
@@ -212,321 +153,187 @@ function PricingCard({
 
 export default function Billing() {
   const { user, profile } = useAuth();
-  const [paymentModalOpen, setPaymentModalOpen] = useState(false);
-  const [confirmModal, setConfirmModal] = useState<{
-    open: boolean;
-    title: string;
-    message: string;
-    confirmLabel: string;
-    onConfirm: () => void;
-    variant?: "primary" | "danger";
-  } | null>(null);
-const region = useRegion();
+  const region = useRegion();
+  const [cycle, setCycle] = useState<BillingCycle>("yearly");
+  const [invoicesThisMonth, setInvoicesThisMonth] = useState(0);
+  const [promoCode, setPromoCode] = useState("");
+  const [promoMessage, setPromoMessage] = useState<string | null>(null);
+  const [modal, setModal] = useState<null | { title: string; message: string; confirmLabel: string; onConfirm: () => void; variant?: "primary" | "danger" }>(null);
 
-const plans =
-  region === "india"
-    ? INDIA_PLANS
-    : GLOBAL_PLANS;
+  const plans = region === "india" ? INDIA_PLANS : GLOBAL_PLANS;
+  const planId: Plan = profile?.plan === "business" ? "business" : profile?.plan === "pro" || profile?.is_pro ? "pro" : "free";
+  const current = plans[planId];
+  const invoiceBalance = Number(profile?.credits ?? 0);
+  const isUnlimited = current.invoiceLimit === "unlimited" || planId !== "free";
 
-const [invoicesThisMonth, setInvoicesThisMonth] = useState(0);
+  useEffect(() => {
+    async function loadUsage() {
+      if (!user) return;
+      const monthStart = new Date();
+      monthStart.setDate(1);
+      monthStart.setHours(0, 0, 0, 0);
+      const { count } = await supabase
+        .from("invoices")
+        .select("*", { count: "exact", head: true })
+        .eq("user_id", user.id)
+        .gte("created_at", monthStart.toISOString());
+      setInvoicesThisMonth(count ?? 0);
+    }
+    loadUsage();
+  }, [user]);
 
-useEffect(() => {
-  async function loadUsage() {
-    if (!user) return;
-    const monthStart = new Date();
-    monthStart.setDate(1);
-    monthStart.setHours(0, 0, 0, 0);
+  const usage = useMemo(() => {
+    const freeUsed = Math.min(invoicesThisMonth, FREE_PLAN_LIMIT);
+    const freeRemaining = Math.max(0, FREE_PLAN_LIMIT - freeUsed);
+    const extraRemaining = Math.max(0, invoiceBalance);
+    const totalRemaining = isUnlimited ? Number.POSITIVE_INFINITY : freeRemaining + extraRemaining;
+    const totalLimit = isUnlimited ? Number.POSITIVE_INFINITY : FREE_PLAN_LIMIT + invoiceBalance;
+    const percentage = isUnlimited ? 0 : Math.min(100, (invoicesThisMonth / Math.max(totalLimit, 1)) * 100);
+    return { freeUsed, freeRemaining, extraRemaining, totalRemaining, totalLimit, percentage };
+  }, [invoiceBalance, invoicesThisMonth, isUnlimited]);
 
-    const { count } = await supabase
-      .from("invoices")
-      .select("*", { count: "exact", head: true })
-      .eq("user_id", user.id)
-      .gte("created_at", monthStart.toISOString());
-
-    setInvoicesThisMonth(count ?? 0);
-  }
-  loadUsage();
-}, [user]);
-
-const invoiceBalance = Number(profile?.credits ?? 0);
-const isUnlimited = profile?.plan !== "free" || profile?.is_pro;
-
-  // Current plan and invoice usage
-  const planName =
-  profile?.plan === "pro"
-    ? "Pro"
-    : profile?.plan === "business"
-    ? "Business"
-    : "Free";
-
-const currentPlan = {
-  name: planName,
-  status: profile?.plan === "free" ? "Inactive" : "Active",
-  renewalDate: profile?.plan_expires_at
-    ? new Date(profile.plan_expires_at).toLocaleDateString("en-IN")
-    : null,
-  invoicesUsed: invoicesThisMonth,
-  invoicesLimit: isUnlimited ? 999999 : FREE_PLAN_LIMIT + invoiceBalance,
-};
-
-  const invoicesRemaining = isUnlimited ? Number.POSITIVE_INFINITY : Math.max(0, currentPlan.invoicesLimit - currentPlan.invoicesUsed);
-  const usagePercentage = isUnlimited ? 0 : Math.min(100, (currentPlan.invoicesUsed / Math.max(currentPlan.invoicesLimit, 1)) * 100);
-
-  function handleUpgrade(planName: string) {
-    setConfirmModal({
-      open: true,
-      title: `Upgrade to ${planName}`,
-      message: `You are about to upgrade to the ${planName} plan. You will be charged when payment integration is available.`,
-      confirmLabel: "Proceed",
-      onConfirm: () => {
-        setPaymentModalOpen(true);
-      },
-    });
-  }
-
-  function handleCancelSubscription() {
-    setConfirmModal({
-      open: true,
-      title: "Cancel Subscription",
-      message:
-        "Are you sure you want to cancel your subscription? You will lose access to premium features at the end of your billing period.",
-      confirmLabel: "Cancel Subscription",
-      variant: "danger",
+  function handleUpgrade(plan: PricingPlan) {
+    setModal({
+      title: `Upgrade to ${plan.name}`,
+      message: `Payment gateway integration is not live yet. This will start the ${plan.name} ${cycle} checkout once payments are enabled.`,
+      confirmLabel: "Got it",
       onConfirm: () => {},
     });
   }
 
-  function handleContactSupport() {
-    setConfirmModal({
-      open: true,
-      title: "Contact Support",
-      message:
-        "Our support team will get back to you within 24 hours. Would you like to submit a support request?",
-      confirmLabel: "Submit Request",
-      onConfirm: () => {},
-    });
-  }
-
-  function handleAddPaymentMethod() {
-    setPaymentModalOpen(true);
+  function applyPromo() {
+    const code = promoCode.trim().toUpperCase();
+    const coupon = COUPON_PREVIEWS.find((item) => item.code === code);
+    if (!coupon) {
+      setPromoMessage("Promo code not available yet. Admin Pricing Manager will activate live coupons before launch.");
+      return;
+    }
+    setPromoMessage(`${coupon.code} preview: ${coupon.discountPercent}% off ${coupon.appliesTo.join("/")} plans. Live validation starts with payment gateway.`);
   }
 
   return (
-    <div className="max-w-5xl mx-auto space-y-8">
-      <div className="mb-8">
-        <h1 className="text-2xl font-bold text-slate-900">Billing</h1>
-        <p className="text-slate-600 mt-1">
-          Manage your subscription and billing information
-        </p>
+    <div className="mx-auto max-w-6xl space-y-8">
+      <div className="overflow-hidden rounded-3xl bg-gradient-to-br from-slate-950 via-slate-900 to-primary-900 p-8 text-white shadow-xl">
+        <div className="flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <p className="text-sm font-bold uppercase tracking-wide text-primary-200">Billing command center</p>
+            <h1 className="mt-3 text-3xl font-black tracking-tight">Manage your plan, usage, and invoice capacity.</h1>
+            <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-300">
+              Upgrade when payments go live, track invoice usage, apply launch offers, and manage billing history from one place.
+            </p>
+          </div>
+          <BillingToggle cycle={cycle} setCycle={setCycle} />
+        </div>
       </div>
 
-      {/* Section 1: Current Plan */}
+      <section className="grid gap-4 lg:grid-cols-4">
+        <div className="card p-5">
+          <p className="text-xs font-bold uppercase tracking-wide text-slate-400">Current Plan</p>
+          <p className="mt-2 text-2xl font-black text-slate-950">{current.name}</p>
+          <p className="mt-1 text-sm text-slate-500">{planId === "free" ? "Manual/free access" : "Active access"}</p>
+        </div>
+        <div className="card p-5">
+          <p className="text-xs font-bold uppercase tracking-wide text-slate-400">Monthly Free</p>
+          <p className="mt-2 text-2xl font-black text-slate-950">{usage.freeRemaining}/{FREE_PLAN_LIMIT}</p>
+          <p className="mt-1 text-sm text-slate-500">Free invoices remaining</p>
+        </div>
+        <div className="card p-5">
+          <p className="text-xs font-bold uppercase tracking-wide text-slate-400">Extra Balance</p>
+          <p className="mt-2 text-2xl font-black text-slate-950">{isUnlimited ? "Unlimited" : usage.extraRemaining}</p>
+          <p className="mt-1 text-sm text-slate-500">Admin-added invoice balance</p>
+        </div>
+        <div className="card p-5">
+          <p className="text-xs font-bold uppercase tracking-wide text-slate-400">Total Remaining</p>
+          <p className="mt-2 text-2xl font-black text-slate-950">{isUnlimited ? "∞" : usage.totalRemaining}</p>
+          <p className="mt-1 text-sm text-slate-500">Invoices you can still create</p>
+        </div>
+      </section>
+
       <section className="card p-6">
-        <div className="flex items-start justify-between mb-6">
+        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
           <div>
-            <h2 className="text-lg font-semibold text-slate-900">
-              Current Plan
-            </h2>
-            <p className="text-sm text-slate-500 mt-1">
-              Your active subscription details
+            <h2 className="text-lg font-bold text-slate-950">Usage this month</h2>
+            <p className="mt-1 text-sm text-slate-500">
+              {isUnlimited ? "Your current plan has unlimited invoice creation." : `${invoicesThisMonth} invoices used out of ${usage.totalLimit}.`}
             </p>
           </div>
-          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-green-100 text-green-700 text-sm font-medium">
-            <span className="w-2 h-2 rounded-full bg-green-500" />
-            {currentPlan.status}
+          <span className="rounded-full bg-slate-100 px-4 py-2 text-sm font-bold text-slate-700">
+            {isUnlimited ? "Unlimited" : `${Math.round(usage.percentage)}% used`}
           </span>
         </div>
-
-        <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-6">
-          <div>
-            <p className="text-xs text-slate-500 uppercase tracking-wider mb-1">
-              Plan
-            </p>
-            <p className="text-lg font-semibold text-slate-900">
-              {currentPlan.name}
-            </p>
+        {!isUnlimited && (
+          <div className="mt-5 h-3 overflow-hidden rounded-full bg-slate-100">
+            <div className="h-full rounded-full bg-primary-600 transition-all" style={{ width: `${usage.percentage}%` }} />
           </div>
-          <div>
-            <p className="text-xs text-slate-500 uppercase tracking-wider mb-1">
-              Renewal Date
-            </p>
-            <p className="text-lg font-semibold text-slate-900">
-              {currentPlan.renewalDate || "N/A"}
-            </p>
-          </div>
-          <div>
-            <p className="text-xs text-slate-500 uppercase tracking-wider mb-1">
-              Usage This Month
-            </p>
-            <div className="flex items-center gap-3">
-              <div className="flex-1 h-2 bg-slate-100 rounded-full overflow-hidden">
-                <div
-                  className="h-full bg-primary-500 rounded-full transition-all"
-                  style={{ width: `${usagePercentage}%` }}
-                />
-              </div>
-              <span className="text-sm font-medium text-slate-700">
-                {isUnlimited ? "Unlimited" : `${currentPlan.invoicesUsed}/${currentPlan.invoicesLimit}`}
-              </span>
-            </div>
-          </div>
-          <div>
-            <p className="text-xs text-slate-500 uppercase tracking-wider mb-1">
-              Remaining
-            </p>
-            <p className="text-lg font-semibold text-slate-900">
-              {isUnlimited ? "Unlimited" : `${invoicesRemaining} invoices`}
-            </p>
-          </div>
-        </div>
-
-        <div className="mt-6 pt-6 border-t border-slate-100">
-          <button
-            onClick={() => handleUpgrade("Pro")}
-            className="btn-primary px-5 py-2.5"
-          >
-            Upgrade Plan
-          </button>
-        </div>
+        )}
       </section>
 
-      {/* Section 2: Available Plans */}
       <section>
-        <h2 className="text-lg font-semibold text-slate-900 mb-4">
-          Available Plans
-        </h2>
-       
-        <div className="grid md:grid-cols-3 gap-6">
-          <PricingCard
-            name="Free"
-            price={null}
-            description="For individuals getting started"
-            features={["3 invoices/month", "PDF export", "Basic features"]}
-            buttonText="Current Plan"
-            onButtonClick={() => {}}
-            current
-          />
-          <PricingCard
-            name="Pro"
-            price={`${plans.pro.symbol}${plans.pro.price}`}
-            description="For professionals and small businesses"
-            features={[
-              "Unlimited invoices",
-              "Client management",
-              "PDF without watermark",
-              "Email & WhatsApp sharing",
-              "Priority support",
-            ]}
-            buttonText="Upgrade to Pro"
-            onButtonClick={() => handleUpgrade("Pro")}
-            popular
-          />
-          <PricingCard
-            name="Business"
-            price={`${plans.business.symbol}${plans.business.price}`}
-            description="For growing teams"
-            features={[
-              "Everything in Pro",
-              "Team support",
-              "Advanced reporting",
-              "API access (Coming Soon)",
-            ]}
-            buttonText="Upgrade to Business"
-            onButtonClick={() => handleUpgrade("Business")}
-          />
+        <div className="mb-5 flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+          <div>
+            <h2 className="text-xl font-black text-slate-950">Available plans</h2>
+            <p className="mt-1 text-sm text-slate-500">Monthly and yearly pricing preview. Payment gateway will activate checkout later.</p>
+          </div>
+          <div className="flex gap-2 rounded-xl border border-slate-200 bg-white p-2">
+            <input
+              value={promoCode}
+              onChange={(e) => setPromoCode(e.target.value)}
+              placeholder="Promo code"
+              className="input h-10 min-w-[160px]"
+            />
+            <button onClick={applyPromo} className="btn-secondary h-10 px-4 text-sm">Apply</button>
+          </div>
+        </div>
+        {promoMessage && <p className="mb-4 rounded-xl bg-primary-50 p-3 text-sm font-medium text-primary-700">{promoMessage}</p>}
+        <div className="grid gap-6 lg:grid-cols-3">
+          {(["free", "pro", "business"] as Plan[]).map((id) => (
+            <PlanCard key={id} plan={plans[id]} cycle={cycle} currentPlan={planId} onUpgrade={handleUpgrade} />
+          ))}
         </div>
       </section>
 
-      {/* Section 3: Billing History */}
+      {planId !== "free" && (
+        <section className="card p-6">
+          <h2 className="text-lg font-bold text-slate-950">Subscription actions</h2>
+          <p className="mt-1 text-sm text-slate-500">These actions become active after payment gateway integration.</p>
+          <div className="mt-5 flex flex-wrap gap-3">
+            <button className="btn-secondary" onClick={() => setModal({ title: "Manage Subscription", message: "Live billing portal will be available after payment gateway integration.", confirmLabel: "Got it", onConfirm: () => {} })}>
+              Manage Subscription
+            </button>
+            <button className="btn-secondary" onClick={() => setModal({ title: "Download Receipts", message: "Receipts will appear here after live payments are enabled.", confirmLabel: "Got it", onConfirm: () => {} })}>
+              Download Receipts
+            </button>
+            <button className="btn-danger" onClick={() => setModal({ title: "Cancel Subscription", message: "Cancellation will be available after live subscriptions are enabled.", confirmLabel: "Got it", variant: "danger", onConfirm: () => {} })}>
+              Cancel Subscription
+            </button>
+          </div>
+        </section>
+      )}
+
       <section className="card">
-        <div className="p-6 border-b border-slate-100">
-          <h2 className="text-lg font-semibold text-slate-900">
-            Billing History
-          </h2>
-          <p className="text-sm text-slate-500 mt-1">
-            View your past invoices and receipts
-          </p>
+        <div className="border-b border-slate-100 p-6">
+          <h2 className="text-lg font-bold text-slate-950">Billing history</h2>
+          <p className="mt-1 text-sm text-slate-500">Manual and future gateway receipts will appear here.</p>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full">
-            <thead>
-              <tr className="border-b border-slate-100 bg-slate-50/50">
-                <th className="text-left text-xs font-medium text-slate-500 uppercase tracking-wider px-6 py-3">
-                  Date
-                </th>
-                <th className="text-left text-xs font-medium text-slate-500 uppercase tracking-wider px-6 py-3">
-                  Invoice
-                </th>
-                <th className="text-left text-xs font-medium text-slate-500 uppercase tracking-wider px-6 py-3">
-                  Plan
-                </th>
-                <th className="text-left text-xs font-medium text-slate-500 uppercase tracking-wider px-6 py-3">
-                  Amount
-                </th>
-                <th className="text-left text-xs font-medium text-slate-500 uppercase tracking-wider px-6 py-3">
-                  Status
-                </th>
-                <th className="text-right text-xs font-medium text-slate-500 uppercase tracking-wider px-6 py-3">
-                  Receipt
-                </th>
+            <thead className="bg-slate-50">
+              <tr>
+                <th className="px-6 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">Date</th>
+                <th className="px-6 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">Receipt</th>
+                <th className="px-6 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">Plan</th>
+                <th className="px-6 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">Amount</th>
+                <th className="px-6 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">Status</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {BILLING_HISTORY.map((item) => (
-                <tr key={item.id} className="hover:bg-slate-50/50 transition">
-                  <td className="px-6 py-4 text-sm text-slate-900">
-                    {new Date(item.date).toLocaleDateString("en-IN", {
-                      day: "numeric",
-                      month: "short",
-                      year: "numeric",
-                    })}
-                  </td>
-                  <td className="px-6 py-4 text-sm text-slate-600 font-mono">
-                    {item.invoiceNumber}
-                  </td>
-                  <td className="px-6 py-4 text-sm text-slate-600">
-                    {item.plan}
-                  </td>
-                  <td className="px-6 py-4 text-sm text-slate-900 font-medium">
-                    {item.amount === 0
-  ? "Free"
-  : `${plans.pro.symbol}${item.amount}`}
-                  </td>
-                  <td className="px-6 py-4">
-                    <span
-                      className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${
-                        item.status === "paid"
-                          ? "bg-green-100 text-green-700"
-                          : "bg-yellow-100 text-yellow-700"
-                      }`}
-                    >
-                      {item.status === "paid" && (
-                        <svg
-                          className="w-3.5 h-3.5"
-                          fill="none"
-                          viewBox="0 0 24 24"
-                          stroke="currentColor"
-                          strokeWidth={2}
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            d="M5 13l4 4L19 7"
-                          />
-                        </svg>
-                      )}
-                      {item.status.charAt(0).toUpperCase() +
-                        item.status.slice(1)}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 text-right">
-                    <button
-                      onClick={() => setPaymentModalOpen(true)}
-                      className="text-sm text-primary-600 hover:text-primary-700 font-medium"
-                    >
-                      Download
-                    </button>
-                  </td>
+                <tr key={item.id} className="hover:bg-slate-50">
+                  <td className="px-6 py-4 text-sm text-slate-700">{new Date(item.date).toLocaleDateString("en-IN")}</td>
+                  <td className="px-6 py-4 text-sm font-mono text-slate-600">{item.invoiceNumber}</td>
+                  <td className="px-6 py-4 text-sm text-slate-700">{item.plan}</td>
+                  <td className="px-6 py-4 text-sm font-bold text-slate-950">{item.amount === 0 ? "Free / Manual" : `${current.symbol}${item.amount}`}</td>
+                  <td className="px-6 py-4"><span className="rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-bold text-emerald-700">{item.status}</span></td>
                 </tr>
               ))}
             </tbody>
@@ -534,132 +341,15 @@ const currentPlan = {
         </div>
       </section>
 
-      {/* Section 4: Payment Methods */}
-      <section className="card p-6">
-        <div className="flex items-start justify-between">
-          <div>
-            <h2 className="text-lg font-semibold text-slate-900">
-              Payment Methods
-            </h2>
-            <p className="text-sm text-slate-500 mt-1">
-              Manage your saved payment methods
-            </p>
-          </div>
-          <button onClick={handleAddPaymentMethod} className="btn-secondary">
-            <svg
-              className="w-4 h-4"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-              strokeWidth={2}
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M12 4v16m8-8H4"
-              />
-            </svg>
-            Add Payment Method
-          </button>
-        </div>
-        <div className="mt-6 p-8 border-2 border-dashed border-slate-200 rounded-lg text-center">
-          <div className="w-12 h-12 bg-slate-100 rounded-full flex items-center justify-center mx-auto mb-3">
-            <svg
-              className="w-6 h-6 text-slate-400"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-              strokeWidth={2}
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"
-              />
-            </svg>
-          </div>
-          <p className="text-sm text-slate-500">No payment method added.</p>
-        </div>
-      </section>
-
-      {/* Section 5: Subscription Actions */}
-      <section className="card p-6">
-        <h2 className="text-lg font-semibold text-slate-900 mb-4">
-          Subscription Actions
-        </h2>
-        <div className="flex flex-wrap gap-3">
-          <button
-            onClick={() => handleUpgrade("Pro")}
-            className="btn-primary px-5 py-2.5"
-          >
-            <svg
-              className="w-4 h-4"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-              strokeWidth={2}
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M5 10l7-7m0 0l7 7m-7-7v18"
-              />
-            </svg>
-            Upgrade Plan
-          </button>
-          <button
-            onClick={handleCancelSubscription}
-            className="btn-secondary px-5 py-2.5"
-          >
-            <svg
-              className="w-4 h-4"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-              strokeWidth={2}
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M6 18L18 6M6 6l12 12"
-              />
-            </svg>
-            Cancel Subscription
-          </button>
-          <button onClick={handleContactSupport} className="btn-ghost px-5 py-2.5">
-            <svg
-              className="w-4 h-4"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-              strokeWidth={2}
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"
-              />
-            </svg>
-            Contact Support
-          </button>
-        </div>
-      </section>
-
-      {/* Modals */}
-      <PaymentComingSoonModal
-        isOpen={paymentModalOpen}
-        onClose={() => setPaymentModalOpen(false)}
-      />
-
-      {confirmModal && (
-        <ConfirmModal
-          isOpen={confirmModal.open}
-          title={confirmModal.title}
-          message={confirmModal.message}
-          confirmLabel={confirmModal.confirmLabel}
-          variant={confirmModal.variant}
-          onConfirm={confirmModal.onConfirm}
-          onClose={() => setConfirmModal(null)}
+      {modal && (
+        <Modal
+          isOpen={!!modal}
+          title={modal.title}
+          message={modal.message}
+          confirmLabel={modal.confirmLabel}
+          variant={modal.variant}
+          onConfirm={modal.onConfirm}
+          onClose={() => setModal(null)}
         />
       )}
     </div>
