@@ -517,12 +517,17 @@ export default function NewInvoice() {
 
   return (
     <div className="max-w-7xl mx-auto space-y-6 animate-fade-in">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900">New Invoice</h1>
-          <p className="text-sm text-slate-500 mt-0.5">
-            Fill in the details below to create a professional invoice
-          </p>
+      <div className="overflow-hidden rounded-3xl border border-slate-200 bg-gradient-to-br from-slate-950 via-slate-900 to-violet-950 p-6 text-white shadow-xl sm:p-8">
+        <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[.2em] text-violet-300">Invoice studio</p>
+            <h1 className="mt-2 text-3xl font-bold tracking-tight">Create a new invoice</h1>
+            <p className="mt-2 max-w-xl text-sm text-slate-300">Add your client, services and payment terms. Rivox calculates taxes and totals automatically.</p>
+          </div>
+          <div className="flex gap-2">
+            <span className="rounded-full border border-white/10 bg-white/10 px-3 py-1.5 text-xs font-semibold text-slate-200">Draft</span>
+            <span className="rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-1.5 text-xs font-semibold text-emerald-300">Live summary</span>
+          </div>
         </div>
       </div>
 
@@ -536,10 +541,8 @@ export default function NewInvoice() {
         <div className="lg:col-span-2 space-y-6">
 
           {/* Invoice Details */}
-          <div className="card p-5 sm:p-6">
-            <h2 className="text-base font-semibold text-slate-900 mb-4">
-              Invoice Details
-            </h2>
+          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+            <div className="mb-5 flex items-center gap-3"><div className="h-10 w-10 rounded-xl bg-violet-100 text-violet-700 flex items-center justify-center font-bold">1</div><div><h2 className="text-base font-semibold text-slate-900">Invoice details</h2><p className="text-xs text-slate-500">Number, dates and status</p></div></div>
             <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
               <div>
                 <label className="label">Invoice Number</label>
@@ -585,11 +588,9 @@ export default function NewInvoice() {
           </div>
 
           {/* Client Details */}
-          <div className="card p-5 sm:p-6">
+          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
             <div className="flex items-center justify-between mb-4">
-              <h2 className="text-base font-semibold text-slate-900">
-                Client Details
-              </h2>
+              <div className="flex items-center gap-3"><div className="h-10 w-10 rounded-xl bg-indigo-100 text-indigo-700 flex items-center justify-center font-bold">2</div><div><h2 className="text-base font-semibold text-slate-900">Client details</h2><p className="text-xs text-slate-500">Billing and tax information</p></div></div>
               {clients.length > 0 && (
                 <select
                   value=""
@@ -769,7 +770,7 @@ export default function NewInvoice() {
           </div>
 
           {/* Line Items */}
-          <div className="card p-5 sm:p-6">
+          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-base font-semibold text-slate-900">Line Items</h2>
               <button onClick={addItem} className="btn-ghost text-primary-600 text-sm">
@@ -883,7 +884,7 @@ export default function NewInvoice() {
           </div>
 
           {/* Notes */}
-          <div className="card p-5 sm:p-6">
+          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
             <label className="label">Notes (optional)</label>
             <textarea
               value={notes}
@@ -897,8 +898,8 @@ export default function NewInvoice() {
 
         {/* Summary sidebar */}
         <div className="lg:col-span-1">
-          <div className="card p-5 sm:p-6 sticky top-20">
-            <h2 className="text-base font-semibold text-slate-900 mb-4">Summary</h2>
+          <div className="sticky top-20 overflow-hidden rounded-3xl border border-violet-100 bg-white p-5 shadow-xl shadow-violet-100/40 sm:p-6">
+            <div className="mb-5"><p className="text-xs font-semibold uppercase tracking-[.16em] text-violet-600">Live calculation</p><h2 className="mt-1 text-lg font-bold text-slate-950">Invoice summary</h2><p className="mt-1 text-xs text-slate-500">Updates as you edit the invoice</p></div>
 
             {/* Show currency badge when invoice is in a foreign currency */}
             {isForeignCurrency && (
@@ -1003,7 +1004,7 @@ export default function NewInvoice() {
             <button
               onClick={handleSave}
               disabled={saving || (isForeignCurrency && rateLoading)}
-              className="btn-primary w-full mt-5"
+              className="btn-primary w-full mt-5 h-12 justify-center text-base shadow-lg shadow-violet-200"
             >
               {saving
                 ? "Saving..."

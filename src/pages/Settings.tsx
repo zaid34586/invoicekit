@@ -54,6 +54,7 @@ export default function Settings() {
   const [logoUrl, setLogoUrl] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
   // Auto-derived from businessCountry — never manually edited
@@ -137,227 +138,122 @@ export default function Settings() {
     if (error) {
       setMessage({ type: "error", text: error.message });
     } else {
-      setMessage({ type: "success", text: "Profile saved successfully!" });
+      setMessage({ type: "success", text: "Business profile updated successfully." });
       await refreshProfile();
+      setIsEditing(false);
     }
   }
 
+  const profileComplete = Boolean(profile?.business_name && profile?.country);
+
   return (
-    <div className="max-w-3xl mx-auto space-y-6 animate-fade-in">
-      <div>
-        <h1 className="text-2xl font-bold text-slate-900">Business Settings</h1>
-        <p className="text-sm text-slate-500 mt-0.5">
-          This information appears on your invoices
-        </p>
+    <div className="max-w-6xl mx-auto space-y-6 animate-fade-in">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[.18em] text-violet-600">
+            <span className="h-2 w-2 rounded-full bg-emerald-500" /> Business profile
+          </div>
+          <h1 className="mt-2 text-3xl font-bold tracking-tight text-slate-950">Business Settings</h1>
+          <p className="mt-1 text-sm text-slate-500">Manage the identity and regional settings used across invoices, PDFs and emails.</p>
+        </div>
+        {profileComplete && !isEditing && (
+          <button type="button" onClick={() => setIsEditing(true)} className="btn-primary">
+            <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+            Edit business profile
+          </button>
+        )}
       </div>
 
       {message && (
-        <div
-          className={`rounded-lg border px-4 py-3 text-sm ${
-            message.type === "success"
-              ? "bg-green-50 border-green-200 text-green-700"
-              : "bg-red-50 border-red-200 text-red-700"
-          }`}
-        >
-          {message.text}
-        </div>
+        <div className={`rounded-xl border px-4 py-3 text-sm ${message.type === "success" ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-red-200 bg-red-50 text-red-700"}`}>{message.text}</div>
       )}
 
-      <form onSubmit={handleSubmit} className="card p-6 sm:p-8 space-y-6">
-
-        {/* Logo — unchanged */}
-        <div>
-          <label className="label">Business Logo</label>
-          <div className="flex items-center gap-4">
-            <div className="w-20 h-20 rounded-xl border-2 border-dashed border-slate-300 flex items-center justify-center overflow-hidden bg-slate-50">
-              {logoUrl ? (
-                <img src={logoUrl} alt="Logo" className="w-full h-full object-cover" />
-              ) : (
-                <svg className="w-8 h-8 text-slate-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                </svg>
-              )}
+      {profileComplete && !isEditing ? (
+        <div className="grid gap-6 lg:grid-cols-[1.35fr_.65fr]">
+          <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
+            <div className="relative bg-gradient-to-br from-slate-950 via-slate-900 to-violet-950 p-7 text-white">
+              <div className="absolute right-0 top-0 h-44 w-44 rounded-full bg-violet-500/20 blur-3xl" />
+              <div className="relative flex items-center gap-5">
+                <div className="h-20 w-20 overflow-hidden rounded-2xl border border-white/15 bg-white/10 flex items-center justify-center shadow-xl">
+                  {logoUrl ? <img src={logoUrl} alt={businessName} className="h-full w-full object-cover" /> : <span className="text-3xl font-bold">{(businessName || "R").slice(0,1).toUpperCase()}</span>}
+                </div>
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[.2em] text-violet-300">Your business</p>
+                  <h2 className="mt-2 text-3xl font-bold">{businessName || "Business name"}</h2>
+                  <p className="mt-1 text-sm text-slate-300">{email || user?.email || "No public email added"}</p>
+                </div>
+              </div>
             </div>
-            <div>
-              <input
-                ref={fileRef}
-                type="file"
-                accept="image/png,image/jpeg,image/jpg,image/webp"
-                className="hidden"
-                onChange={(e) => {
-                  const f = e.target.files?.[0];
-                  if (f) handleLogoUpload(f);
-                }}
-              />
-              <button
-                type="button"
-                onClick={() => fileRef.current?.click()}
-                disabled={uploading}
-                className="btn-secondary"
-              >
-                {uploading ? "Uploading..." : "Upload logo"}
-              </button>
-              {logoUrl && (
-                <button
-                  type="button"
-                  onClick={() => setLogoUrl(null)}
-                  className="btn-ghost text-red-500 text-sm ml-2"
-                >
-                  Remove
-                </button>
-              )}
-              <p className="text-xs text-slate-400 mt-1.5">
-                PNG, JPG up to 2MB. Square recommended.
-              </p>
-            </div>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
-
-          {/* Business Name */}
-          <div className="sm:col-span-2">
-            <label className="label">
-              Business Name <span className="text-red-500">*</span>
-            </label>
-            <input
-              required
-              value={businessName}
-              onChange={(e) => setBusinessName(e.target.value)}
-              className="input"
-              placeholder="Acme Enterprises"
-            />
-          </div>
-
-          {/* Business Country */}
-          <div>
-            <label className="label">Business Country</label>
-            <select
-              value={businessCountry}
-              onChange={(e) => handleCountryChange(e.target.value)}
-              className="input"
-            >
-              {COUNTRIES.map((c) => (
-                <option key={c.name} value={c.name}>
-                  {c.name}
-                </option>
+            <div className="grid gap-px bg-slate-100 sm:grid-cols-2">
+              {[
+                ["Country", businessCountry],
+                ["Region", state || "Not provided"],
+                [config.taxLabel, gstin || "Not provided"],
+                ["Phone", phone ? `${config.code} ${phone}` : "Not provided"],
+                ["Currency", `${config.currency} (${config.symbol})`],
+                ["Timezone", config.timezone],
+              ].map(([label, value]) => (
+                <div key={label} className="bg-white p-5">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">{label}</p>
+                  <p className="mt-2 text-sm font-semibold text-slate-900 break-words">{value}</p>
+                </div>
               ))}
-            </select>
-          </div>
-
-          {/* State — dynamic based on country */}
-          <div>
-            <label className="label">
-              {businessCountry === "United States" ? "State" :
-               businessCountry === "Canada" ? "Province" :
-               businessCountry === "UAE" ? "Emirate" :
-               businessCountry === "United Kingdom" ? "Region" :
-               businessCountry === "Australia" ? "State / Territory" :
-               "Home State"}
-            </label>
-            <select
-              value={state}
-              onChange={(e) => setState(e.target.value)}
-              className="input"
-              disabled={statesForCountry.length === 0}
-            >
-              <option value="">
-                {statesForCountry.length === 0 ? "Not applicable" : "Select"}
-              </option>
-              {statesForCountry.map((s: string) => (
-                <option key={s} value={s}>{s}</option>
-              ))}
-            </select>
-          </div>
-
-          {/* Tax Number — label changes per country, db column stays "gstin" */}
-          <div>
-            <label className="label">{config.taxLabel}</label>
-            <input
-              value={gstin}
-              onChange={(e) => setGstin(e.target.value.toUpperCase())}
-              className="input"
-              placeholder={config.taxPlaceholder}
-            />
-          </div>
-
-          {/* Phone with auto country code */}
-          <div>
-            <label className="label">Phone</label>
-            <div className="flex gap-2">
-              <span className="input w-20 flex-none bg-slate-50 text-slate-500 flex items-center justify-center text-sm font-medium">
-                {config.code}
-              </span>
-              <input
-                value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-                className="input flex-1"
-                placeholder="Phone number"
-              />
             </div>
-          </div>
+            <div className="border-t border-slate-100 p-5">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Business address</p>
+              <p className="mt-2 whitespace-pre-line text-sm leading-6 text-slate-700">{address || "No address added yet."}</p>
+            </div>
+          </section>
 
-          {/* Email */}
-          <div>
-            <label className="label">Email</label>
-            <input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="input"
-              placeholder="business@email.com"
-            />
-          </div>
-
-          {/* Address */}
-          <div className="sm:col-span-2">
-            <label className="label">Address</label>
-            <textarea
-              value={address}
-              onChange={(e) => setAddress(e.target.value)}
-              className="input"
-              rows={3}
-              placeholder="Street, City, PIN / ZIP"
-            />
-          </div>
+          <aside className="space-y-5">
+            <div className="rounded-3xl border border-violet-100 bg-gradient-to-br from-violet-50 to-indigo-50 p-6">
+              <div className="flex items-center justify-between"><h3 className="font-semibold text-slate-900">Profile status</h3><span className="rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-semibold text-emerald-700">Active</span></div>
+              <div className="mt-5 h-2 rounded-full bg-white"><div className="h-full w-full rounded-full bg-gradient-to-r from-violet-600 to-indigo-500" /></div>
+              <p className="mt-3 text-sm text-slate-600">Your business profile is ready and will appear on new invoices.</p>
+            </div>
+            <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+              <h3 className="font-semibold text-slate-900">Applied automatically</h3>
+              <ul className="mt-4 space-y-3 text-sm text-slate-600">
+                {["Invoice PDFs and previews", "Tax and currency calculations", "Customer emails and shared invoices", "Reports and business analytics"].map((item) => <li key={item} className="flex gap-2"><span className="mt-0.5 text-emerald-500">✓</span>{item}</li>)}
+              </ul>
+            </div>
+          </aside>
         </div>
+      ) : (
+        <form onSubmit={handleSubmit} className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
+          <div className="border-b border-slate-100 bg-slate-50/70 px-6 py-5 sm:px-8 flex items-center justify-between">
+            <div><h2 className="text-lg font-bold text-slate-900">{profileComplete ? "Edit business profile" : "Complete your business profile"}</h2><p className="mt-1 text-sm text-slate-500">Changes update your future invoices immediately.</p></div>
+            {profileComplete && <button type="button" onClick={() => setIsEditing(false)} className="btn-ghost">Cancel</button>}
+          </div>
 
-        {/* Auto-derived settings — read only, so user knows what will be saved */}
-        <div className="rounded-xl bg-slate-50 border border-slate-200 px-5 py-4">
-          <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-3">
-            Auto-detected settings
-          </p>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
+          <div className="grid gap-8 p-6 sm:p-8 lg:grid-cols-[240px_1fr]">
             <div>
-              <p className="text-xs text-slate-400 mb-0.5">Currency</p>
-              <p className="font-medium text-slate-700">{config.currency} ({config.symbol})</p>
+              <p className="text-sm font-semibold text-slate-900">Brand identity</p>
+              <p className="mt-1 text-xs leading-5 text-slate-500">Upload a square logo for the best result on invoices and emails.</p>
+              <div className="mt-5 h-32 w-32 overflow-hidden rounded-3xl border-2 border-dashed border-violet-200 bg-violet-50 flex items-center justify-center">
+                {logoUrl ? <img src={logoUrl} alt="Logo" className="h-full w-full object-cover" /> : <span className="text-4xl font-bold text-violet-500">{(businessName || "R").slice(0,1).toUpperCase()}</span>}
+              </div>
+              <input ref={fileRef} type="file" accept="image/png,image/jpeg,image/jpg,image/webp" className="hidden" onChange={(e) => { const f=e.target.files?.[0]; if(f) handleLogoUpload(f); }} />
+              <div className="mt-4 flex flex-wrap gap-2"><button type="button" onClick={() => fileRef.current?.click()} disabled={uploading} className="btn-secondary">{uploading ? "Uploading..." : "Upload logo"}</button>{logoUrl && <button type="button" onClick={() => setLogoUrl(null)} className="btn-ghost text-red-500">Remove</button>}</div>
             </div>
-            <div>
-              <p className="text-xs text-slate-400 mb-0.5">Phone Code</p>
-              <p className="font-medium text-slate-700">{config.code}</p>
-            </div>
-            <div>
-              <p className="text-xs text-slate-400 mb-0.5">Date Format</p>
-              <p className="font-medium text-slate-700">{config.dateFormat}</p>
-            </div>
-            <div>
-              <p className="text-xs text-slate-400 mb-0.5">Timezone</p>
-              <p className="font-medium text-slate-700 truncate" title={config.timezone}>
-                {config.timezone.split("/")[1]?.replace("_", " ") ?? config.timezone}
-              </p>
+
+            <div className="space-y-7">
+              <section><h3 className="text-sm font-semibold text-slate-900">Company information</h3><div className="mt-4 grid grid-cols-1 gap-5 sm:grid-cols-2">
+                <div className="sm:col-span-2"><label className="label">Business Name <span className="text-red-500">*</span></label><input required value={businessName} onChange={(e)=>setBusinessName(e.target.value)} className="input h-12" placeholder="Acme Enterprises" /></div>
+                <div><label className="label">Business Country</label><select value={businessCountry} onChange={(e)=>handleCountryChange(e.target.value)} className="input h-12">{COUNTRIES.map((c)=><option key={c.name} value={c.name}>{c.name}</option>)}</select></div>
+                <div><label className="label">{businessCountry === "Canada" ? "Province" : businessCountry === "UAE" ? "Emirate" : businessCountry === "United Kingdom" ? "Region" : "State / Region"}</label><select value={state} onChange={(e)=>setState(e.target.value)} className="input h-12" disabled={statesForCountry.length===0}><option value="">{statesForCountry.length===0 ? "Not applicable" : "Select"}</option>{statesForCountry.map((s:string)=><option key={s} value={s}>{s}</option>)}</select></div>
+                <div><label className="label">{config.taxLabel}</label><input value={gstin} onChange={(e)=>setGstin(e.target.value.toUpperCase())} className="input h-12" placeholder={config.taxPlaceholder} /></div>
+                <div><label className="label">Phone</label><div className="flex gap-2"><span className="input h-12 w-20 flex-none bg-slate-50 text-slate-500 flex items-center justify-center">{config.code}</span><input value={phone} onChange={(e)=>setPhone(e.target.value)} className="input h-12" placeholder="Phone number" /></div></div>
+                <div className="sm:col-span-2"><label className="label">Business Email</label><input type="email" value={email} onChange={(e)=>setEmail(e.target.value)} className="input h-12" placeholder="billing@business.com" /></div>
+                <div className="sm:col-span-2"><label className="label">Address</label><textarea value={address} onChange={(e)=>setAddress(e.target.value)} className="input" rows={4} placeholder="Street, City, PIN / ZIP" /></div>
+              </div></section>
+
+              <section className="rounded-2xl border border-slate-200 bg-slate-50 p-5"><div className="flex items-center justify-between"><div><h3 className="text-sm font-semibold text-slate-900">Regional configuration</h3><p className="mt-1 text-xs text-slate-500">Updated automatically from your country.</p></div><span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-violet-600 shadow-sm">Auto</span></div><div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">{[["Currency",`${config.currency} (${config.symbol})`],["Phone code",config.code],["Date format",config.dateFormat],["Timezone",config.timezone.split("/")[1]?.replace("_"," ") ?? config.timezone]].map(([label,value])=><div key={label} className="rounded-xl bg-white p-3"><p className="text-xs text-slate-400">{label}</p><p className="mt-1 truncate text-sm font-semibold text-slate-800" title={value}>{value}</p></div>)}</div></section>
             </div>
           </div>
-          <p className="text-xs text-slate-400 mt-3">
-            These values are saved automatically when you save your profile.
-          </p>
-        </div>
-
-        <div className="flex justify-end gap-3 pt-2">
-          <button type="submit" disabled={saving} className="btn-primary">
-            {saving ? "Saving..." : "Save Profile"}
-          </button>
-        </div>
-      </form>
+          <div className="sticky bottom-0 flex justify-end gap-3 border-t border-slate-100 bg-white/95 px-6 py-4 backdrop-blur sm:px-8"><button type="submit" disabled={saving} className="btn-primary min-w-36 justify-center">{saving ? "Saving..." : profileComplete ? "Save changes" : "Complete setup"}</button></div>
+        </form>
+      )}
     </div>
   );
 }

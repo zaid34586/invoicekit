@@ -301,19 +301,26 @@ export default function Clients() {
 
   return (
     <div className="max-w-7xl mx-auto space-y-6 animate-fade-in">
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900">Clients</h1>
-          <p className="text-sm text-slate-500 mt-0.5">
-            {clients.length} client{clients.length !== 1 ? "s" : ""} saved
-          </p>
-        </div>
-        <button onClick={openAdd} className="btn-primary">
+      <div className="overflow-hidden rounded-3xl border border-slate-200 bg-gradient-to-br from-slate-950 via-slate-900 to-violet-950 p-6 text-white shadow-xl sm:p-8">
+        <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[.2em] text-violet-300">Client workspace</p>
+            <h1 className="mt-2 text-3xl font-bold tracking-tight">Clients</h1>
+            <p className="mt-2 max-w-xl text-sm text-slate-300">Keep contact details, tax information and invoice history organised in one place.</p>
+          </div>
+          <div className="flex items-center gap-3">
+            <div className="rounded-2xl border border-white/10 bg-white/10 px-4 py-3 text-center backdrop-blur">
+              <p className="text-2xl font-bold">{clients.length}</p>
+              <p className="text-xs text-slate-300">Saved clients</p>
+            </div>
+            <button onClick={openAdd} className="inline-flex items-center gap-2 rounded-xl bg-white px-4 py-3 text-sm font-semibold text-slate-950 shadow-lg transition hover:-translate-y-0.5 hover:bg-violet-50">
           <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
           </svg>
-          Add Client
-        </button>
+          Add client
+            </button>
+          </div>
+        </div>
       </div>
 
       {error && (
@@ -330,21 +337,21 @@ export default function Clients() {
           />
           <form
             onSubmit={handleSubmit}
-            className="relative bg-white rounded-2xl shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto animate-scale-in"
+            className="relative bg-white rounded-3xl shadow-2xl max-w-3xl w-full max-h-[92vh] overflow-y-auto animate-scale-in border border-white"
           >
-            <div className="sticky top-0 bg-white border-b border-slate-100 px-6 py-4 flex items-center justify-between rounded-t-2xl">
+            <div className="sticky top-0 z-10 bg-gradient-to-r from-slate-950 to-violet-950 text-white border-b border-white/10 px-6 py-5 flex items-center justify-between rounded-t-3xl">
               <div>
-                <h2 className="text-lg font-bold text-slate-900">
+                <h2 className="text-xl font-bold text-white">
                   {editingId ? "Edit Client" : "New Client"}
                 </h2>
-                <p className="text-xs text-slate-500 mt-0.5">
+                <p className="text-xs text-slate-300 mt-1">
                   Client details are reused automatically when you create invoices
                 </p>
               </div>
               <button
                 type="button"
                 onClick={() => setShowForm(false)}
-                className="w-8 h-8 flex items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition"
+                className="w-9 h-9 flex items-center justify-center rounded-xl text-white/70 hover:bg-white/10 hover:text-white transition"
               >
                 <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
@@ -352,8 +359,12 @@ export default function Clients() {
               </button>
             </div>
 
-            <div className="px-6 py-5 space-y-5">
-              <div>
+            <div className="px-6 py-6 space-y-6 bg-slate-50/40">
+              <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                <div className="mb-4 flex items-center gap-3">
+                  <div className="h-10 w-10 rounded-xl bg-violet-100 text-violet-700 flex items-center justify-center font-bold">1</div>
+                  <div><p className="font-semibold text-slate-900">Client identity</p><p className="text-xs text-slate-500">Start with the primary business or contact name.</p></div>
+                </div>
                 <label className="label">
                   Client name <span className="text-red-500">*</span>
                 </label>
@@ -463,7 +474,7 @@ export default function Clients() {
               </div>
             </div>
 
-            <div className="sticky bottom-0 bg-white border-t border-slate-100 px-6 py-4 flex justify-end gap-3 rounded-b-2xl">
+            <div className="sticky bottom-0 bg-white/95 backdrop-blur border-t border-slate-100 px-6 py-4 flex justify-end gap-3 rounded-b-3xl">
               <button
                 type="button"
                 onClick={() => setShowForm(false)}
@@ -499,15 +510,18 @@ export default function Clients() {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {clients.map((client) => (
-            <div key={client.id} className="card p-5 space-y-3">
-              <div className="flex items-start justify-between">
-                <div>
+            <div key={client.id} className="group overflow-hidden rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition duration-200 hover:-translate-y-1 hover:border-violet-200 hover:shadow-lg space-y-4">
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <div className="h-11 w-11 shrink-0 rounded-2xl bg-gradient-to-br from-violet-600 to-indigo-600 text-white flex items-center justify-center font-bold shadow-md">{client.name.slice(0,1).toUpperCase()}</div>
+                  <div>
                   <h3 className="font-semibold text-slate-900">{client.name}</h3>
                   {client.gstin && (
                     <p className="text-xs text-slate-500 mt-0.5">
                       {client.country === "India" ? "GSTIN" : "Tax ID"}: {client.gstin}
                     </p>
                   )}
+                  </div>
                 </div>
                 {client.country && client.country !== "India" && (
                   <span className="text-xs px-2 py-1 rounded-full bg-slate-100 text-slate-600 font-medium shrink-0">
