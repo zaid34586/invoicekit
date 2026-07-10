@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
+import RivoxLogo from "./RivoxLogo";
 
 export default function AdminLayout({ children }: { children: ReactNode }) {
   const { user, signOut } = useAuth();
@@ -17,16 +18,12 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
         <div className="w-full flex items-center justify-between h-16 px-4 sm:px-6 lg:px-8">
           <div className="flex items-center gap-3">
             <div className="relative">
-              <div className="w-10 h-10 bg-slate-950 rounded-2xl flex items-center justify-center shadow-lg shadow-slate-900/20">
-                <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
-                </svg>
-              </div>
+              <RivoxLogo showWordmark={false} iconClassName="w-10 h-10" />
               <span className="absolute -right-1 -top-1 h-3 w-3 rounded-full border-2 border-white bg-emerald-500" />
             </div>
             <div>
               <span className="font-black text-sm block leading-tight text-slate-950">Rivox Admin</span>
-              <span className="text-[11px] text-slate-500 hidden sm:block">Premium owner command center</span>
+              <span className="text-[11px] text-slate-500 hidden sm:block">Owner command center</span>
             </div>
           </div>
           <div className="flex items-center gap-3">

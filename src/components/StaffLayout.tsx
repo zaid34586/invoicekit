@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { supabase } from "../lib/supabase";
 import { hasStaffPermission, STAFF_ROLE_LABELS, type StaffMember } from "../lib/staffPermissions";
+import RivoxLogo from "./RivoxLogo";
 
 const navBase = [
   { key: "dashboard", label: "Dashboard", icon: "📊" },
@@ -69,7 +70,7 @@ export default function StaffLayout({ children }: { children: ReactNode }) {
         <aside className="hidden lg:flex w-80 bg-slate-950 text-white flex-col fixed inset-y-0 left-0">
           <div className="p-6 border-b border-white/10">
             <div className="flex items-center gap-3">
-              <div className="w-11 h-11 rounded-2xl bg-white text-slate-950 flex items-center justify-center font-black">IK</div>
+              <RivoxLogo showWordmark={false} iconClassName="w-11 h-11" />
               <div>
                 <div className="font-bold text-lg">Rivox Staff</div>
                 <div className="text-xs text-slate-400">Team operations portal</div>

@@ -73,9 +73,9 @@ Deno.serve(async (req) => {
           attributes: {
             product_options: {
               redirect_url: `${appUrl}/billing?checkout=success`,
-              receipt_button_text: "Return to InvoiceKit",
+              receipt_button_text: "Return to Rivox",
               receipt_link_url: `${appUrl}/billing`,
-              receipt_thank_you_note: "Thank you for upgrading InvoiceKit.",
+              receipt_thank_you_note: "Thank you for upgrading Rivox.",
             },
             checkout_options: {
               embed: false,

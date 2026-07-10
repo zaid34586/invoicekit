@@ -172,7 +172,7 @@ const roleAccess: Record<AdminTeamMember["role"], string[]> = {
 function generatePassword() {
   const part = Math.random().toString(36).slice(2, 8);
   const digits = Math.floor(1000 + Math.random() * 9000);
-  return `IK-${part}-${digits}`;
+  return `RVX-${part}-${digits}`;
 }
 
 function statusClass(status: string) {
@@ -1605,7 +1605,7 @@ export default function Admin() {
 
         {active === "team" && (
           <section className="space-y-6">
-            <SectionHeader title="Manage Team Members" subtitle="Team login, role, permission, status aur task workload control karo" />
+            <SectionHeader title="Manage Team Members" subtitle="Create staff accounts, assign permissions, and manage workload from one place." />
             <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
               <Metric title="Total Members" value={String(teamStats.total)} icon="👨‍💼" />
               <Metric title="Active" value={String(teamStats.active)} icon="✅" />
@@ -1618,7 +1618,7 @@ export default function Admin() {
                 <div className="flex items-start justify-between gap-3 mb-4">
                   <div>
                     <h2 className="text-lg font-semibold text-slate-900">Create Team Login</h2>
-                    <p className="text-sm text-slate-500">Email/password se team member record aur Supabase login create hoga.</p>
+                    <p className="text-sm text-slate-500">Creates a staff record and secure Supabase login with a temporary password.</p>
                   </div>
                 </div>
                 <form onSubmit={handleAddTeam} className="space-y-3">
@@ -1646,7 +1646,7 @@ export default function Admin() {
                 </form>
                 <div className="text-xs text-slate-500 mt-3 space-y-1">
                   <p>Staff portal URL: <b>https://staff.rivox.com</b></p>
-                  <p>Email automation ke liye Supabase secret <b>RESEND_API_KEY</b> set hona chahiye. Function create hote hi staff ko login URL, email aur temporary password bhejega.</p>
+                  <p>Set the Supabase secret <b>RESEND_API_KEY</b> to email the staff portal URL, work email, and temporary password automatically.</p>
                 </div>
               </Card>
 
@@ -1831,7 +1831,7 @@ export default function Admin() {
               <div className="space-y-6">
                 <Card className="p-5 h-fit">
                   <h2 className="text-lg font-semibold text-slate-900 mb-1">Add Finance Entry</h2>
-                  <p className="text-sm text-slate-500 mb-4">Subscription, ads, manual income, expenses aur pending payments add karo.</p>
+                  <p className="text-sm text-slate-500 mb-4">Record subscription income, advertising revenue, manual income, expenses, and pending settlements.</p>
                   <form onSubmit={handleAddFinance} className="space-y-3">
                     <input className="input" type="date" value={financeForm.entry_date} onChange={(e) => setFinanceForm({ ...financeForm, entry_date: e.target.value })} />
                     <input className="input" required placeholder="Title e.g. July Pro Subscription" value={financeForm.title} onChange={(e) => setFinanceForm({ ...financeForm, title: e.target.value })} />
@@ -2411,7 +2411,7 @@ export default function Admin() {
               <div className="p-5 border-b border-slate-100 flex items-start justify-between gap-4">
                 <div>
                   <h2 className="text-lg font-bold text-slate-900">Give Free Pro</h2>
-                  <p className="text-sm text-slate-500">Expiry date save hogi; date nikalne ke baad user auto Free plan par aa jayega.</p>
+                  <p className="text-sm text-slate-500">The expiry date is saved automatically. After it passes, the user returns to the Free plan.</p>
                 </div>
                 <button className="text-slate-400 hover:text-slate-700 text-xl" onClick={() => setFreeProModal(null)}>×</button>
               </div>

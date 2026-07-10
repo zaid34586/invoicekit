@@ -35,7 +35,7 @@ export const INDIA_PLANS: Record<Plan, PricingPlan> = {
     id: "free",
     name: "Free",
     tagline: "Start simple",
-    description: "For testing InvoiceKit and creating your first invoices.",
+    description: "For testing Rivox and creating your first invoices.",
     monthlyPrice: 0,
     yearlyMonthlyPrice: 0,
     currency: "INR",
@@ -44,7 +44,7 @@ export const INDIA_PLANS: Record<Plan, PricingPlan> = {
     clientLimit: 10,
     teamMembers: 0,
     cta: "Start Free",
-    features: ["3 invoices/month", "PDF download", "Basic client management", "InvoiceKit watermark"],
+    features: ["3 invoices/month", "PDF download", "Basic client management", "Rivox watermark"],
     limitations: ["No payment links", "No team access"],
   },
   pro: {
@@ -63,7 +63,7 @@ export const INDIA_PLANS: Record<Plan, PricingPlan> = {
     cta: "Upgrade to Pro",
     features: [
       "500 invoices/month",
-      "Remove InvoiceKit watermark",
+      "Remove Rivox watermark",
       "Payment-ready invoice links",
       "Email & WhatsApp sharing",
       "Reports and client insights",
