@@ -1,170 +1,101 @@
 import { Link } from "react-router-dom";
+import RivoxLogo from "../RivoxLogo";
+
+const Metric = ({ label, value }: { label: string; value: string }) => (
+  <div className="rounded-2xl border border-white/70 bg-white/85 p-4 shadow-sm backdrop-blur">
+    <p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">{label}</p>
+    <p className="mt-2 text-2xl font-black tracking-tight text-slate-950">{value}</p>
+  </div>
+);
 
 export default function Hero() {
   return (
-    <section className="bg-gradient-to-b from-white via-slate-50 to-white">
-      <div className="max-w-7xl mx-auto px-6 py-24 text-center">
+    <section className="relative overflow-hidden bg-white">
+      <div className="pointer-events-none absolute inset-0">
+        <div className="absolute left-1/2 top-[-18rem] h-[38rem] w-[58rem] -translate-x-1/2 rounded-full bg-primary-200/55 blur-3xl" />
+        <div className="absolute -right-48 top-40 h-96 w-96 rounded-full bg-cyan-200/35 blur-3xl" />
+        <div className="absolute -left-48 top-64 h-96 w-96 rounded-full bg-violet-200/45 blur-3xl" />
+      </div>
 
-        {/* Badge */}
-        <span className="inline-flex items-center rounded-full bg-primary-50 px-4 py-2 text-sm font-medium text-primary-700 border border-primary-100">
-          🚀 Trusted by freelancers & businesses worldwide
-        </span>
-
-        {/* Heading */}
-        <h1 className="mt-8 text-5xl md:text-7xl font-extrabold tracking-tight leading-tight text-slate-900">
-          Invoice Smarter.
-          <br />
-          <span className="text-primary-600">
-            Get Paid Faster.
-          </span>
-        </h1>
-
-        {/* Description */}
-        <p className="mt-8 max-w-3xl mx-auto text-xl leading-8 text-slate-600">
-          Create beautiful professional invoices, manage clients,
-          track payments and grow your business with one modern
-          invoicing platform.
-        </p>
-
-        {/* Buttons */}
-        <div className="mt-10 flex flex-col sm:flex-row justify-center gap-5">
-
-          <Link
-            to="/signup"
-            className="px-8 py-4 rounded-xl bg-primary-600 text-white font-semibold hover:bg-primary-700 transition shadow-lg"
-          >
-            Start Free — No Credit Card
-          </Link>
-
-          <Link
-            to="/login"
-            className="px-8 py-4 rounded-xl border border-slate-300 font-semibold hover:bg-slate-100 transition"
-          >
-            Live Demo
-          </Link>
-
-        </div>
-
-        {/* Trust Badges */}
-        <div className="mt-12 flex flex-wrap justify-center gap-8 text-sm text-slate-500">
-
-          <span>✅ Free Forever Plan</span>
-
-          <span>⚡ PDF Export</span>
-
-          <span>🔒 Secure Cloud Storage</span>
-
-          <span>🌍 Built for Global Businesses</span>
-
-        </div>
-
-        {/* Dashboard Preview */}
-        <div className="mt-16 rounded-2xl border border-slate-200 bg-white shadow-2xl overflow-hidden">
-
-          {/* Browser Bar */}
-          <div className="h-12 bg-slate-100 border-b flex items-center px-5 gap-2">
-
-            <div className="w-3 h-3 rounded-full bg-red-400"></div>
-            <div className="w-3 h-3 rounded-full bg-yellow-400"></div>
-            <div className="w-3 h-3 rounded-full bg-green-400"></div>
-
-            <div className="ml-6 bg-white rounded-lg px-4 py-1 text-sm text-slate-400 border">
-              app.rivox.com/dashboard
-            </div>
-
+      <div className="relative mx-auto max-w-7xl px-5 pb-24 pt-20 sm:px-6 lg:pt-28">
+        <div className="mx-auto max-w-4xl text-center">
+          <div className="inline-flex items-center gap-2 rounded-full border border-primary-200 bg-white/75 px-4 py-2 text-sm font-bold text-primary-700 shadow-sm backdrop-blur">
+            <span className="h-2 w-2 rounded-full bg-emerald-500 shadow-[0_0_0_5px_rgba(16,185,129,0.12)]" />
+            Business moves faster with Rivox
           </div>
 
-          <div className="grid lg:grid-cols-4">
+          <h1 className="mt-8 text-5xl font-black leading-[0.98] tracking-[-0.055em] text-slate-950 sm:text-6xl lg:text-[5.4rem]">
+            Run your business.
+            <span className="block bg-gradient-to-r from-primary-600 via-violet-600 to-cyan-500 bg-clip-text text-transparent">
+              Get paid faster.
+            </span>
+          </h1>
 
-            {/* Sidebar */}
-            <div className="bg-slate-900 text-white p-6 space-y-5 text-left">
+          <p className="mx-auto mt-7 max-w-2xl text-lg leading-8 text-slate-600 sm:text-xl">
+            Create polished invoices, manage clients, track revenue and subscriptions, and operate your business from one premium workspace.
+          </p>
 
-              <h3 className="text-xl font-bold">Rivox</h3>
-
-              <div className="space-y-3 text-slate-300">
-
-                <div>📊 Dashboard</div>
-                <div>🧾 Invoices</div>
-                <div>👥 Clients</div>
-                <div>💳 Billing</div>
-                <div>⚙ Settings</div>
-
-              </div>
-
-            </div>
-
-            {/* Main */}
-            <div className="lg:col-span-3 p-8 bg-slate-50">
-
-              <div className="grid md:grid-cols-3 gap-5">
-
-                <div className="bg-white rounded-xl p-6 shadow">
-
-                  <p className="text-slate-500">Revenue</p>
-
-                  <h3 className="text-3xl font-bold mt-2">$18,450</h3>
-
-                </div>
-
-                <div className="bg-white rounded-xl p-6 shadow">
-
-                  <p className="text-slate-500">Invoices</p>
-
-                  <h3 className="text-3xl font-bold mt-2">248</h3>
-
-                </div>
-
-                <div className="bg-white rounded-xl p-6 shadow">
-
-                  <p className="text-slate-500">Paid</p>
-
-                  <h3 className="text-3xl font-bold mt-2">96%</h3>
-
-                </div>
-
-              </div>
-
-              <div className="mt-8 bg-white rounded-xl shadow p-6">
-
-                <div className="flex justify-between mb-6">
-
-                  <h4 className="font-semibold">
-                    Recent Invoices
-                  </h4>
-
-                  <span className="text-primary-600">
-                    View All
-                  </span>
-
-                </div>
-
-                <div className="space-y-4">
-
-                  <div className="flex justify-between">
-                    <span>INV-1001</span>
-                    <span className="text-green-600 font-medium">Paid</span>
-                  </div>
-
-                  <div className="flex justify-between">
-                    <span>INV-1002</span>
-                    <span className="text-yellow-500 font-medium">Pending</span>
-                  </div>
-
-                  <div className="flex justify-between">
-                    <span>INV-1003</span>
-                    <span className="font-medium">$520</span>
-                  </div>
-
-                </div>
-
-              </div>
-
-            </div>
-
+          <div className="mt-10 flex flex-col justify-center gap-3 sm:flex-row">
+            <Link to="/signup" className="inline-flex items-center justify-center rounded-2xl bg-slate-950 px-7 py-4 text-base font-bold text-white shadow-xl shadow-slate-950/20 transition hover:-translate-y-1 hover:bg-primary-600">
+              Start free — no card
+              <span className="ml-2">→</span>
+            </Link>
+            <a href="#pricing" className="inline-flex items-center justify-center rounded-2xl border border-slate-300 bg-white/80 px-7 py-4 text-base font-bold text-slate-800 shadow-sm backdrop-blur transition hover:-translate-y-1 hover:border-primary-300 hover:text-primary-700">
+              Compare plans
+            </a>
           </div>
 
+          <div className="mt-8 flex flex-wrap justify-center gap-x-7 gap-y-3 text-sm font-semibold text-slate-500">
+            <span>✓ 3 free invoices</span>
+            <span>✓ Global currencies</span>
+            <span>✓ Secure cloud access</span>
+            <span>✓ Cancel anytime</span>
+          </div>
         </div>
 
+        <div className="relative mx-auto mt-16 max-w-6xl">
+          <div className="absolute -inset-5 rounded-[2.4rem] bg-gradient-to-r from-primary-500/20 via-violet-500/20 to-cyan-400/20 blur-2xl" />
+          <div className="relative overflow-hidden rounded-[2rem] border border-slate-200/80 bg-slate-950 p-2 shadow-[0_35px_90px_rgba(15,23,42,0.24)]">
+            <div className="overflow-hidden rounded-[1.55rem] bg-slate-50">
+              <div className="flex h-12 items-center gap-2 border-b border-slate-200 bg-white px-5">
+                <span className="h-3 w-3 rounded-full bg-rose-400" /><span className="h-3 w-3 rounded-full bg-amber-400" /><span className="h-3 w-3 rounded-full bg-emerald-400" />
+                <div className="mx-auto rounded-lg border border-slate-200 bg-slate-50 px-6 py-1.5 text-xs font-medium text-slate-400">app.rivox.com/dashboard</div>
+              </div>
+
+              <div className="grid min-h-[430px] lg:grid-cols-[230px_1fr]">
+                <aside className="hidden bg-slate-950 p-6 text-white lg:block">
+                  <RivoxLogo inverse iconClassName="w-9 h-9" />
+                  <div className="mt-9 space-y-2 text-sm font-semibold">
+                    <div className="rounded-xl bg-white/10 px-4 py-3 text-white">Dashboard</div>
+                    {['Invoices','Clients','Reports','Billing','Settings'].map((item) => <div key={item} className="rounded-xl px-4 py-3 text-slate-400">{item}</div>)}
+                  </div>
+                </aside>
+
+                <main className="p-5 sm:p-8">
+                  <div className="flex items-start justify-between gap-4">
+                    <div><p className="text-sm font-semibold text-slate-500">Overview</p><h2 className="mt-1 text-2xl font-black tracking-tight text-slate-950">Good morning, Alex</h2></div>
+                    <button className="rounded-xl bg-primary-600 px-4 py-2.5 text-sm font-bold text-white shadow-lg shadow-primary-600/20">+ New invoice</button>
+                  </div>
+                  <div className="mt-7 grid gap-4 sm:grid-cols-3">
+                    <Metric label="Revenue" value="$18,450" />
+                    <Metric label="Outstanding" value="$3,280" />
+                    <Metric label="Paid rate" value="96%" />
+                  </div>
+                  <div className="mt-5 grid gap-5 xl:grid-cols-[1.45fr_1fr]">
+                    <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                      <div className="flex items-center justify-between"><p className="font-bold text-slate-900">Revenue trend</p><span className="text-xs font-bold text-emerald-600">+18.4%</span></div>
+                      <div className="mt-8 flex h-36 items-end gap-2">{[34,48,40,62,55,78,68,88,76,96,83,104].map((h,i)=><div key={i} className="flex-1 rounded-t-md bg-gradient-to-t from-primary-600 to-primary-300" style={{height:`${h}px`}} />)}</div>
+                    </div>
+                    <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                      <p className="font-bold text-slate-900">Recent invoices</p>
+                      <div className="mt-4 space-y-4">{[['INV-1048','Paid','$1,240'],['INV-1047','Pending','$780'],['INV-1046','Paid','$520']].map(([id,status,amount])=><div key={id} className="flex items-center justify-between border-b border-slate-100 pb-3 last:border-0"><div><p className="text-sm font-bold text-slate-800">{id}</p><p className={`text-xs font-semibold ${status==='Paid'?'text-emerald-600':'text-amber-600'}`}>{status}</p></div><p className="text-sm font-black text-slate-900">{amount}</p></div>)}</div>
+                    </div>
+                  </div>
+                </main>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     </section>
   );

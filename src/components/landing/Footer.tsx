@@ -1,73 +1,44 @@
 import { Link } from "react-router-dom";
+import RivoxLogo from "../RivoxLogo";
 
 export default function Footer() {
   return (
-    <footer className="bg-slate-900 text-white py-16">
-      <div className="max-w-7xl mx-auto px-6">
-
-        <div className="grid md:grid-cols-4 gap-10">
-
+    <footer className="relative overflow-hidden bg-slate-950 text-white">
+      <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-primary-400 to-transparent" />
+      <div className="mx-auto max-w-7xl px-5 py-16 sm:px-6">
+        <div className="grid gap-12 lg:grid-cols-[1.35fr_repeat(3,1fr)]">
           <div>
-            <h2 className="text-2xl font-bold">Rivox</h2>
-
-            <p className="mt-4 text-slate-400">
-              Professional invoicing software for freelancers,
-              startups and growing businesses.
+            <RivoxLogo inverse />
+            <p className="mt-5 max-w-sm text-sm leading-7 text-slate-400">
+              A modern business workspace for invoices, clients, subscriptions, reports, and faster payments.
             </p>
+            <div className="mt-6 inline-flex items-center gap-2 rounded-full border border-emerald-500/20 bg-emerald-500/10 px-3 py-1.5 text-xs font-bold text-emerald-300">
+              <span className="h-2 w-2 rounded-full bg-emerald-400" /> All systems operational
+            </div>
           </div>
 
-          <div>
-            <h3 className="font-semibold mb-4">Product</h3>
-
-            <ul className="space-y-3 text-slate-400">
-              <li><a href="#features">Features</a></li>
-              <li><a href="#pricing">Pricing</a></li>
-              <li><a href="#faq">FAQ</a></li>
-            </ul>
-          </div>
-
-          <div>
-            <h3 className="font-semibold mb-4">Company</h3>
-
-            <ul className="space-y-3 text-slate-400">
-              <li>About</li>
-              <li>Contact</li>
-              <li>Support</li>
-            </ul>
-          </div>
-
-          <div>
-            <h3 className="font-semibold mb-4">Legal</h3>
-
-            <ul className="space-y-3 text-slate-400">
-              <li>Privacy Policy</li>
-              <li>Terms of Service</li>
-              <li>Refund Policy</li>
-            </ul>
-          </div>
-
+          {[
+            { title: 'Product', items: [['Features','#features'],['Pricing','#pricing'],['FAQ','#faq'],['Sign in','/login']] },
+            { title: 'Workspace', items: [['Dashboard','/login'],['Invoices','/login'],['Clients','/login'],['Support','/login']] },
+            { title: 'Company', items: [['Contact','mailto:support@rivox.com'],['Privacy','#'],['Terms','#'],['Refund policy','#']] },
+          ].map((column) => (
+            <div key={column.title}>
+              <h3 className="text-sm font-black uppercase tracking-[0.16em] text-slate-300">{column.title}</h3>
+              <ul className="mt-5 space-y-3">
+                {column.items.map(([label, href]) => (
+                  <li key={label}>
+                    {href.startsWith('/') ? <Link to={href} className="text-sm font-medium text-slate-400 transition hover:text-white">{label}</Link> : <a href={href} className="text-sm font-medium text-slate-400 transition hover:text-white">{label}</a>}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
         </div>
 
-        <div className="border-t border-slate-700 mt-12 pt-8 flex flex-col md:flex-row justify-between items-center">
-
-          <p className="text-slate-400">
-            © 2026 Rivox. All rights reserved.
-          </p>
-
-          <div className="flex gap-6 mt-4 md:mt-0">
-
-            <Link to="/login" className="text-slate-400 hover:text-white">
-              Sign In
-            </Link>
-
-            <Link to="/signup" className="text-slate-400 hover:text-white">
-              Get Started
-            </Link>
-
-          </div>
-
+        <div className="mt-14 flex flex-col gap-4 border-t border-white/10 pt-7 text-sm text-slate-500 sm:flex-row sm:items-center sm:justify-between">
+          <p>© 2026 Rivox. All rights reserved.</p>
+          <p>Where business moves faster.</p>
         </div>
-
       </div>
     </footer>
   );
