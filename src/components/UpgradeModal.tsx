@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useRegion } from "../context/RegionContext";
 import { GLOBAL_PLANS, INDIA_PLANS, formatPlanPrice } from "../lib/pricing";
+import { startLemonCheckout } from "../lib/lemonSqueezy";
 
 interface UpgradeModalProps {
   isOpen: boolean;
@@ -23,17 +24,19 @@ const plans =
     ? INDIA_PLANS
     : GLOBAL_PLANS;
   const [subscribing, setSubscribing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   if (!isOpen) return null;
 
-  function handleSubscribe() {
-    setSubscribing(true);
-    setTimeout(() => {
+  async function handleSubscribe() {
+    try {
+      setError(null);
+      setSubscribing(true);
+      await startLemonCheckout("pro", "monthly");
+    } catch (checkoutError) {
+      setError(checkoutError instanceof Error ? checkoutError.message : "Unable to start checkout.");
       setSubscribing(false);
-      alert(
-        "Payment integration will be available soon."
-      );
-    }, 800);
+    }
   }
 
   return (
@@ -76,6 +79,8 @@ const plans =
             </li>
           ))}
         </ul>
+
+        {error && <p className="mb-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
 
         <button
           onClick={handleSubscribe}

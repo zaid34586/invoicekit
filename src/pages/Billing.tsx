@@ -15,6 +15,7 @@ import {
   getPlanLimitLabel,
 } from "../lib/pricing";
 import { supabase } from "../lib/supabase";
+import { startLemonCheckout } from "../lib/lemonSqueezy";
 
 const BILLING_HISTORY = [
   { id: "1", date: "2026-06-15", invoiceNumber: "BILL-2026-001", plan: "Manual Pro", amount: 0, status: "active" },
@@ -87,11 +88,13 @@ function PlanCard({
   cycle,
   currentPlan,
   onUpgrade,
+  loading,
 }: {
   plan: PricingPlan;
   cycle: BillingCycle;
   currentPlan: Plan;
   onUpgrade: (plan: PricingPlan) => void;
+  loading?: boolean;
 }) {
   const isCurrent = currentPlan === plan.id;
   const isFree = plan.id === "free";
@@ -136,7 +139,7 @@ function PlanCard({
 
       <button
         onClick={() => onUpgrade(plan)}
-        disabled={isCurrent || isFree}
+        disabled={isCurrent || isFree || loading}
         className={`mt-6 w-full rounded-xl px-4 py-3 text-sm font-bold transition ${
           isCurrent || isFree
             ? "cursor-not-allowed bg-slate-100 text-slate-500"
@@ -145,7 +148,7 @@ function PlanCard({
             : "border border-slate-300 bg-white text-slate-800 hover:bg-slate-50"
         }`}
       >
-        {isCurrent ? "Current Plan" : isFree ? "Free Plan" : plan.cta}
+        {loading ? "Opening checkout..." : isCurrent ? "Current Plan" : isFree ? "Free Plan" : plan.cta}
       </button>
     </div>
   );
@@ -158,6 +161,8 @@ export default function Billing() {
   const [invoicesThisMonth, setInvoicesThisMonth] = useState(0);
   const [promoCode, setPromoCode] = useState("");
   const [promoMessage, setPromoMessage] = useState<string | null>(null);
+  const [checkoutLoading, setCheckoutLoading] = useState<Plan | null>(null);
+  const [checkoutError, setCheckoutError] = useState<string | null>(null);
   const [modal, setModal] = useState<null | { title: string; message: string; confirmLabel: string; onConfirm: () => void; variant?: "primary" | "danger" }>(null);
 
   const plans = region === "india" ? INDIA_PLANS : GLOBAL_PLANS;
@@ -193,11 +198,21 @@ export default function Billing() {
   }, [invoiceBalance, invoicesThisMonth, isUnlimited]);
 
   function handleUpgrade(plan: PricingPlan) {
+    if (plan.id === "free") return;
+    setCheckoutError(null);
     setModal({
       title: `Upgrade to ${plan.name}`,
-      message: `Payment gateway integration is not live yet. This will start the ${plan.name} ${cycle} checkout once payments are enabled.`,
-      confirmLabel: "Got it",
-      onConfirm: () => {},
+      message: `Continue to the secure Lemon Squeezy checkout for the ${plan.name} ${cycle} plan. Your plan activates automatically after payment confirmation.`,
+      confirmLabel: "Continue to checkout",
+      onConfirm: async () => {
+        try {
+          setCheckoutLoading(plan.id);
+          await startLemonCheckout(plan.id as "pro" | "business", cycle);
+        } catch (error) {
+          setCheckoutError(error instanceof Error ? error.message : "Unable to start checkout.");
+          setCheckoutLoading(null);
+        }
+      },
     });
   }
 
@@ -213,6 +228,16 @@ export default function Billing() {
 
   return (
     <div className="mx-auto max-w-6xl space-y-8">
+      {new URLSearchParams(window.location.search).get("checkout") === "success" && (
+        <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-5 py-4 text-sm font-medium text-emerald-800">
+          Payment received. Your subscription is being activated; this page will update after the Lemon Squeezy webhook is processed.
+        </div>
+      )}
+      {checkoutError && (
+        <div className="rounded-2xl border border-red-200 bg-red-50 px-5 py-4 text-sm font-medium text-red-700">
+          {checkoutError}
+        </div>
+      )}
       <div className="overflow-hidden rounded-3xl bg-gradient-to-br from-slate-950 via-slate-900 to-primary-900 p-8 text-white shadow-xl">
         <div className="flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
           <div>
@@ -287,7 +312,7 @@ export default function Billing() {
         {promoMessage && <p className="mb-4 rounded-xl bg-primary-50 p-3 text-sm font-medium text-primary-700">{promoMessage}</p>}
         <div className="grid gap-6 lg:grid-cols-3">
           {(["free", "pro", "business"] as Plan[]).map((id) => (
-            <PlanCard key={id} plan={plans[id]} cycle={cycle} currentPlan={planId} onUpgrade={handleUpgrade} />
+            <PlanCard key={id} plan={plans[id]} cycle={cycle} currentPlan={planId} onUpgrade={handleUpgrade} loading={checkoutLoading === id} />
           ))}
         </div>
       </section>
