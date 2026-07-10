@@ -1,6 +1,34 @@
 import { Link } from "react-router-dom";
 import RivoxLogo from "../RivoxLogo";
 
+const columns = [
+  {
+    title: "Product",
+    items: [
+      ["Features", "/#features"],
+      ["Pricing", "/pricing"],
+      ["FAQ", "/#faq"],
+      ["Sign in", "/login"],
+    ],
+  },
+  {
+    title: "Company",
+    items: [
+      ["About", "/about"],
+      ["Contact", "/contact"],
+      ["Security", "/security"],
+    ],
+  },
+  {
+    title: "Legal",
+    items: [
+      ["Terms of Service", "/terms"],
+      ["Privacy Policy", "/privacy"],
+      ["Refund Policy", "/refund-policy"],
+    ],
+  },
+];
+
 export default function Footer() {
   return (
     <footer className="relative overflow-hidden bg-slate-950 text-white">
@@ -17,17 +45,15 @@ export default function Footer() {
             </div>
           </div>
 
-          {[
-            { title: 'Product', items: [['Features','#features'],['Pricing','#pricing'],['FAQ','#faq'],['Sign in','/login']] },
-            { title: 'Workspace', items: [['Dashboard','/login'],['Invoices','/login'],['Clients','/login'],['Support','/login']] },
-            { title: 'Company', items: [['Contact','mailto:support@rivox.com'],['Privacy','#'],['Terms','#'],['Refund policy','#']] },
-          ].map((column) => (
+          {columns.map((column) => (
             <div key={column.title}>
               <h3 className="text-sm font-black uppercase tracking-[0.16em] text-slate-300">{column.title}</h3>
               <ul className="mt-5 space-y-3">
                 {column.items.map(([label, href]) => (
                   <li key={label}>
-                    {href.startsWith('/') ? <Link to={href} className="text-sm font-medium text-slate-400 transition hover:text-white">{label}</Link> : <a href={href} className="text-sm font-medium text-slate-400 transition hover:text-white">{label}</a>}
+                    <Link to={href} className="text-sm font-medium text-slate-400 transition hover:text-white">
+                      {label}
+                    </Link>
                   </li>
                 ))}
               </ul>

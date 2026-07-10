@@ -28,6 +28,14 @@ import StaffLayout from "./components/StaffLayout";
 import StaffRoute from "./components/StaffRoute";
 import ShareInvoice from "./pages/ShareInvoice";
 import { ADMIN_EMAIL } from "./lib/constants";
+import Terms from "./pages/Terms";
+import Privacy from "./pages/Privacy";
+import RefundPolicy from "./pages/RefundPolicy";
+import PricingPage from "./pages/PricingPage";
+import About from "./pages/About";
+import Contact from "./pages/Contact";
+import Security from "./pages/Security";
+import NotFound from "./pages/NotFound";
 
 
 function getPortalHost() {
@@ -188,6 +196,13 @@ export default function App() {
   return (
     <Routes>
       <Route path="/" element={<HostHomeRedirect />} />
+      <Route path="/pricing" element={<PricingPage />} />
+      <Route path="/terms" element={<Terms />} />
+      <Route path="/privacy" element={<Privacy />} />
+      <Route path="/refund-policy" element={<RefundPolicy />} />
+      <Route path="/about" element={<About />} />
+      <Route path="/contact" element={<Contact />} />
+      <Route path="/security" element={<Security />} />
 
       <Route
         path="/login"
@@ -311,7 +326,7 @@ export default function App() {
       />
 
       <Route path="/share/:token" element={<ShareInvoice />} />
-      <Route path="*" element={<Navigate to="/" replace />} />
+      <Route path="*" element={<NotFound />} />
     </Routes>
   );
 }
