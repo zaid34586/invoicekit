@@ -32,7 +32,7 @@ export default function FAQ() {
   const [open, setOpen] = useState<number | null>(0);
 
   return (
-    <section id="faq" className="py-24 bg-white">
+    <section id="faq" className="scroll-mt-24 py-24 bg-white">
       <div className="max-w-4xl mx-auto px-6">
 
         <div className="text-center mb-14">

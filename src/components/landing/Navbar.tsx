@@ -1,24 +1,30 @@
 import { Link } from "react-router-dom";
 import RivoxLogo from "../RivoxLogo";
 
+const navigation = [
+  ["Features", "/#features"],
+  ["How it works", "/#how-it-works"],
+  ["Pricing", "/pricing"],
+  ["FAQ", "/#faq"],
+] as const;
+
 export default function Navbar() {
   return (
-    <header className="sticky top-0 z-50 border-b border-slate-200/70 bg-white/80 backdrop-blur-xl">
+    <header className="sticky top-0 z-50 border-b border-slate-200/70 bg-white/90 backdrop-blur-xl">
       <div className="mx-auto flex h-[72px] max-w-7xl items-center justify-between px-5 sm:px-6">
-        <Link to="/" aria-label="Rivox home">
+        <Link to="/" aria-label="Rivox home" className="rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2">
           <RivoxLogo />
         </Link>
 
-        <nav className="hidden items-center gap-1 rounded-full border border-slate-200/80 bg-white/70 p-1 md:flex">
-          {[
-            ["Features", "#features"],
-            ["How it works", "#how-it-works"],
-            ["Pricing", "#pricing"],
-            ["FAQ", "#faq"],
-          ].map(([label, href]) => (
-            <a key={label} href={href} className="rounded-full px-4 py-2 text-sm font-semibold text-slate-600 transition hover:bg-slate-100 hover:text-slate-950">
+        <nav className="hidden items-center gap-1 rounded-full border border-slate-200/80 bg-white/80 p-1 shadow-sm md:flex" aria-label="Primary navigation">
+          {navigation.map(([label, href]) => (
+            <Link
+              key={label}
+              to={href}
+              className="rounded-full px-4 py-2 text-sm font-semibold text-slate-600 transition hover:bg-slate-100 hover:text-slate-950 focus:outline-none focus:ring-2 focus:ring-primary-500"
+            >
               {label}
-            </a>
+            </Link>
           ))}
         </nav>
 

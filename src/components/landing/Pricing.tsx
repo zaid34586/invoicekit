@@ -112,7 +112,7 @@ export default function Pricing() {
   const orderedPlans: Plan[] = ["free", "pro", "business"];
 
   return (
-    <section id="pricing" className="relative overflow-hidden bg-slate-50 py-24">
+    <section id="pricing" className="scroll-mt-24 relative overflow-hidden bg-slate-50 py-24">
       <div className="absolute inset-x-0 top-0 h-48 bg-gradient-to-b from-primary-50 to-transparent" />
       <div className="relative mx-auto max-w-7xl px-6">
         <div className="mx-auto max-w-3xl text-center">

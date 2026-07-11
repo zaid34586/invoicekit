@@ -36,6 +36,7 @@ import About from "./pages/About";
 import Contact from "./pages/Contact";
 import Security from "./pages/Security";
 import NotFound from "./pages/NotFound";
+import ScrollToTop from "./components/ScrollToTop";
 
 
 function getPortalHost() {
@@ -194,7 +195,9 @@ function CheckEmailRoute() {
 }
 export default function App() {
   return (
-    <Routes>
+    <>
+      <ScrollToTop />
+      <Routes>
       <Route path="/" element={<HostHomeRedirect />} />
       <Route path="/pricing" element={<PricingPage />} />
       <Route path="/terms" element={<Terms />} />
@@ -327,6 +330,7 @@ export default function App() {
 
       <Route path="/share/:token" element={<ShareInvoice />} />
       <Route path="*" element={<NotFound />} />
-    </Routes>
+      </Routes>
+    </>
   );
 }
