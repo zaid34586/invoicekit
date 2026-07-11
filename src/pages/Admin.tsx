@@ -8,12 +8,14 @@ import type { Profile, Invoice, Client } from "../lib/types";
 import StatusBadge from "../components/StatusBadge";
 import AdminSubscriptionManager from "../components/AdminSubscriptionManager";
 import CommunicationCenter from "../components/CommunicationCenter";
+import AdminPaddleSettings from "../components/AdminPaddleSettings";
 
 type AdminSection =
   | "dashboard"
   | "users"
   | "credits"
   | "subscriptions"
+  | "paddle"
   | "team"
   | "tasks"
   | "communication"
@@ -141,6 +143,7 @@ const sections: { id: AdminSection; label: string; icon: string; group: string }
   { id: "users", label: "Users", icon: "👥", group: "Users" },
   { id: "credits", label: "Invoice Balance & Plans", icon: "💳", group: "Users" },
   { id: "subscriptions", label: "Pricing & Offers", icon: "🏷️", group: "Money" },
+  { id: "paddle", label: "Paddle & API Key", icon: "🔐", group: "Money" },
   { id: "team", label: "Team Members", icon: "👨‍💼", group: "Operations" },
   { id: "tasks", label: "Tasks", icon: "📋", group: "Operations" },
   { id: "communication", label: "Communication", icon: "💬", group: "Operations" },
@@ -1376,6 +1379,7 @@ export default function Admin() {
         )}
 
         {active === "subscriptions" && <AdminSubscriptionManager />}
+        {active === "paddle" && <AdminPaddleSettings />}
 
         {active === "communication" && (
           <CommunicationCenter actorName={user?.email || "Owner Admin"} actorRole="Owner Admin" canManageChannels />

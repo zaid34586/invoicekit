@@ -1,0 +1,99 @@
+RIVOX PADDLE INTEGRATION — APPLY STEPS
+======================================
+
+What is included
+----------------
+1. Paddle.js overlay checkout for Pro/Business monthly and yearly prices.
+2. Public Pricing and logged-in Billing upgrade buttons connected to Paddle.
+3. Paddle customer email + Rivox user_id/plan/billing_cycle sent as checkout custom data.
+4. Admin > Paddle & API Key health page.
+5. Owner-only Supabase Edge Function for encrypted API-key rotation and connection testing.
+6. Signed Paddle webhook Edge Function for subscriptions and completed transactions.
+7. Production URL changed to https://getrivox.vercel.app.
+
+A. Install and build
+--------------------
+npm install
+npm run build
+
+B. Apply the database migration
+-------------------------------
+supabase db push
+
+This applies:
+supabase/migrations/20260711100000_paddle_billing.sql
+
+C. Configure secure Supabase secrets
+------------------------------------
+Generate a strong random encryption secret in PowerShell:
+
+$bytes = New-Object byte[] 48
+[Security.Cryptography.RandomNumberGenerator]::Fill($bytes)
+[Convert]::ToBase64String($bytes)
+
+Copy the generated result, then run:
+
+supabase secrets set PADDLE_KEY_ENCRYPTION_SECRET="PASTE_RANDOM_VALUE_HERE"
+supabase secrets set RIVOX_OWNER_EMAIL="YOUR_OWNER_ADMIN_EMAIL"
+
+D. Deploy the owner-only API-key settings function
+--------------------------------------------------
+supabase functions deploy paddle-admin-settings
+
+After deployment:
+Admin > Paddle & API Key > paste the Paddle backend key and its expiry date > Encrypt, save & verify.
+The key is encrypted inside the Edge Function before storage. The browser never stores the full key.
+
+E. Configure and deploy Paddle webhook
+--------------------------------------
+In Paddle Dashboard:
+Developer Tools > Notifications > New destination
+
+Destination URL:
+https://YOUR_SUPABASE_PROJECT_REF.supabase.co/functions/v1/paddle-webhook
+
+Subscribe to at least:
+- subscription.created
+- subscription.updated
+- subscription.canceled
+- transaction.completed
+
+Copy the endpoint secret from Paddle, then run:
+
+supabase secrets set PADDLE_WEBHOOK_SECRET="PASTE_PADDLE_ENDPOINT_SECRET"
+supabase functions deploy paddle-webhook --no-verify-jwt
+
+F. Required Vercel/Vite environment variables
+----------------------------------------------
+VITE_PADDLE_CLIENT_TOKEN
+VITE_PADDLE_PRO_MONTHLY_PRICE_ID
+VITE_PADDLE_PRO_YEARLY_PRICE_ID
+VITE_PADDLE_BUSINESS_MONTHLY_PRICE_ID
+VITE_PADDLE_BUSINESS_YEARLY_PRICE_ID
+
+The backend Paddle API key MUST NOT have a VITE_ prefix.
+Once the Admin Paddle function is deployed, future key rotations can be done from Admin without changing frontend code or redeploying Vercel.
+
+G. Deploy application
+---------------------
+git add .
+git commit -m "feat(paddle): add checkout, webhooks and admin key health"
+git push origin main
+
+Vercel will deploy automatically.
+
+H. Test order
+-------------
+1. Open Admin > Paddle & API Key.
+2. Verify Paddle.js checkout setup.
+3. Save/test the encrypted backend API key.
+4. Log in as a normal customer and open Billing.
+5. Choose Pro Monthly and verify Paddle overlay opens with $150/month.
+6. Close it, choose Pro Yearly and verify $1,800/year.
+7. Repeat Business Monthly ($250) and Yearly ($3,000).
+8. Complete a controlled purchase only when ready.
+9. Confirm subscriptions and billing_events update after the Paddle webhook.
+
+Security note
+-------------
+Never commit .env. Never put the backend API key in a VITE_ variable. Rotate any key that has been publicly exposed.

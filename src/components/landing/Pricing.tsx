@@ -1,4 +1,7 @@
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { useAuth } from "../../context/AuthContext";
+import { openPaddleCheckout } from "../../lib/paddle";
 import { useRegion } from "../../context/RegionContext";
 import {
   BillingCycle,
@@ -36,7 +39,7 @@ function BillingToggle({ cycle, setCycle }: { cycle: BillingCycle; setCycle: (cy
   );
 }
 
-function PricingCard({ plan, cycle }: { plan: PricingPlan; cycle: BillingCycle }) {
+function PricingCard({ plan, cycle, onSelect, loading }: { plan: PricingPlan; cycle: BillingCycle; onSelect: (plan: PricingPlan) => void; loading: boolean }) {
   const isFree = plan.id === "free";
   return (
     <div
@@ -96,10 +99,10 @@ function PricingCard({ plan, cycle }: { plan: PricingPlan; cycle: BillingCycle }
         ))}
       </ul>
 
-      <button className={`mt-8 w-full rounded-xl px-5 py-3 text-sm font-bold transition ${
+      <button onClick={() => onSelect(plan)} disabled={loading} className={`mt-8 w-full rounded-xl px-5 py-3 text-sm font-bold transition ${
         plan.featured ? "bg-primary-600 text-white shadow-lg hover:bg-primary-700" : "border border-slate-300 bg-white text-slate-800 hover:bg-slate-50"
       }`}>
-        {plan.cta}
+        {loading ? "Opening checkout..." : plan.cta}
       </button>
     </div>
   );
@@ -107,9 +110,38 @@ function PricingCard({ plan, cycle }: { plan: PricingPlan; cycle: BillingCycle }
 
 export default function Pricing() {
   const region = useRegion();
+  const navigate = useNavigate();
+  const { user } = useAuth();
   const [cycle, setCycle] = useState<BillingCycle>("yearly");
+  const [loadingPlan, setLoadingPlan] = useState<Plan | null>(null);
+  const [checkoutError, setCheckoutError] = useState<string | null>(null);
   const plans = region === "india" ? INDIA_PLANS : GLOBAL_PLANS;
   const orderedPlans: Plan[] = ["free", "pro", "business"];
+  async function selectPlan(plan: PricingPlan) {
+    if (plan.id === "free") {
+      navigate(user ? "/dashboard" : "/signup");
+      return;
+    }
+    if (!user) {
+      navigate(`/login?next=/billing&plan=${plan.id}&cycle=${cycle}`);
+      return;
+    }
+    setCheckoutError(null);
+    setLoadingPlan(plan.id);
+    try {
+      await openPaddleCheckout({
+        plan: plan.id,
+        cycle,
+        userId: user.id,
+        email: user.email,
+      });
+    } catch (error) {
+      setCheckoutError(error instanceof Error ? error.message : "Unable to open Paddle checkout.");
+    } finally {
+      setLoadingPlan(null);
+    }
+  }
+
 
   return (
     <section id="pricing" className="scroll-mt-24 relative overflow-hidden bg-slate-50 py-24">
@@ -130,9 +162,11 @@ export default function Pricing() {
           </div>
         </div>
 
+        {checkoutError && <div className="mx-auto mt-8 max-w-2xl rounded-2xl border border-red-200 bg-red-50 px-5 py-4 text-sm font-medium text-red-700">{checkoutError}</div>}
+
         <div className="mt-14 grid gap-8 lg:grid-cols-3">
           {orderedPlans.map((id) => (
-            <PricingCard key={id} plan={plans[id]} cycle={cycle} />
+            <PricingCard key={id} plan={plans[id]} cycle={cycle} onSelect={selectPlan} loading={loadingPlan === id} />
           ))}
         </div>
 
@@ -151,7 +185,7 @@ export default function Pricing() {
         </div>
 
         <p className="mt-6 text-center text-sm text-slate-500">
-          Payment gateway integration is coming next. Prices and offers can be moved to Admin Pricing Manager before launch.
+          Secure checkout is powered by Paddle. Taxes and supported local currencies are calculated at checkout.
         </p>
       </div>
     </section>

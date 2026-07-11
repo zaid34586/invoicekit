@@ -15,7 +15,7 @@ import {
   getPlanLimitLabel,
 } from "../lib/pricing";
 import { supabase } from "../lib/supabase";
-import { startLemonCheckout } from "../lib/lemonSqueezy";
+import { openPaddleCheckout } from "../lib/paddle";
 
 const BILLING_HISTORY = [
   { id: "1", date: "2026-06-15", invoiceNumber: "BILL-2026-001", plan: "Manual Pro", amount: 0, status: "active" },
@@ -202,12 +202,18 @@ export default function Billing() {
     setCheckoutError(null);
     setModal({
       title: `Upgrade to ${plan.name}`,
-      message: `Continue to the secure Lemon Squeezy checkout for the ${plan.name} ${cycle} plan. Your plan activates automatically after payment confirmation.`,
+      message: `Continue to the secure Paddle checkout for the ${plan.name} ${cycle} plan. Your plan activates automatically after payment confirmation.`,
       confirmLabel: "Continue to checkout",
       onConfirm: async () => {
         try {
           setCheckoutLoading(plan.id);
-          await startLemonCheckout(plan.id as "pro" | "business", cycle);
+          await openPaddleCheckout({
+            plan: plan.id as "pro" | "business",
+            cycle,
+            userId: user?.id,
+            email: user?.email,
+            discountCode: promoCode.trim() || undefined,
+          });
         } catch (error) {
           setCheckoutError(error instanceof Error ? error.message : "Unable to start checkout.");
           setCheckoutLoading(null);
@@ -220,17 +226,17 @@ export default function Billing() {
     const code = promoCode.trim().toUpperCase();
     const coupon = COUPON_PREVIEWS.find((item) => item.code === code);
     if (!coupon) {
-      setPromoMessage("Promo code not available yet. Admin Pricing Manager will activate live coupons before launch.");
+      setPromoMessage("This code is not listed in the Rivox offer preview. You can still enter a valid Paddle discount code in checkout.");
       return;
     }
-    setPromoMessage(`${coupon.code} preview: ${coupon.discountPercent}% off ${coupon.appliesTo.join("/")} plans. Live validation starts with payment gateway.`);
+    setPromoMessage(`${coupon.code} preview: ${coupon.discountPercent}% off ${coupon.appliesTo.join("/")} plans. The code will be sent to Paddle checkout for final validation.`);
   }
 
   return (
     <div className="mx-auto max-w-6xl space-y-8">
       {new URLSearchParams(window.location.search).get("checkout") === "success" && (
         <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-5 py-4 text-sm font-medium text-emerald-800">
-          Payment received. Your subscription is being activated; this page will update after the Lemon Squeezy webhook is processed.
+          Payment received. Your subscription is being activated; this page will update after the Paddle webhook is processed.
         </div>
       )}
       {checkoutError && (
@@ -297,7 +303,7 @@ export default function Billing() {
         <div className="mb-5 flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
           <div>
             <h2 className="text-xl font-black text-slate-950">Available plans</h2>
-            <p className="mt-1 text-sm text-slate-500">Monthly and yearly pricing preview. Payment gateway will activate checkout later.</p>
+            <p className="mt-1 text-sm text-slate-500">Choose monthly or yearly billing and continue to secure Paddle checkout.</p>
           </div>
           <div className="flex gap-2 rounded-xl border border-slate-200 bg-white p-2">
             <input
