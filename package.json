@@ -10,7 +10,7 @@
     "typecheck": "tsc -b --noEmit"
   },
   "dependencies": {
-    "@paddle/paddle-js": "^1.6.4",
+    "@paddle/paddle-js": "1.6.4",
     "@supabase/supabase-js": "^2.45.4",
     "jspdf": "^2.5.2",
     "react": "^18.3.1",
