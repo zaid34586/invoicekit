@@ -60,3 +60,9 @@ enabled = true
 verify_jwt = false
 import_map = "./functions/paddle-webhook/deno.json"
 entrypoint = "./functions/paddle-webhook/index.ts"
+
+[functions.paddle-subscriptions]
+enabled = true
+verify_jwt = true
+import_map = "./functions/paddle-subscriptions/deno.json"
+entrypoint = "./functions/paddle-subscriptions/index.ts"

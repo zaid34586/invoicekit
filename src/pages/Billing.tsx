@@ -16,10 +16,16 @@ import { supabase } from "../lib/supabase";
 import { openPaddleCheckout } from "../lib/paddle";
 import { formatOfferDiscount, getOfferForPlanCycle, loadActiveMarketingOffers, type MarketingOffer } from "../lib/offers";
 import { trackGrowthEvent } from "../lib/growth";
+import {
+  cancelPaddleSubscription,
+  createPaddlePortalSession,
+  loadPaddleSubscriptionStatus,
+  undoScheduledPaddleCancellation,
+  type BillingEventRecord,
+  type PaddleSubscriptionRecord,
+} from "../lib/paddleSubscription";
 
-const BILLING_HISTORY = [
-  { id: "1", date: "2026-06-15", invoiceNumber: "BILL-2026-001", plan: "Manual Pro", amount: 0, status: "active" },
-];
+
 
 function Modal({
   isOpen,
@@ -173,6 +179,10 @@ export default function Billing() {
   const [offers, setOffers] = useState<MarketingOffer[]>([]);
   const [checkoutLoading, setCheckoutLoading] = useState<Plan | null>(null);
   const [checkoutError, setCheckoutError] = useState<string | null>(null);
+  const [subscription, setSubscription] = useState<PaddleSubscriptionRecord | null>(null);
+  const [billingEvents, setBillingEvents] = useState<BillingEventRecord[]>([]);
+  const [subscriptionLoading, setSubscriptionLoading] = useState(false);
+  const [subscriptionMessage, setSubscriptionMessage] = useState<string | null>(null);
   const [modal, setModal] = useState<null | { title: string; message: string; confirmLabel: string; onConfirm: () => void; variant?: "primary" | "danger" }>(null);
 
   const plans = region === "india" ? INDIA_PLANS : GLOBAL_PLANS;
@@ -203,6 +213,67 @@ export default function Billing() {
     }
     loadUsage();
   }, [user]);
+
+  async function refreshSubscription() {
+    if (!user) return;
+    setSubscriptionLoading(true);
+    try {
+      const status = await loadPaddleSubscriptionStatus();
+      setSubscription(status.subscription);
+      setBillingEvents(status.billingEvents);
+    } catch (error) {
+      setSubscriptionMessage(error instanceof Error ? error.message : "Unable to load billing status.");
+    } finally {
+      setSubscriptionLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    void refreshSubscription();
+  }, [user?.id]);
+
+  async function openPortal(mode: "overview" | "cancel" | "payment_method") {
+    setSubscriptionMessage(null);
+    setSubscriptionLoading(true);
+    try {
+      const url = await createPaddlePortalSession(mode);
+      window.open(url, "_blank", "noopener,noreferrer");
+    } catch (error) {
+      setSubscriptionMessage(error instanceof Error ? error.message : "Unable to open Paddle portal.");
+    } finally {
+      setSubscriptionLoading(false);
+    }
+  }
+
+  async function requestCancellation() {
+    setSubscriptionMessage(null);
+    setSubscriptionLoading(true);
+    try {
+      const updated = await cancelPaddleSubscription("next_billing_period");
+      setSubscription(updated);
+      setSubscriptionMessage("Cancellation scheduled for the end of the current billing period.");
+      await refreshSubscription();
+    } catch (error) {
+      setSubscriptionMessage(error instanceof Error ? error.message : "Unable to cancel subscription.");
+    } finally {
+      setSubscriptionLoading(false);
+    }
+  }
+
+  async function undoCancellation() {
+    setSubscriptionMessage(null);
+    setSubscriptionLoading(true);
+    try {
+      const updated = await undoScheduledPaddleCancellation();
+      setSubscription(updated);
+      setSubscriptionMessage("Scheduled cancellation removed. Your subscription will continue.");
+      await refreshSubscription();
+    } catch (error) {
+      setSubscriptionMessage(error instanceof Error ? error.message : "Unable to keep subscription active.");
+    } finally {
+      setSubscriptionLoading(false);
+    }
+  }
 
   const usage = useMemo(() => {
     const freeUsed = Math.min(invoicesThisMonth, FREE_PLAN_LIMIT);
@@ -346,18 +417,36 @@ export default function Billing() {
 
       {planId !== "free" && (
         <section className="card p-6">
-          <h2 className="text-lg font-bold text-slate-950">Subscription actions</h2>
-          <p className="mt-1 text-sm text-slate-500">These actions become active after payment gateway integration.</p>
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+            <div>
+              <h2 className="text-lg font-bold text-slate-950">Subscription actions</h2>
+              <p className="mt-1 text-sm text-slate-500">Manage payment methods, receipts, invoices, and cancellation through secure Paddle billing tools.</p>
+            </div>
+            <div className={`rounded-full px-3 py-1 text-xs font-black ${subscription?.status === "active" ? "bg-emerald-100 text-emerald-700" : subscription?.status === "past_due" ? "bg-amber-100 text-amber-700" : "bg-slate-100 text-slate-600"}`}>
+              {subscriptionLoading ? "Refreshing..." : (subscription?.status || "Awaiting Paddle sync").replace(/_/g, " ")}
+            </div>
+          </div>
+
+          {subscription && (
+            <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              <div className="rounded-2xl bg-slate-50 p-4"><p className="text-xs font-bold uppercase tracking-wide text-slate-400">Billing cycle</p><p className="mt-2 font-black capitalize text-slate-950">{subscription.billing_cycle || "—"}</p></div>
+              <div className="rounded-2xl bg-slate-50 p-4"><p className="text-xs font-bold uppercase tracking-wide text-slate-400">Renews</p><p className="mt-2 font-black text-slate-950">{subscription.renews_at ? new Date(subscription.renews_at).toLocaleDateString("en-IN") : "—"}</p></div>
+              <div className="rounded-2xl bg-slate-50 p-4"><p className="text-xs font-bold uppercase tracking-wide text-slate-400">Provider</p><p className="mt-2 font-black capitalize text-slate-950">{subscription.provider}</p></div>
+              <div className="rounded-2xl bg-slate-50 p-4"><p className="text-xs font-bold uppercase tracking-wide text-slate-400">Subscription ID</p><p className="mt-2 truncate font-mono text-xs font-bold text-slate-700">{subscription.provider_subscription_id || "—"}</p></div>
+            </div>
+          )}
+
+          {subscriptionMessage && <div className="mt-4 rounded-xl border border-primary-200 bg-primary-50 px-4 py-3 text-sm font-medium text-primary-700">{subscriptionMessage}</div>}
+
           <div className="mt-5 flex flex-wrap gap-3">
-            <button className="btn-secondary" onClick={() => setModal({ title: "Manage Subscription", message: "Live billing portal will be available after payment gateway integration.", confirmLabel: "Got it", onConfirm: () => {} })}>
-              Manage Subscription
-            </button>
-            <button className="btn-secondary" onClick={() => setModal({ title: "Download Receipts", message: "Receipts will appear here after live payments are enabled.", confirmLabel: "Got it", onConfirm: () => {} })}>
-              Download Receipts
-            </button>
-            <button className="btn-danger" onClick={() => setModal({ title: "Cancel Subscription", message: "Cancellation will be available after live subscriptions are enabled.", confirmLabel: "Got it", variant: "danger", onConfirm: () => {} })}>
-              Cancel Subscription
-            </button>
+            <button disabled={!subscription || subscriptionLoading} className="btn-secondary disabled:cursor-not-allowed disabled:opacity-50" onClick={() => void openPortal("overview")}>Manage Subscription</button>
+            <button disabled={!subscription || subscriptionLoading} className="btn-secondary disabled:cursor-not-allowed disabled:opacity-50" onClick={() => void openPortal("payment_method")}>Update Payment Method</button>
+            <button disabled={!subscription || subscriptionLoading} className="btn-secondary disabled:cursor-not-allowed disabled:opacity-50" onClick={() => void openPortal("overview")}>View Receipts & Invoices</button>
+            {subscription?.cancelled && subscription.status === "active" ? (
+              <button disabled={subscriptionLoading} className="rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-bold text-white hover:bg-emerald-700 disabled:opacity-50" onClick={() => setModal({ title: "Keep subscription active", message: "Remove the scheduled cancellation and continue renewing this subscription?", confirmLabel: "Keep active", onConfirm: () => void undoCancellation() })}>Keep Subscription</button>
+            ) : (
+              <button disabled={!subscription || subscriptionLoading} className="btn-danger disabled:cursor-not-allowed disabled:opacity-50" onClick={() => setModal({ title: "Cancel at period end", message: "Your subscription will remain active until the end of the current billing period. You can undo this before the effective date.", confirmLabel: "Schedule cancellation", variant: "danger", onConfirm: () => void requestCancellation() })}>Cancel Subscription</button>
+            )}
           </div>
         </section>
       )}
@@ -365,7 +454,7 @@ export default function Billing() {
       <section className="card">
         <div className="border-b border-slate-100 p-6">
           <h2 className="text-lg font-bold text-slate-950">Billing history</h2>
-          <p className="mt-1 text-sm text-slate-500">Manual and future gateway receipts will appear here.</p>
+          <p className="mt-1 text-sm text-slate-500">Paddle transactions, renewals, and receipts linked to your account appear here.</p>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full">
@@ -379,13 +468,15 @@ export default function Billing() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {BILLING_HISTORY.map((item) => (
+              {billingEvents.length === 0 ? (
+                <tr><td colSpan={5} className="px-6 py-10 text-center text-sm text-slate-500">No Paddle billing events yet.</td></tr>
+              ) : billingEvents.map((item) => (
                 <tr key={item.id} className="hover:bg-slate-50">
-                  <td className="px-6 py-4 text-sm text-slate-700">{new Date(item.date).toLocaleDateString("en-IN")}</td>
-                  <td className="px-6 py-4 text-sm font-mono text-slate-600">{item.invoiceNumber}</td>
-                  <td className="px-6 py-4 text-sm text-slate-700">{item.plan}</td>
-                  <td className="px-6 py-4 text-sm font-bold text-slate-950">{item.amount === 0 ? "Free / Manual" : `${current.symbol}${item.amount}`}</td>
-                  <td className="px-6 py-4"><span className="rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-bold text-emerald-700">{item.status}</span></td>
+                  <td className="px-6 py-4 text-sm text-slate-700">{new Date(item.created_at).toLocaleDateString("en-IN")}</td>
+                  <td className="px-6 py-4 text-sm font-mono text-slate-600">{item.order_id || item.provider_event_id}</td>
+                  <td className="px-6 py-4 text-sm text-slate-700">{item.plan || "—"}</td>
+                  <td className="px-6 py-4 text-sm font-bold text-slate-950">{item.amount === 0 ? "—" : `${item.currency || ""} ${Number(item.amount).toLocaleString("en-US")}`}</td>
+                  <td className="px-6 py-4"><span className="rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-bold text-emerald-700">{item.status || item.event_name}</span></td>
                 </tr>
               ))}
             </tbody>
