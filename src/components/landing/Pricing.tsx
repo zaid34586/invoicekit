@@ -171,7 +171,9 @@ export default function Pricing() {
         cycle,
         userId: user.id,
         email: user.email,
-        discountCode: offer?.code,
+        discountCode: offer?.paddleDiscountId ? undefined : offer?.code,
+        discountId: offer?.paddleDiscountId ?? undefined,
+        offerId: offer?.id,
       });
     } catch (error) {
       setCheckoutError(error instanceof Error ? error.message : "Unable to open Paddle checkout.");

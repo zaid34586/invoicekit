@@ -231,7 +231,9 @@ export default function Billing() {
             cycle,
             userId: user?.id,
             email: user?.email,
-            discountCode: promoCode.trim() || offer?.code || undefined,
+            discountCode: promoCode.trim() || (offer?.paddleDiscountId ? undefined : offer?.code) || undefined,
+            discountId: promoCode.trim() ? undefined : offer?.paddleDiscountId ?? undefined,
+            offerId: offer?.id,
           });
         } catch (error) {
           setCheckoutError(error instanceof Error ? error.message : "Unable to start checkout.");

@@ -12,6 +12,8 @@ export type MarketingOffer = {
   startsAt: string | null;
   expiresAt: string | null;
   active: boolean;
+  paddleDiscountId: string | null;
+  paddleSynced: boolean;
 };
 
 type PromoRow = {
@@ -25,6 +27,8 @@ type PromoRow = {
   starts_at: string | null;
   expires_at: string | null;
   active: boolean;
+  paddle_discount_id: string | null;
+  paddle_synced: boolean;
 };
 
 function isCurrentlyActive(row: PromoRow, now = new Date()) {
@@ -37,7 +41,7 @@ function isCurrentlyActive(row: PromoRow, now = new Date()) {
 export async function loadActiveMarketingOffers(): Promise<MarketingOffer[]> {
   const { data, error } = await supabase
     .from("admin_promo_codes")
-    .select("id,code,label,discount_type,discount_value,applies_to,billing_scope,starts_at,expires_at,active")
+    .select("id,code,label,discount_type,discount_value,applies_to,billing_scope,starts_at,expires_at,active,paddle_discount_id,paddle_synced")
     .eq("active", true)
     .order("created_at", { ascending: false });
 
@@ -59,6 +63,8 @@ export async function loadActiveMarketingOffers(): Promise<MarketingOffer[]> {
       startsAt: row.starts_at,
       expiresAt: row.expires_at,
       active: row.active,
+      paddleDiscountId: row.paddle_discount_id,
+      paddleSynced: row.paddle_synced,
     }))
     .sort((a, b) => b.discountValue - a.discountValue);
 }

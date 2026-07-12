@@ -48,3 +48,15 @@ enabled = true
 verify_jwt = true
 import_map = "./functions/create-team-member/deno.json"
 entrypoint = "./functions/create-team-member/index.ts"
+
+[functions.paddle-offers]
+enabled = true
+verify_jwt = true
+import_map = "./functions/paddle-offers/deno.json"
+entrypoint = "./functions/paddle-offers/index.ts"
+
+[functions.paddle-webhook]
+enabled = true
+verify_jwt = false
+import_map = "./functions/paddle-webhook/deno.json"
+entrypoint = "./functions/paddle-webhook/index.ts"
