@@ -10,6 +10,7 @@ import AdminSubscriptionManager from "../components/AdminSubscriptionManager";
 import CommunicationCenter from "../components/CommunicationCenter";
 import AdminPaddleSettings from "../components/AdminPaddleSettings";
 import AdminGrowthCenter from "../components/AdminGrowthCenter";
+import AdminWorkspaceSettings from "../components/AdminWorkspaceSettings";
 
 type AdminSection =
   | "dashboard"
@@ -2340,9 +2341,7 @@ export default function Admin() {
           </section>
         )}
 
-        {active === "settings" && (
-          <Placeholder title="Admin Settings" subtitle="Owner email, permissions aur platform controls" items={[`Owner admin: ${ADMIN_EMAIL}`, "System Center added for maintenance, flags and security", "Team roles: Full Access, Limited, Support, Finance, Viewer", "Next: production audit and bug fixing"]} />
-        )}
+        {active === "settings" && <AdminWorkspaceSettings />}
 
 
         {balanceModal && (
@@ -2522,8 +2521,4 @@ function MiniBarChart({ title, rows, money = false }: { title: string; rows: { l
       </div>
     </div>
   );
-}
-
-function Placeholder({ title, subtitle, items }: { title: string; subtitle: string; items: string[] }) {
-  return <section className="space-y-6"><SectionHeader title={title} subtitle={subtitle} /><Card className="p-6"><div className="grid md:grid-cols-2 gap-4">{items.map((item) => <div key={item} className="rounded-xl border border-slate-100 bg-slate-50 p-4"><p className="font-medium text-slate-900">{item}</p><p className="text-sm text-slate-500 mt-1">Ready for next production phase.</p></div>)}</div></Card></section>;
 }
