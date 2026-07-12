@@ -10,8 +10,7 @@ import AdminSubscriptionManager from "../components/AdminSubscriptionManager";
 import CommunicationCenter from "../components/CommunicationCenter";
 import AdminPaddleSettings from "../components/AdminPaddleSettings";
 import AdminGrowthCenter from "../components/AdminGrowthCenter";
-import AdminWorkspaceSettings from "../components/AdminWorkspaceSettings";
-import AdminEmailCenter from "../components/AdminEmailCenter";
+import AdminAutomationCenter from "../components/AdminAutomationCenter";
 
 type AdminSection =
   | "dashboard"
@@ -19,6 +18,7 @@ type AdminSection =
   | "credits"
   | "subscriptions"
   | "growth"
+  | "automation"
   | "paddle"
   | "team"
   | "tasks"
@@ -30,7 +30,6 @@ type AdminSection =
   | "audit"
   | "system"
   | "qa"
-  | "email"
   | "settings";
 
 type AdminTeamMember = {
@@ -149,11 +148,11 @@ const sections: { id: AdminSection; label: string; icon: string; group: string }
   { id: "credits", label: "Invoice Balance & Plans", icon: "💳", group: "Users" },
   { id: "subscriptions", label: "Plans & Pricing", icon: "💳", group: "Money" },
   { id: "growth", label: "Growth Center", icon: "🚀", group: "Money" },
+  { id: "automation", label: "Automation Engine", icon: "⚡", group: "Operations" },
   { id: "paddle", label: "Paddle & API Key", icon: "🔐", group: "Money" },
   { id: "team", label: "Team Members", icon: "👨‍💼", group: "Operations" },
   { id: "tasks", label: "Tasks", icon: "📋", group: "Operations" },
   { id: "communication", label: "Communication", icon: "💬", group: "Operations" },
-  { id: "email", label: "Email & Notifications", icon: "✉️", group: "Operations" },
   { id: "finance", label: "Revenue & Finance", icon: "💰", group: "Money" },
   { id: "invoices", label: "All Invoices", icon: "📄", group: "Money" },
   { id: "analytics", label: "Analytics", icon: "📈", group: "Insights" },
@@ -1387,6 +1386,7 @@ export default function Admin() {
 
         {active === "subscriptions" && <AdminSubscriptionManager />}
         {active === "growth" && <AdminGrowthCenter />}
+        {active === "automation" && <AdminAutomationCenter />}
         {active === "paddle" && <AdminPaddleSettings />}
 
         {active === "communication" && (
@@ -2344,9 +2344,9 @@ export default function Admin() {
           </section>
         )}
 
-        {active === "email" && <AdminEmailCenter />}
-
-        {active === "settings" && <AdminWorkspaceSettings />}
+        {active === "settings" && (
+          <Placeholder title="Admin Settings" subtitle="Owner email, permissions aur platform controls" items={[`Owner admin: ${ADMIN_EMAIL}`, "System Center added for maintenance, flags and security", "Team roles: Full Access, Limited, Support, Finance, Viewer", "Next: production audit and bug fixing"]} />
+        )}
 
 
         {balanceModal && (
@@ -2526,4 +2526,8 @@ function MiniBarChart({ title, rows, money = false }: { title: string; rows: { l
       </div>
     </div>
   );
+}
+
+function Placeholder({ title, subtitle, items }: { title: string; subtitle: string; items: string[] }) {
+  return <section className="space-y-6"><SectionHeader title={title} subtitle={subtitle} /><Card className="p-6"><div className="grid md:grid-cols-2 gap-4">{items.map((item) => <div key={item} className="rounded-xl border border-slate-100 bg-slate-50 p-4"><p className="font-medium text-slate-900">{item}</p><p className="text-sm text-slate-500 mt-1">Ready for next production phase.</p></div>)}</div></Card></section>;
 }

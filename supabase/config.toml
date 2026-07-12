@@ -49,23 +49,8 @@ verify_jwt = true
 import_map = "./functions/create-team-member/deno.json"
 entrypoint = "./functions/create-team-member/index.ts"
 
-[functions.paddle-offers]
-enabled = true
-verify_jwt = true
-import_map = "./functions/paddle-offers/deno.json"
-entrypoint = "./functions/paddle-offers/index.ts"
-
-[functions.paddle-webhook]
+[functions.invoice-automation]
 enabled = true
 verify_jwt = false
-import_map = "./functions/paddle-webhook/deno.json"
-entrypoint = "./functions/paddle-webhook/index.ts"
-
-[functions.paddle-subscriptions]
-enabled = true
-verify_jwt = true
-import_map = "./functions/paddle-subscriptions/deno.json"
-entrypoint = "./functions/paddle-subscriptions/index.ts"
-
-[functions.admin-email]
-verify_jwt = true
+import_map = "./functions/invoice-automation/deno.json"
+entrypoint = "./functions/invoice-automation/index.ts"
