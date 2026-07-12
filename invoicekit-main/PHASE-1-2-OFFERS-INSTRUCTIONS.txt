@@ -1,0 +1,45 @@
+RIVOX DYNAMIC OFFERS — PHASE 1 + 2
+
+Completed:
+1. Removed hardcoded YEARLY33 / LAUNCH20 offer cards from the public Pricing page.
+2. Public Pricing page now loads current active offers from Supabase.
+3. Monthly/yearly plan saving text is calculated from plan prices, not a hardcoded promo.
+4. Billing promo validation now uses active database offers.
+5. Admin Pricing & Offers now supports:
+   - Create
+   - Edit
+   - Duplicate
+   - Delete
+   - Enable / disable
+   - Schedule start/end dates
+   - Search
+   - Filter active/scheduled/expired/disabled
+   - Featured offer and priority
+   - Pro/Business and monthly/yearly targeting
+   - Paddle-ready/display-only status
+6. Paddle checkout automatically sends a promo code only when the offer is marked Paddle ready.
+7. Production build passed.
+
+REQUIRED BEFORE DEPLOYING UI:
+Run the new Supabase migration:
+  supabase/migrations/20260712120000_dynamic_marketing_offers.sql
+
+Using Supabase CLI:
+  supabase db push
+
+Or open Supabase SQL Editor and run the migration file contents.
+
+Then copy this project over your local repository, run:
+  npm install
+  npm run build
+  git add .
+  git commit -m "feat(marketing): replace hardcoded offers with admin managed campaigns"
+  git push origin main
+
+TEST:
+1. Open Admin > Pricing & Offers.
+2. Create an offer and keep Paddle ready OFF.
+3. Verify it appears on public /pricing but is display-only.
+4. Disable it and refresh /pricing; it should disappear.
+5. Create a scheduled offer with a future start date; it should show as Scheduled in Admin and not on /pricing.
+6. For a real Paddle discount, create the matching code in Paddle, then edit the offer and enable Paddle ready.
