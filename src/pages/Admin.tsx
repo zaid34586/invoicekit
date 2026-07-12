@@ -10,7 +10,7 @@ import AdminSubscriptionManager from "../components/AdminSubscriptionManager";
 import CommunicationCenter from "../components/CommunicationCenter";
 import AdminPaddleSettings from "../components/AdminPaddleSettings";
 import AdminGrowthCenter from "../components/AdminGrowthCenter";
-import AdminAutomationCenter from "../components/AdminAutomationCenter";
+import AdminSubscriptionAutomation from "../components/AdminSubscriptionAutomation";
 
 type AdminSection =
   | "dashboard"
@@ -18,8 +18,8 @@ type AdminSection =
   | "credits"
   | "subscriptions"
   | "growth"
-  | "automation"
   | "paddle"
+  | "subscriptionAutomation"
   | "team"
   | "tasks"
   | "communication"
@@ -148,8 +148,8 @@ const sections: { id: AdminSection; label: string; icon: string; group: string }
   { id: "credits", label: "Invoice Balance & Plans", icon: "💳", group: "Users" },
   { id: "subscriptions", label: "Plans & Pricing", icon: "💳", group: "Money" },
   { id: "growth", label: "Growth Center", icon: "🚀", group: "Money" },
-  { id: "automation", label: "Automation Engine", icon: "⚡", group: "Operations" },
   { id: "paddle", label: "Paddle & API Key", icon: "🔐", group: "Money" },
+  { id: "subscriptionAutomation", label: "Subscription Automation", icon: "🔁", group: "Money" },
   { id: "team", label: "Team Members", icon: "👨‍💼", group: "Operations" },
   { id: "tasks", label: "Tasks", icon: "📋", group: "Operations" },
   { id: "communication", label: "Communication", icon: "💬", group: "Operations" },
@@ -1386,8 +1386,8 @@ export default function Admin() {
 
         {active === "subscriptions" && <AdminSubscriptionManager />}
         {active === "growth" && <AdminGrowthCenter />}
-        {active === "automation" && <AdminAutomationCenter />}
         {active === "paddle" && <AdminPaddleSettings />}
+        {active === "subscriptionAutomation" && <AdminSubscriptionAutomation />}
 
         {active === "communication" && (
           <CommunicationCenter actorName={user?.email || "Owner Admin"} actorRole="Owner Admin" canManageChannels />

@@ -49,8 +49,5 @@ verify_jwt = true
 import_map = "./functions/create-team-member/deno.json"
 entrypoint = "./functions/create-team-member/index.ts"
 
-[functions.invoice-automation]
-enabled = true
-verify_jwt = false
-import_map = "./functions/invoice-automation/deno.json"
-entrypoint = "./functions/invoice-automation/index.ts"
+[functions.subscription-automation]
+verify_jwt = true
