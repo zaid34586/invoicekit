@@ -20,16 +20,6 @@ export interface PricingPlan {
   limitations?: string[];
 }
 
-export interface CouponPreview {
-  code: string;
-  label: string;
-  discountPercent: number;
-  appliesTo: Plan[];
-  expiresLabel: string;
-}
-
-export const YEARLY_DISCOUNT_PERCENT = 33;
-
 export const INDIA_PLANS: Record<Plan, PricingPlan> = {
   free: {
     id: "free",
@@ -119,23 +109,6 @@ export const GLOBAL_PLANS: Record<Plan, PricingPlan> = {
     yearlyMonthlyPrice: 167,
   },
 };
-
-export const COUPON_PREVIEWS: CouponPreview[] = [
-  {
-    code: "YEARLY33",
-    label: "Yearly launch offer",
-    discountPercent: 33,
-    appliesTo: ["pro", "business"],
-    expiresLabel: "Available on yearly billing",
-  },
-  {
-    code: "LAUNCH20",
-    label: "Launch promo",
-    discountPercent: 20,
-    appliesTo: ["pro"],
-    expiresLabel: "Limited period",
-  },
-];
 
 export function getPlanPrice(plan: PricingPlan, cycle: BillingCycle) {
   return cycle === "yearly" ? plan.yearlyMonthlyPrice : plan.monthlyPrice;
