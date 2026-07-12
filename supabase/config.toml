@@ -66,3 +66,6 @@ enabled = true
 verify_jwt = true
 import_map = "./functions/paddle-subscriptions/deno.json"
 entrypoint = "./functions/paddle-subscriptions/index.ts"
+
+[functions.admin-email]
+verify_jwt = true

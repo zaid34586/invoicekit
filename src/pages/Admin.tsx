@@ -11,6 +11,7 @@ import CommunicationCenter from "../components/CommunicationCenter";
 import AdminPaddleSettings from "../components/AdminPaddleSettings";
 import AdminGrowthCenter from "../components/AdminGrowthCenter";
 import AdminWorkspaceSettings from "../components/AdminWorkspaceSettings";
+import AdminEmailCenter from "../components/AdminEmailCenter";
 
 type AdminSection =
   | "dashboard"
@@ -29,6 +30,7 @@ type AdminSection =
   | "audit"
   | "system"
   | "qa"
+  | "email"
   | "settings";
 
 type AdminTeamMember = {
@@ -151,6 +153,7 @@ const sections: { id: AdminSection; label: string; icon: string; group: string }
   { id: "team", label: "Team Members", icon: "👨‍💼", group: "Operations" },
   { id: "tasks", label: "Tasks", icon: "📋", group: "Operations" },
   { id: "communication", label: "Communication", icon: "💬", group: "Operations" },
+  { id: "email", label: "Email & Notifications", icon: "✉️", group: "Operations" },
   { id: "finance", label: "Revenue & Finance", icon: "💰", group: "Money" },
   { id: "invoices", label: "All Invoices", icon: "📄", group: "Money" },
   { id: "analytics", label: "Analytics", icon: "📈", group: "Insights" },
@@ -2340,6 +2343,8 @@ export default function Admin() {
             </Card>
           </section>
         )}
+
+        {active === "email" && <AdminEmailCenter />}
 
         {active === "settings" && <AdminWorkspaceSettings />}
 
