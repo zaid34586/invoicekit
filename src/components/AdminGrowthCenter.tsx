@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../lib/supabase";
+import { BannersTab, CampaignsTab, GrowthAnalyticsTab } from "./AdminGrowthModules";
 
 type Tab = "offers" | "campaigns" | "banners" | "analytics";
 type Offer = {
@@ -173,12 +174,8 @@ export default function AdminGrowthCenter() {
       </section>
     </>}
 
-    {tab === "campaigns" && <Empty title="Campaign scheduler" text="Offers already support automatic start/end scheduling. This workspace will group multiple offers into named campaigns in the next release." />}
-    {tab === "banners" && <Empty title="Banner placements" text="No static banners are used. Active featured offers are ready to power homepage, pricing and dashboard placements." />}
-    {tab === "analytics" && <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">{[['Offer views','—'],['Checkout starts','—'],['Conversions','—'],['Offer revenue','—']].map(([a,b]) => <div key={a} className="rounded-3xl border bg-white p-6 shadow-sm"><p className="text-sm font-bold text-slate-500">{a}</p><p className="mt-3 text-4xl font-black text-slate-950">{b}</p><p className="mt-2 text-xs text-slate-400">Starts recording after analytics events are enabled.</p></div>)}</div>}
+    {tab === "campaigns" && <CampaignsTab />}
+    {tab === "banners" && <BannersTab />}
+    {tab === "analytics" && <GrowthAnalyticsTab />}
   </div>;
-}
-
-function Empty({ title, text }: { title: string; text: string }) {
-  return <div className="rounded-3xl border border-slate-200 bg-white p-10 text-center shadow-sm"><div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-violet-100 text-2xl">🚀</div><h2 className="mt-4 text-2xl font-black text-slate-950">{title}</h2><p className="mx-auto mt-2 max-w-xl text-sm leading-6 text-slate-500">{text}</p></div>;
 }

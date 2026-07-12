@@ -4,6 +4,7 @@ import { useAuth } from "../../context/AuthContext";
 import { openPaddleCheckout } from "../../lib/paddle";
 import { useRegion } from "../../context/RegionContext";
 import { formatOfferDiscount, getOfferForPlanCycle, loadActiveMarketingOffers, type MarketingOffer } from "../../lib/offers";
+import { trackGrowthEvent } from "../../lib/growth";
 import {
   BillingCycle,
   GLOBAL_PLANS,
@@ -144,7 +145,10 @@ export default function Pricing() {
   const orderedPlans: Plan[] = ["free", "pro", "business"];
 
   useEffect(() => {
-    loadActiveMarketingOffers().then(setOffers);
+    loadActiveMarketingOffers().then((items) => {
+      setOffers(items);
+      items.forEach((offer) => void trackGrowthEvent({ event: "offer_view", offerId: offer.id }));
+    });
   }, []);
 
   async function selectPlan(plan: PricingPlan, offer?: MarketingOffer) {
@@ -158,6 +162,8 @@ export default function Pricing() {
       return;
     }
     setCheckoutError(null);
+    if (offer) void trackGrowthEvent({ event: "offer_click", offerId: offer.id, plan: plan.id, billingCycle: cycle });
+    void trackGrowthEvent({ event: "checkout_start", offerId: offer?.id, plan: plan.id, billingCycle: cycle });
     setLoadingPlan(plan.id);
     try {
       await openPaddleCheckout({

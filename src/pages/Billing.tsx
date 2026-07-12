@@ -15,6 +15,7 @@ import {
 import { supabase } from "../lib/supabase";
 import { openPaddleCheckout } from "../lib/paddle";
 import { formatOfferDiscount, getOfferForPlanCycle, loadActiveMarketingOffers, type MarketingOffer } from "../lib/offers";
+import { trackGrowthEvent } from "../lib/growth";
 
 const BILLING_HISTORY = [
   { id: "1", date: "2026-06-15", invoiceNumber: "BILL-2026-001", plan: "Manual Pro", amount: 0, status: "active" },
@@ -181,7 +182,10 @@ export default function Billing() {
   const isUnlimited = current.invoiceLimit === "unlimited" || planId !== "free";
 
   useEffect(() => {
-    loadActiveMarketingOffers().then(setOffers);
+    loadActiveMarketingOffers().then((items) => {
+      setOffers(items);
+      items.forEach((offer) => void trackGrowthEvent({ event: "offer_view", offerId: offer.id }));
+    });
   }, []);
 
   useEffect(() => {
@@ -212,12 +216,14 @@ export default function Billing() {
 
   function handleUpgrade(plan: PricingPlan, offer?: MarketingOffer) {
     if (plan.id === "free") return;
+    if (offer) void trackGrowthEvent({ event: "offer_click", offerId: offer.id, plan: plan.id, billingCycle: cycle });
     setCheckoutError(null);
     setModal({
       title: `Upgrade to ${plan.name}`,
       message: `Continue to the secure Paddle checkout for the ${plan.name} ${cycle} plan. Your plan activates automatically after payment confirmation.`,
       confirmLabel: "Continue to checkout",
       onConfirm: async () => {
+        void trackGrowthEvent({ event: "checkout_start", offerId: offer?.id, plan: plan.id, billingCycle: cycle });
         try {
           setCheckoutLoading(plan.id);
           await openPaddleCheckout({
