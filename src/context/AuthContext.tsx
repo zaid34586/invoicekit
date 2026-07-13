@@ -23,6 +23,25 @@ interface AuthContextValue {
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
+const VERIFICATION_PENDING_KEY = "rivox_email_verification_pending";
+
+function isVerificationCallbackUrl() {
+  if (typeof window === "undefined") return false;
+
+  const search = new URLSearchParams(window.location.search);
+  const hash = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+  const authType = search.get("type") || hash.get("type");
+
+  return (
+    authType === "signup" ||
+    authType === "email" ||
+    search.has("token_hash") ||
+    search.has("code") ||
+    hash.has("access_token") ||
+    hash.has("refresh_token")
+  );
+}
+
 function normalizeEmail(email: string) {
   return email.trim().toLowerCase();
 }
@@ -228,8 +247,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange(async (_event, nextSession) => {
+    } = supabase.auth.onAuthStateChange(async (event, nextSession) => {
       if (!mounted) return;
+
+      const verificationPending =
+        localStorage.getItem(VERIFICATION_PENDING_KEY) === "1";
+      const cameFromVerificationLink = isVerificationCallbackUrl();
+      const isAutoVerificationSession =
+        event === "SIGNED_IN" &&
+        Boolean(nextSession?.user?.email_confirmed_at) &&
+        window.location.pathname !== "/login" &&
+        (verificationPending || cameFromVerificationLink);
+
+      if (isAutoVerificationSession) {
+        localStorage.removeItem(VERIFICATION_PENDING_KEY);
+        await supabase.auth.signOut({ scope: "local" });
+        clearSupabaseStorage();
+        setSession(null);
+        setProfile(null);
+        window.location.replace("/login?confirmed=1");
+        return;
+      }
+
       await syncSession(nextSession);
     });
 
@@ -279,6 +318,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return { error: error.message };
     }
 
+    localStorage.setItem(VERIFICATION_PENDING_KEY, "1");
     return { error: null };
   };
 

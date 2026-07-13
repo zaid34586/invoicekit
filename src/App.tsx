@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useEffect, type ReactNode } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
 import { useAuth } from "./context/AuthContext";
 
@@ -64,6 +64,21 @@ function AdminHostOnly({ children }: { children: ReactNode }) {
   const { isStaffHost } = getPortalHost();
   if (isStaffHost) return <Navigate to="/staff/login" replace />;
   return <>{children}</>;
+}
+
+function VerificationLoginRoute() {
+  const { user, loading, signOut } = useAuth();
+  const confirmed =
+    new URLSearchParams(window.location.search).get("confirmed") === "1";
+
+  useEffect(() => {
+    if (confirmed && user) {
+      void signOut();
+    }
+  }, [confirmed, user, signOut]);
+
+  if (loading || (confirmed && user)) return <LoadingScreen />;
+  return <Login />;
 }
 
 function LoadingScreen() {
@@ -201,7 +216,7 @@ export default function App() {
         path="/login"
         element={
           <PublicOnlyRoute>
-            <Login />
+            <VerificationLoginRoute />
           </PublicOnlyRoute>
         }
       />
