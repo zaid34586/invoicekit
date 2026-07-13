@@ -153,9 +153,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return existing as Profile;
     }
 
+    // Use upsert (not insert) here. Right after email confirmation,
+    // initializeAuth()'s getSession() and the onAuthStateChange(SIGNED_IN)
+    // listener both fire on the same page load and can call this function
+    // concurrently. With a plain insert, the second call hit a duplicate-key
+    // error on user_id and set `profile` to null PERMANENTLY — even though a
+    // profile row existed — which is what caused "Loading your workspace" to
+    // hang forever after clicking the real email verification link. upsert
+    // makes the "losing" concurrent call a harmless no-op update instead of
+    // an error.
     const { data: created, error: createError } = await supabase
       .from("profiles")
-      .insert(createDefaultProfile(userId, cleanEmail))
+      .upsert(createDefaultProfile(userId, cleanEmail), { onConflict: "user_id" })
       .select("*")
       .single();
 
