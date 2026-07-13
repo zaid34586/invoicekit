@@ -173,23 +173,13 @@ function PhoneRoute() {
 
 // Check email route: signed up but email not confirmed yet
 function CheckEmailRoute() {
-  const { user, profile, loading } = useAuth();
-
-  
+  const { user, loading } = useAuth();
 
   if (loading) return <LoadingScreen />;
-
   if (user?.email_confirmed_at) {
-  return <Navigate to="/login?confirmed=1" replace />;
-}
-
-  if (!user) return <Navigate to="/signup" replace />;
-
-  if (user.email_confirmed_at && profile?.phone_verified) {
-    return <Navigate to="/dashboard" replace />;
+    return <Navigate to="/login?confirmed=1" replace />;
   }
-
-  
+  if (!user) return <Navigate to="/signup" replace />;
 
   return <CheckEmail />;
 }

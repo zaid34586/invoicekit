@@ -35,7 +35,10 @@ export default function Login() {
     
     const profile = await refreshProfile();
 
-    if (profile?.phone_verified === true) {
+    if (!profile?.country) {
+      setLoadingText("Setting up your business...");
+      navigate("/business-setup", { replace: true });
+    } else if (profile.phone_verified === true) {
       setLoadingText("Taking you to dashboard...");
       navigate("/dashboard", { replace: true });
     } else {

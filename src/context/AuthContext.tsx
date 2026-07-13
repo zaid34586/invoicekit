@@ -7,7 +7,6 @@ import {
 } from "react";
 import type { Session, User } from "@supabase/supabase-js";
 import { supabase } from "../lib/supabase";
-import { SITE_URL } from "../config/env";
 import { ADMIN_EMAIL } from "../lib/constants";
 import type { Profile } from "../lib/types";
 
@@ -268,7 +267,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       email: cleanEmail,
       password,
       options: {
-        emailRedirectTo: `${SITE_URL}/login?confirmed=1`,
+        emailRedirectTo: `${window.location.origin}/login?confirmed=1`,
       },
     });
 
