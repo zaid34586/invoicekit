@@ -25,16 +25,28 @@ export default function StaffRoute({ children }: { children: ReactNode }) {
 
     async function checkStaff() {
       if (loading) return;
-      if (!user) {
+
+      // Don't trust `user` from context alone here — right after a fresh
+      // page load (e.g. staff opens a bookmarked /staff URL), AuthContext's
+      // `loading` can flip to false a moment before `user` is actually
+      // populated (same timing gap documented in AuthContext.tsx). Checking
+      // the session directly avoids redirecting a genuinely logged-in staff
+      // member to /staff/login just because of that gap.
+      const { data: sessionData } = await supabase.auth.getSession();
+      const activeUser = sessionData.session?.user ?? user;
+
+      if (!mounted) return;
+
+      if (!activeUser) {
         setChecking(false);
         return;
       }
 
-      const email = user.email?.toLowerCase() ?? "";
+      const email = activeUser.email?.toLowerCase() ?? "";
       const { data, error } = await supabase
         .from("admin_team_members")
         .select("id, auth_user_id, email, name, role, status, notes, created_at")
-        .or(`auth_user_id.eq.${user.id},email.eq.${email}`)
+        .or(`auth_user_id.eq.${activeUser.id},email.eq.${email}`)
         .maybeSingle();
 
       if (!mounted) return;
@@ -57,7 +69,7 @@ export default function StaffRoute({ children }: { children: ReactNode }) {
   }, [user, loading]);
 
   if (loading || checking) return <LoadingScreen />;
-  if (!user || !staff) return <Navigate to="/staff/login" replace />;
+  if (!staff) return <Navigate to="/staff/login" replace />;
 
   return <>{children}</>;
 }
