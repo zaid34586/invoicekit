@@ -1,4 +1,4 @@
-import { useEffect, type ReactNode } from "react";
+import type { ReactNode } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
 import { useAuth } from "./context/AuthContext";
 
@@ -51,6 +51,19 @@ function HostHomeRedirect() {
   const { isStaffHost, isAdminHost } = getPortalHost();
   if (isStaffHost) return <Navigate to="/staff/login" replace />;
   if (isAdminHost) return <Navigate to="/admin/login" replace />;
+
+  const { user, loading } = useAuth();
+  // If Supabase already established a session by the time we land here
+  // (e.g. the email-confirmation link's redirect ended up on "/" instead of
+  // "/login?confirmed=1" for any reason — dashboard allow-list mismatch,
+  // stale link, etc.), don't silently show the marketing landing page.
+  // Funnel straight into the login form with the confirmed banner instead,
+  // so the user re-enters their credentials and the normal post-login flow
+  // (business-setup → verify-phone → dashboard) takes over from there.
+  if (!loading && user) {
+    return <Navigate to="/login?confirmed=1" replace />;
+  }
+
   return <Landing />;
 }
 
@@ -64,21 +77,6 @@ function AdminHostOnly({ children }: { children: ReactNode }) {
   const { isStaffHost } = getPortalHost();
   if (isStaffHost) return <Navigate to="/staff/login" replace />;
   return <>{children}</>;
-}
-
-function VerificationLoginRoute() {
-  const { user, loading, signOut } = useAuth();
-  const confirmed =
-    new URLSearchParams(window.location.search).get("confirmed") === "1";
-
-  useEffect(() => {
-    if (confirmed && user) {
-      void signOut();
-    }
-  }, [confirmed, user, signOut]);
-
-  if (loading || (confirmed && user)) return <LoadingScreen />;
-  return <Login />;
 }
 
 function LoadingScreen() {
@@ -188,13 +186,23 @@ function PhoneRoute() {
 
 // Check email route: signed up but email not confirmed yet
 function CheckEmailRoute() {
-  const { user, loading } = useAuth();
+  const { user, profile, loading } = useAuth();
+
+  
 
   if (loading) return <LoadingScreen />;
+
   if (user?.email_confirmed_at) {
-    return <Navigate to="/login?confirmed=1" replace />;
-  }
+  return <Navigate to="/login?confirmed=1" replace />;
+}
+
   if (!user) return <Navigate to="/signup" replace />;
+
+  if (user.email_confirmed_at && profile?.phone_verified) {
+    return <Navigate to="/dashboard" replace />;
+  }
+
+  
 
   return <CheckEmail />;
 }
@@ -216,7 +224,7 @@ export default function App() {
         path="/login"
         element={
           <PublicOnlyRoute>
-            <VerificationLoginRoute />
+            <Login />
           </PublicOnlyRoute>
         }
       />
