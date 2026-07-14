@@ -277,10 +277,34 @@ currency: config.currency,
 
   async function handleChangePassword(e: FormEvent) {
     e.preventDefault();
-    if (!user || newPassword !== confirmPassword) {
+
+    if (!user?.email) {
+      setMessage({ type: "error", text: "Unable to verify your account." });
+      return;
+    }
+
+    if (!currentPassword) {
+      setMessage({ type: "error", text: "Enter your current password." });
+      return;
+    }
+
+    if (newPassword.length < 8) {
       setMessage({
         type: "error",
-        text: "Passwords do not match",
+        text: "New password must be at least 8 characters.",
+      });
+      return;
+    }
+
+    if (newPassword !== confirmPassword) {
+      setMessage({ type: "error", text: "Passwords do not match." });
+      return;
+    }
+
+    if (currentPassword === newPassword) {
+      setMessage({
+        type: "error",
+        text: "New password must be different from your current password.",
       });
       return;
     }
@@ -288,17 +312,46 @@ currency: config.currency,
     setChangingPassword(true);
     setMessage(null);
 
-    // Placeholder - would call Supabase auth in real implementation
-    await new Promise((resolve) => setTimeout(resolve, 1000));
+    try {
+      // Re-authenticate first so a wrong current password can never show a
+      // false success message. This also refreshes a stale auth session.
+      const { error: verifyError } = await supabase.auth.signInWithPassword({
+        email: user.email,
+        password: currentPassword,
+      });
 
-    setChangingPassword(false);
-    setMessage({
-      type: "success",
-      text: "Password updated successfully!",
-    });
-    setCurrentPassword("");
-    setNewPassword("");
-    setConfirmPassword("");
+      if (verifyError) {
+        setMessage({
+          type: "error",
+          text: "Current password is incorrect.",
+        });
+        return;
+      }
+
+      const { error: updateError } = await supabase.auth.updateUser({
+        password: newPassword,
+      });
+
+      if (updateError) {
+        setMessage({ type: "error", text: updateError.message });
+        return;
+      }
+
+      setCurrentPassword("");
+      setNewPassword("");
+      setConfirmPassword("");
+      setMessage({
+        type: "success",
+        text: "Password updated successfully. Use the new password next time you log in.",
+      });
+    } catch (error) {
+      setMessage({
+        type: "error",
+        text: error instanceof Error ? error.message : "Unable to update password.",
+      });
+    } finally {
+      setChangingPassword(false);
+    }
   }
 
   function handleExportData() {
@@ -599,6 +652,8 @@ currency: config.currency,
                       onChange={(e) => setCurrentPassword(e.target.value)}
                       className="input pr-10"
                       placeholder="••••••••"
+                      autoComplete="current-password"
+                      required
                     />
                     <button
                       type="button"
@@ -650,6 +705,9 @@ currency: config.currency,
                     onChange={(e) => setNewPassword(e.target.value)}
                     className="input"
                     placeholder="••••••••"
+                    autoComplete="new-password"
+                    minLength={8}
+                    required
                   />
                 </div>
                 <div>
@@ -660,6 +718,9 @@ currency: config.currency,
                     onChange={(e) => setConfirmPassword(e.target.value)}
                     className="input"
                     placeholder="••••••••"
+                    autoComplete="new-password"
+                    minLength={8}
+                    required
                   />
                 </div>
               </div>
