@@ -3,6 +3,17 @@ import type { BillingCycle, Plan } from "./pricing";
 
 const clientToken = import.meta.env.VITE_PADDLE_CLIENT_TOKEN?.trim();
 
+// Paddle client-side tokens are prefixed "test_" for sandbox and "live_" for
+// production — these are two completely separate systems on Paddle's side
+// (separate products, prices, customers). Previously this was hardcoded to
+// "production" always, so a sandbox token (test_...) got initialized against
+// Paddle's production environment, which can never work — Paddle.js just
+// shows a generic "Something went wrong" with no useful detail. Detecting
+// the environment from the token itself means the same code works correctly
+// whether VITE_PADDLE_CLIENT_TOKEN is a sandbox or live value, with zero
+// extra configuration needed.
+const paddleEnvironment: "sandbox" | "production" = clientToken?.startsWith("test_") ? "sandbox" : "production";
+
 const priceIds: Record<Exclude<Plan, "free">, Record<BillingCycle, string | undefined>> = {
   pro: {
     monthly: import.meta.env.VITE_PADDLE_PRO_MONTHLY_PRICE_ID?.trim(),
@@ -37,7 +48,7 @@ export async function getPaddle() {
 
   if (!paddlePromise) {
     paddlePromise = initializePaddle({
-      environment: "production",
+      environment: paddleEnvironment,
       token: clientToken,
       eventCallback: handlePaddleEvent,
       checkout: {
