@@ -170,7 +170,7 @@ function PlanCard({
 }
 
 export default function Billing() {
-  const { user, profile } = useAuth();
+  const { user, profile, refreshProfile } = useAuth();
   const region = useRegion();
   const [cycle, setCycle] = useState<BillingCycle>("monthly");
   const [invoicesThisMonth, setInvoicesThisMonth] = useState(0);
@@ -189,7 +189,9 @@ export default function Billing() {
   const planId: Plan = profile?.plan === "business" ? "business" : profile?.plan === "pro" || profile?.is_pro ? "pro" : "free";
   const current = plans[planId];
   const invoiceBalance = Number(profile?.credits ?? 0);
-  const isUnlimited = current.invoiceLimit === "unlimited" || planId !== "free";
+  const isUnlimited = current.invoiceLimit === "unlimited";
+  const planLimit = current.invoiceLimit === "unlimited" ? Number.POSITIVE_INFINITY : current.invoiceLimit;
+  const checkoutSucceeded = new URLSearchParams(window.location.search).get("checkout") === "success";
 
   useEffect(() => {
     loadActiveMarketingOffers().then((items) => {
@@ -231,6 +233,34 @@ export default function Billing() {
   useEffect(() => {
     void refreshSubscription();
   }, [user?.id]);
+
+  useEffect(() => {
+    if (!checkoutSucceeded || !user) return;
+
+    let cancelled = false;
+    let attempts = 0;
+    const maxAttempts = 15;
+
+    async function syncAfterCheckout() {
+      attempts += 1;
+      await Promise.all([refreshProfile(), refreshSubscription()]);
+      if (cancelled) return;
+
+      const status = await loadPaddleSubscriptionStatus().catch(() => null);
+      if (status?.subscription?.provider_subscription_id) {
+        setSubscription(status.subscription);
+        setBillingEvents(status.billingEvents);
+        const cleanUrl = `${window.location.pathname}`;
+        window.history.replaceState({}, "", cleanUrl);
+        return;
+      }
+
+      if (attempts < maxAttempts) window.setTimeout(syncAfterCheckout, 2000);
+    }
+
+    void syncAfterCheckout();
+    return () => { cancelled = true; };
+  }, [checkoutSucceeded, user?.id]);
 
   async function openPortal(mode: "overview" | "cancel" | "payment_method") {
     setSubscriptionMessage(null);
@@ -276,14 +306,13 @@ export default function Billing() {
   }
 
   const usage = useMemo(() => {
-    const freeUsed = Math.min(invoicesThisMonth, FREE_PLAN_LIMIT);
-    const freeRemaining = Math.max(0, FREE_PLAN_LIMIT - freeUsed);
     const extraRemaining = Math.max(0, invoiceBalance);
-    const totalRemaining = isUnlimited ? Number.POSITIVE_INFINITY : freeRemaining + extraRemaining;
-    const totalLimit = isUnlimited ? Number.POSITIVE_INFINITY : FREE_PLAN_LIMIT + invoiceBalance;
+    const baseLimit = planId === "free" ? FREE_PLAN_LIMIT : planLimit;
+    const totalLimit = isUnlimited ? Number.POSITIVE_INFINITY : Number(baseLimit) + (planId === "free" ? extraRemaining : 0);
+    const remaining = isUnlimited ? Number.POSITIVE_INFINITY : Math.max(0, totalLimit - invoicesThisMonth);
     const percentage = isUnlimited ? 0 : Math.min(100, (invoicesThisMonth / Math.max(totalLimit, 1)) * 100);
-    return { freeUsed, freeRemaining, extraRemaining, totalRemaining, totalLimit, percentage };
-  }, [invoiceBalance, invoicesThisMonth, isUnlimited]);
+    return { extraRemaining, remaining, totalLimit, percentage };
+  }, [invoiceBalance, invoicesThisMonth, isUnlimited, planId, planLimit]);
 
   function handleUpgrade(plan: PricingPlan, offer?: MarketingOffer) {
     if (plan.id === "free") return;
@@ -326,7 +355,7 @@ export default function Billing() {
 
   return (
     <div className="mx-auto max-w-6xl space-y-8">
-      {new URLSearchParams(window.location.search).get("checkout") === "success" && (
+      {checkoutSucceeded && !subscription && (
         <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-5 py-4 text-sm font-medium text-emerald-800">
           Payment received. Your subscription is being activated; this page will update after the Paddle webhook is processed.
         </div>
@@ -349,28 +378,48 @@ export default function Billing() {
         </div>
       </div>
 
-      <section className="grid gap-4 lg:grid-cols-4">
-        <div className="card p-5">
-          <p className="text-xs font-bold uppercase tracking-wide text-slate-400">Current Plan</p>
-          <p className="mt-2 text-2xl font-black text-slate-950">{current.name}</p>
-          <p className="mt-1 text-sm text-slate-500">{planId === "free" ? "Manual/free access" : "Active access"}</p>
-        </div>
-        <div className="card p-5">
-          <p className="text-xs font-bold uppercase tracking-wide text-slate-400">Monthly Free</p>
-          <p className="mt-2 text-2xl font-black text-slate-950">{usage.freeRemaining}/{FREE_PLAN_LIMIT}</p>
-          <p className="mt-1 text-sm text-slate-500">Free invoices remaining</p>
-        </div>
-        <div className="card p-5">
-          <p className="text-xs font-bold uppercase tracking-wide text-slate-400">Extra Balance</p>
-          <p className="mt-2 text-2xl font-black text-slate-950">{isUnlimited ? "Unlimited" : usage.extraRemaining}</p>
-          <p className="mt-1 text-sm text-slate-500">Admin-added invoice balance</p>
-        </div>
-        <div className="card p-5">
-          <p className="text-xs font-bold uppercase tracking-wide text-slate-400">Total Remaining</p>
-          <p className="mt-2 text-2xl font-black text-slate-950">{isUnlimited ? "∞" : usage.totalRemaining}</p>
-          <p className="mt-1 text-sm text-slate-500">Invoices you can still create</p>
-        </div>
-      </section>
+      {planId === "free" ? (
+        <section className="grid gap-4 lg:grid-cols-4">
+          <div className="card p-5">
+            <p className="text-xs font-bold uppercase tracking-wide text-slate-400">Current Plan</p>
+            <p className="mt-2 text-2xl font-black text-slate-950">Free</p>
+            <p className="mt-1 text-sm text-slate-500">Manual/free access</p>
+          </div>
+          <div className="card p-5">
+            <p className="text-xs font-bold uppercase tracking-wide text-slate-400">Monthly Free</p>
+            <p className="mt-2 text-2xl font-black text-slate-950">{Math.max(0, FREE_PLAN_LIMIT - invoicesThisMonth)}/{FREE_PLAN_LIMIT}</p>
+            <p className="mt-1 text-sm text-slate-500">Free invoices remaining</p>
+          </div>
+          <div className="card p-5">
+            <p className="text-xs font-bold uppercase tracking-wide text-slate-400">Extra Balance</p>
+            <p className="mt-2 text-2xl font-black text-slate-950">{usage.extraRemaining}</p>
+            <p className="mt-1 text-sm text-slate-500">Admin-added invoice balance</p>
+          </div>
+          <div className="card p-5">
+            <p className="text-xs font-bold uppercase tracking-wide text-slate-400">Total Remaining</p>
+            <p className="mt-2 text-2xl font-black text-slate-950">{usage.remaining}</p>
+            <p className="mt-1 text-sm text-slate-500">Invoices you can still create</p>
+          </div>
+        </section>
+      ) : (
+        <section className="grid gap-4 md:grid-cols-3">
+          <div className="card p-5">
+            <p className="text-xs font-bold uppercase tracking-wide text-slate-400">Current Plan</p>
+            <p className="mt-2 text-2xl font-black text-slate-950">{current.name}</p>
+            <p className="mt-1 text-sm text-emerald-600">Active access</p>
+          </div>
+          <div className="card p-5">
+            <p className="text-xs font-bold uppercase tracking-wide text-slate-400">Monthly Limit</p>
+            <p className="mt-2 text-2xl font-black text-slate-950">{isUnlimited ? "Unlimited" : Number(planLimit).toLocaleString("en-US")}</p>
+            <p className="mt-1 text-sm text-slate-500">Invoices included in your plan</p>
+          </div>
+          <div className="card p-5">
+            <p className="text-xs font-bold uppercase tracking-wide text-slate-400">Remaining This Month</p>
+            <p className="mt-2 text-2xl font-black text-slate-950">{isUnlimited ? "∞" : usage.remaining}</p>
+            <p className="mt-1 text-sm text-slate-500">After {invoicesThisMonth} invoice{invoicesThisMonth === 1 ? "" : "s"} used</p>
+          </div>
+        </section>
+      )}
 
       <section className="card p-6">
         <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">

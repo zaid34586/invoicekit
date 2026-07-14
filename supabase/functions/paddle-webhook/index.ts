@@ -24,11 +24,12 @@ async function verifySignature(rawBody: string, signatureHeader: string, secret:
   return safeEqual(hex(digest), signature);
 }
 
+
 function renderTemplate(template: string, values: Record<string, string>) {
   return Object.entries(values).reduce((text, [key, value]) => text.replaceAll(`{{${key}}}`, value), template);
 }
 
-async function sendEmail(to: string, subject: string, body: string) {
+async function sendAutomationEmail(to: string, subject: string, body: string) {
   const key = Deno.env.get("RESEND_API_KEY") || "";
   if (!key) return { id: null, skipped: true };
   const from = Deno.env.get("RESEND_FROM_EMAIL") || "Rivox <onboarding@resend.dev>";
@@ -45,22 +46,6 @@ async function sendEmail(to: string, subject: string, body: string) {
   const payload = await response.json();
   if (!response.ok) throw new Error(payload?.message || "Email delivery failed");
   return { id: payload?.id || null, skipped: false };
-}
-
-async function resolveUserId(admin: ReturnType<typeof createClient>, data: any, custom: any) {
-  if (custom.user_id) return String(custom.user_id);
-  if (custom.userId) return String(custom.userId);
-
-  const subscriptionId = data.id && String(data.id).startsWith("sub_") ? data.id : data.subscription_id;
-  if (subscriptionId) {
-    const { data: linked } = await admin.from("subscriptions").select("user_id").eq("provider_subscription_id", subscriptionId).maybeSingle();
-    if (linked?.user_id) return linked.user_id;
-  }
-  if (data.customer_id) {
-    const { data: linked } = await admin.from("subscriptions").select("user_id").eq("provider_customer_id", data.customer_id).maybeSingle();
-    if (linked?.user_id) return linked.user_id;
-  }
-  return null;
 }
 
 async function processImmediateAutomation(admin: ReturnType<typeof createClient>, event: any, userId: string, ruleType: "payment_failed" | "subscription_cancelled") {
@@ -81,18 +66,29 @@ async function processImmediateAutomation(admin: ReturnType<typeof createClient>
   const subject = renderTemplate(rule.subject_template, values);
   const message = renderTemplate(rule.body_template, values);
   const { data: delivery, error } = await admin.from("subscription_automation_deliveries").insert({
-    rule_type: ruleType, user_id: userId, subscription_id: subscription?.id || null,
-    dedupe_key: dedupeKey, recipient_email: email, status: "pending",
+    rule_type: ruleType,
+    user_id: userId,
+    subscription_id: subscription?.id || null,
+    dedupe_key: dedupeKey,
+    recipient_email: email,
+    status: "pending",
     metadata: { paddle_event_id: event.event_id, subject, message },
   }).select("id").single();
   if (error?.code === "23505") return;
   if (error) throw error;
   try {
-    const result = await sendEmail(email, subject, message);
+    const result = await sendAutomationEmail(email, subject, message);
     await admin.from("subscription_automation_deliveries").update({ status: result.skipped ? "skipped" : "sent", provider_message_id: result.id, sent_at: new Date().toISOString() }).eq("id", delivery.id);
   } catch (sendError) {
     await admin.from("subscription_automation_deliveries").update({ status: "failed", error_message: sendError instanceof Error ? sendError.message : "Delivery failed" }).eq("id", delivery.id);
   }
+  await admin.from("notifications").insert({
+    audience: "admin",
+    type: ruleType,
+    title: ruleType === "payment_failed" ? "Paddle payment failed" : "Subscription cancelled",
+    body: `${email} · ${values.plan}`,
+    metadata: { user_id: userId, paddle_event_id: event.event_id },
+  });
 }
 
 Deno.serve(async (req) => {
@@ -106,71 +102,93 @@ Deno.serve(async (req) => {
     const data = event.data || {};
     const custom = data.custom_data || {};
     const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
-    const userId = await resolveUserId(admin, data, custom);
-    const plan = custom.plan === "business" ? "business" : custom.plan === "pro" ? "pro" : "free";
-    const billingCycle = custom.billing_cycle === "monthly" ? "monthly" : custom.billing_cycle === "yearly" ? "yearly" : null;
-    const customerEmail = String(custom.customer_email || data.customer?.email || data.customer_email || "").trim().toLowerCase() || null;
+
+    let userId = custom.user_id || data.custom_data?.userId || null;
+    if (!userId && data.subscription_id) {
+      const { data: linked } = await admin.from("subscriptions").select("user_id").eq("provider_subscription_id", data.subscription_id).maybeSingle();
+      userId = linked?.user_id || null;
+    }
+    if (!userId && data.id && String(event.event_type).startsWith("subscription.")) {
+      const { data: linked } = await admin.from("subscriptions").select("user_id").eq("provider_subscription_id", data.id).maybeSingle();
+      userId = linked?.user_id || null;
+    }
+
+    const existing = userId
+      ? await admin.from("subscriptions").select("plan,billing_cycle").eq("user_id", userId).maybeSingle()
+      : { data: null };
+    const plan = custom.plan || existing.data?.plan || "free";
+    const billingCycle = custom.billing_cycle || existing.data?.billing_cycle || null;
 
     if (String(event.event_type).startsWith("subscription.") && userId) {
       const status = data.status || (event.event_type === "subscription.canceled" ? "canceled" : "active");
-      const hasAccess = ["active", "trialing", "past_due"].includes(status);
       await admin.from("subscriptions").upsert({
         user_id: userId, provider: "paddle", provider_subscription_id: data.id,
         provider_customer_id: data.customer_id || null, product_id: data.items?.[0]?.price?.product_id || null,
         variant_id: data.items?.[0]?.price?.id || null, plan, billing_cycle: billingCycle,
-        status, customer_email: customerEmail, currency: data.currency_code || null,
-        renews_at: data.next_billed_at || null,
+        status, currency: data.currency_code || null, renews_at: data.next_billed_at || null,
         ends_at: data.scheduled_change?.effective_at || data.canceled_at || null,
         cancelled: status === "canceled" || Boolean(data.scheduled_change?.action === "cancel"),
         raw_payload: event, updated_at: new Date().toISOString(),
       }, { onConflict: "user_id" });
 
       await admin.from("profiles").update({
-        plan: hasAccess ? plan : "free",
-        is_pro: hasAccess,
-        subscription_status: hasAccess ? "active" : "cancelled",
+        plan: status === "canceled" ? "free" : plan,
+        is_pro: status !== "canceled" && plan !== "free",
+        subscription_status: status === "canceled" ? "cancelled" : "active",
         subscription_id: data.id || null,
         plan_expires_at: data.scheduled_change?.effective_at || data.canceled_at || null,
       }).eq("user_id", userId);
     }
 
     if (["transaction.completed", "transaction.payment_failed"].includes(event.event_type) && userId) {
-      const { data: existingEvent } = await admin.from("billing_events").select("id").eq("provider_event_id", event.event_id).maybeSingle();
       await admin.from("billing_events").upsert({
         provider_event_id: event.event_id, user_id: userId, provider: "paddle",
         event_name: event.event_type, order_id: data.id, subscription_id: data.subscription_id || null,
         plan, billing_cycle: billingCycle, amount: Number(data.details?.totals?.grand_total || 0) / 100,
-        currency: data.currency_code || null,
-        status: data.status || (event.event_type === "transaction.payment_failed" ? "failed" : "completed"), raw_payload: event,
+        currency: data.currency_code || null, status: data.status || (event.event_type === "transaction.payment_failed" ? "failed" : "completed"), raw_payload: event,
       }, { onConflict: "provider_event_id" });
 
       if (event.event_type === "transaction.completed") {
-        await admin.from("subscriptions").upsert({
-          user_id: userId, provider: "paddle", provider_subscription_id: data.subscription_id || null,
-          provider_customer_id: data.customer_id || null, plan, billing_cycle: billingCycle,
-          status: "active", customer_email: customerEmail, currency: data.currency_code || null,
-          amount: Number(data.details?.totals?.grand_total || 0) / 100,
-          raw_payload: event, updated_at: new Date().toISOString(),
-        }, { onConflict: "user_id" });
+        const providerSubscriptionId = data.subscription_id || null;
+        const providerCustomerId = data.customer_id || null;
+        if (providerSubscriptionId) {
+          await admin.from("subscriptions").upsert({
+            user_id: userId,
+            provider: "paddle",
+            provider_subscription_id: providerSubscriptionId,
+            provider_customer_id: providerCustomerId,
+            product_id: data.items?.[0]?.price?.product_id || null,
+            variant_id: data.items?.[0]?.price?.id || null,
+            plan,
+            billing_cycle: billingCycle,
+            status: "active",
+            currency: data.currency_code || null,
+            amount: Number(data.details?.totals?.grand_total || 0) / 100,
+            cancelled: false,
+            raw_payload: event,
+            updated_at: new Date().toISOString(),
+          }, { onConflict: "user_id" });
+        }
 
         await admin.from("profiles").update({
-          plan, is_pro: true, subscription_status: "active",
-          subscription_id: data.subscription_id || null,
+          plan,
+          is_pro: plan !== "free",
+          subscription_status: "active",
+          subscription_id: providerSubscriptionId,
+          plan_expires_at: null,
         }).eq("user_id", userId);
-
-        if (!existingEvent && customerEmail) {
-          const planLabel = plan === "business" ? "Rivox Business" : "Rivox Pro";
-          await sendEmail(customerEmail, `${planLabel} payment confirmed`, `Your ${planLabel} ${billingCycle || ""} subscription payment was successful. Your Rivox account is now active.`);
-        }
       }
     }
 
-    if (event.event_type === "transaction.payment_failed" && userId) await processImmediateAutomation(admin, event, userId, "payment_failed");
-    if (["subscription.canceled", "subscription.cancelled"].includes(event.event_type) && userId) await processImmediateAutomation(admin, event, userId, "subscription_cancelled");
+    if (event.event_type === "transaction.payment_failed" && userId) {
+      await processImmediateAutomation(admin, event, userId, "payment_failed");
+    }
+    if (["subscription.canceled", "subscription.cancelled"].includes(event.event_type) && userId) {
+      await processImmediateAutomation(admin, event, userId, "subscription_cancelled");
+    }
 
     return new Response("ok", { status: 200 });
   } catch (error) {
-    console.error("Paddle webhook error", error);
     return new Response(error instanceof Error ? error.message : "Webhook error", { status: 400 });
   }
 });
