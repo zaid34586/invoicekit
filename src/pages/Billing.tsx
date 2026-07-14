@@ -190,9 +190,7 @@ export default function Billing() {
   const current = plans[planId];
   const invoiceBalance = Number(profile?.credits ?? 0);
   const isUnlimited = current.invoiceLimit === "unlimited";
-  const planLimit = current.invoiceLimit === "unlimited" ? Number.POSITIVE_INFINITY : current.invoiceLimit;
-  const checkoutSucceeded = new URLSearchParams(window.location.search).get("checkout") === "success";
-  const subscriptionReady = Boolean(subscription?.provider_subscription_id && subscription?.provider_customer_id);
+  const planLimit = isUnlimited ? Number.POSITIVE_INFINITY : Number(current.invoiceLimit || FREE_PLAN_LIMIT);
 
   useEffect(() => {
     loadActiveMarketingOffers().then((items) => {
@@ -236,32 +234,18 @@ export default function Billing() {
   }, [user?.id]);
 
   useEffect(() => {
+    const checkoutSucceeded = new URLSearchParams(window.location.search).get("checkout") === "success";
     if (!checkoutSucceeded || !user) return;
-
-    let cancelled = false;
     let attempts = 0;
-    const maxAttempts = 15;
-
-    async function syncAfterCheckout() {
+    const poll = async () => {
       attempts += 1;
-      await Promise.all([refreshProfile(), refreshSubscription()]);
-      if (cancelled) return;
-
-      const status = await loadPaddleSubscriptionStatus().catch(() => null);
-      if (status?.subscription?.provider_subscription_id) {
-        setSubscription(status.subscription);
-        setBillingEvents(status.billingEvents);
-        const cleanUrl = `${window.location.pathname}`;
-        window.history.replaceState({}, "", cleanUrl);
-        return;
-      }
-
-      if (attempts < maxAttempts) window.setTimeout(syncAfterCheckout, 2000);
-    }
-
-    void syncAfterCheckout();
-    return () => { cancelled = true; };
-  }, [checkoutSucceeded, user?.id]);
+      await Promise.all([refreshSubscription(), refreshProfile()]);
+      if (attempts >= 15) window.clearInterval(timer);
+    };
+    void poll();
+    const timer = window.setInterval(() => void poll(), 2000);
+    return () => window.clearInterval(timer);
+  }, [user?.id]);
 
   async function openPortal(mode: "overview" | "cancel" | "payment_method") {
     setSubscriptionMessage(null);
@@ -307,12 +291,12 @@ export default function Billing() {
   }
 
   const usage = useMemo(() => {
-    const extraRemaining = Math.max(0, invoiceBalance);
     const baseLimit = planId === "free" ? FREE_PLAN_LIMIT : planLimit;
-    const totalLimit = isUnlimited ? Number.POSITIVE_INFINITY : Number(baseLimit) + (planId === "free" ? extraRemaining : 0);
-    const remaining = isUnlimited ? Number.POSITIVE_INFINITY : Math.max(0, totalLimit - invoicesThisMonth);
+    const extraRemaining = planId === "free" ? Math.max(0, invoiceBalance) : 0;
+    const totalLimit = isUnlimited ? Number.POSITIVE_INFINITY : baseLimit + extraRemaining;
+    const totalRemaining = isUnlimited ? Number.POSITIVE_INFINITY : Math.max(0, totalLimit - invoicesThisMonth);
     const percentage = isUnlimited ? 0 : Math.min(100, (invoicesThisMonth / Math.max(totalLimit, 1)) * 100);
-    return { extraRemaining, remaining, totalLimit, percentage };
+    return { baseLimit, extraRemaining, totalRemaining, totalLimit, percentage };
   }, [invoiceBalance, invoicesThisMonth, isUnlimited, planId, planLimit]);
 
   function handleUpgrade(plan: PricingPlan, offer?: MarketingOffer) {
@@ -356,7 +340,7 @@ export default function Billing() {
 
   return (
     <div className="mx-auto max-w-6xl space-y-8">
-      {checkoutSucceeded && !subscription && (
+      {new URLSearchParams(window.location.search).get("checkout") === "success" && (
         <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-5 py-4 text-sm font-medium text-emerald-800">
           Payment received. Your subscription is being activated; this page will update after the Paddle webhook is processed.
         </div>
@@ -379,48 +363,28 @@ export default function Billing() {
         </div>
       </div>
 
-      {planId === "free" ? (
-        <section className="grid gap-4 lg:grid-cols-4">
-          <div className="card p-5">
-            <p className="text-xs font-bold uppercase tracking-wide text-slate-400">Current Plan</p>
-            <p className="mt-2 text-2xl font-black text-slate-950">Free</p>
-            <p className="mt-1 text-sm text-slate-500">Manual/free access</p>
-          </div>
-          <div className="card p-5">
-            <p className="text-xs font-bold uppercase tracking-wide text-slate-400">Monthly Free</p>
-            <p className="mt-2 text-2xl font-black text-slate-950">{Math.max(0, FREE_PLAN_LIMIT - invoicesThisMonth)}/{FREE_PLAN_LIMIT}</p>
-            <p className="mt-1 text-sm text-slate-500">Free invoices remaining</p>
-          </div>
-          <div className="card p-5">
-            <p className="text-xs font-bold uppercase tracking-wide text-slate-400">Extra Balance</p>
-            <p className="mt-2 text-2xl font-black text-slate-950">{usage.extraRemaining}</p>
-            <p className="mt-1 text-sm text-slate-500">Admin-added invoice balance</p>
-          </div>
-          <div className="card p-5">
-            <p className="text-xs font-bold uppercase tracking-wide text-slate-400">Total Remaining</p>
-            <p className="mt-2 text-2xl font-black text-slate-950">{usage.remaining}</p>
-            <p className="mt-1 text-sm text-slate-500">Invoices you can still create</p>
-          </div>
-        </section>
-      ) : (
-        <section className="grid gap-4 md:grid-cols-3">
-          <div className="card p-5">
-            <p className="text-xs font-bold uppercase tracking-wide text-slate-400">Current Plan</p>
-            <p className="mt-2 text-2xl font-black text-slate-950">{current.name}</p>
-            <p className="mt-1 text-sm text-emerald-600">Active access</p>
-          </div>
-          <div className="card p-5">
-            <p className="text-xs font-bold uppercase tracking-wide text-slate-400">Monthly Limit</p>
-            <p className="mt-2 text-2xl font-black text-slate-950">{isUnlimited ? "Unlimited" : Number(planLimit).toLocaleString("en-US")}</p>
-            <p className="mt-1 text-sm text-slate-500">Invoices included in your plan</p>
-          </div>
-          <div className="card p-5">
-            <p className="text-xs font-bold uppercase tracking-wide text-slate-400">Remaining This Month</p>
-            <p className="mt-2 text-2xl font-black text-slate-950">{isUnlimited ? "∞" : usage.remaining}</p>
-            <p className="mt-1 text-sm text-slate-500">After {invoicesThisMonth} invoice{invoicesThisMonth === 1 ? "" : "s"} used</p>
-          </div>
-        </section>
-      )}
+      <section className="grid gap-4 lg:grid-cols-4">
+        <div className="card p-5">
+          <p className="text-xs font-bold uppercase tracking-wide text-slate-400">Current Plan</p>
+          <p className="mt-2 text-2xl font-black text-slate-950">{current.name}</p>
+          <p className="mt-1 text-sm text-slate-500">{planId === "free" ? "Manual/free access" : "Active access"}</p>
+        </div>
+        <div className="card p-5">
+          <p className="text-xs font-bold uppercase tracking-wide text-slate-400">Monthly Limit</p>
+          <p className="mt-2 text-2xl font-black text-slate-950">{isUnlimited ? "Unlimited" : usage.baseLimit}</p>
+          <p className="mt-1 text-sm text-slate-500">Invoices included in your plan</p>
+        </div>
+        <div className="card p-5">
+          <p className="text-xs font-bold uppercase tracking-wide text-slate-400">Used This Month</p>
+          <p className="mt-2 text-2xl font-black text-slate-950">{invoicesThisMonth}</p>
+          <p className="mt-1 text-sm text-slate-500">Invoices created this month</p>
+        </div>
+        <div className="card p-5">
+          <p className="text-xs font-bold uppercase tracking-wide text-slate-400">Remaining</p>
+          <p className="mt-2 text-2xl font-black text-slate-950">{isUnlimited ? "∞" : usage.totalRemaining}</p>
+          <p className="mt-1 text-sm text-slate-500">Invoices still available</p>
+        </div>
+      </section>
 
       <section className="card p-6">
         <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
@@ -473,7 +437,7 @@ export default function Billing() {
               <p className="mt-1 text-sm text-slate-500">Manage payment methods, receipts, invoices, and cancellation through secure Paddle billing tools.</p>
             </div>
             <div className={`rounded-full px-3 py-1 text-xs font-black ${subscription?.status === "active" ? "bg-emerald-100 text-emerald-700" : subscription?.status === "past_due" ? "bg-amber-100 text-amber-700" : "bg-slate-100 text-slate-600"}`}>
-              {subscriptionLoading ? "Refreshing..." : (subscriptionReady ? subscription?.status || "active" : "Awaiting Paddle sync").replace(/_/g, " ")}
+              {subscriptionLoading ? "Refreshing..." : (subscription?.status || "Awaiting Paddle sync").replace(/_/g, " ")}
             </div>
           </div>
 
@@ -489,13 +453,13 @@ export default function Billing() {
           {subscriptionMessage && <div className="mt-4 rounded-xl border border-primary-200 bg-primary-50 px-4 py-3 text-sm font-medium text-primary-700">{subscriptionMessage}</div>}
 
           <div className="mt-5 flex flex-wrap gap-3">
-            <button disabled={!subscriptionReady || subscriptionLoading} className="btn-secondary disabled:cursor-not-allowed disabled:opacity-50" onClick={() => void openPortal("overview")}>Manage Subscription</button>
-            <button disabled={!subscriptionReady || subscriptionLoading} className="btn-secondary disabled:cursor-not-allowed disabled:opacity-50" onClick={() => void openPortal("payment_method")}>Update Payment Method</button>
-            <button disabled={!subscriptionReady || subscriptionLoading} className="btn-secondary disabled:cursor-not-allowed disabled:opacity-50" onClick={() => void openPortal("overview")}>View Receipts & Invoices</button>
+            <button disabled={!subscription || subscriptionLoading} className="btn-secondary disabled:cursor-not-allowed disabled:opacity-50" onClick={() => void openPortal("overview")}>Manage Subscription</button>
+            <button disabled={!subscription || subscriptionLoading} className="btn-secondary disabled:cursor-not-allowed disabled:opacity-50" onClick={() => void openPortal("payment_method")}>Update Payment Method</button>
+            <button disabled={!subscription || subscriptionLoading} className="btn-secondary disabled:cursor-not-allowed disabled:opacity-50" onClick={() => void openPortal("overview")}>View Receipts & Invoices</button>
             {subscription?.cancelled && subscription.status === "active" ? (
               <button disabled={subscriptionLoading} className="rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-bold text-white hover:bg-emerald-700 disabled:opacity-50" onClick={() => setModal({ title: "Keep subscription active", message: "Remove the scheduled cancellation and continue renewing this subscription?", confirmLabel: "Keep active", onConfirm: () => void undoCancellation() })}>Keep Subscription</button>
             ) : (
-              <button disabled={!subscriptionReady || subscriptionLoading} className="btn-danger disabled:cursor-not-allowed disabled:opacity-50" onClick={() => setModal({ title: "Cancel at period end", message: "Your subscription will remain active until the end of the current billing period. You can undo this before the effective date.", confirmLabel: "Schedule cancellation", variant: "danger", onConfirm: () => void requestCancellation() })}>Cancel Subscription</button>
+              <button disabled={!subscription || subscriptionLoading} className="btn-danger disabled:cursor-not-allowed disabled:opacity-50" onClick={() => setModal({ title: "Cancel at period end", message: "Your subscription will remain active until the end of the current billing period. You can undo this before the effective date.", confirmLabel: "Schedule cancellation", variant: "danger", onConfirm: () => void requestCancellation() })}>Cancel Subscription</button>
             )}
           </div>
         </section>

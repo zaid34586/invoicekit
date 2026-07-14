@@ -3,10 +3,7 @@ import type { BillingCycle, Plan } from "./pricing";
 
 const clientToken = import.meta.env.VITE_PADDLE_CLIENT_TOKEN?.trim();
 const configuredEnvironment = import.meta.env.VITE_PADDLE_ENV?.trim().toLowerCase();
-const paddleEnvironment: "sandbox" | "production" =
-  configuredEnvironment === "sandbox" || clientToken?.startsWith("test_")
-    ? "sandbox"
-    : "production";
+const paddleEnvironment = configuredEnvironment === "sandbox" || clientToken?.startsWith("test_") ? "sandbox" : "production";
 
 const priceIds: Record<Exclude<Plan, "free">, Record<BillingCycle, string | undefined>> = {
   pro: {
@@ -32,13 +29,11 @@ export function getPaddleConfigurationStatus() {
   if (!priceIds.pro.yearly) missing.push("VITE_PADDLE_PRO_YEARLY_PRICE_ID");
   if (!priceIds.business.monthly) missing.push("VITE_PADDLE_BUSINESS_MONTHLY_PRICE_ID");
   if (!priceIds.business.yearly) missing.push("VITE_PADDLE_BUSINESS_YEARLY_PRICE_ID");
-  return { configured: missing.length === 0, missing };
+  return { configured: missing.length === 0, missing, environment: paddleEnvironment };
 }
 
 export async function getPaddle() {
-  if (!clientToken) {
-    throw new Error("Paddle client token is missing. Add VITE_PADDLE_CLIENT_TOKEN and redeploy.");
-  }
+  if (!clientToken) throw new Error("Paddle client token is missing. Add VITE_PADDLE_CLIENT_TOKEN and redeploy.");
 
   if (!paddlePromise) {
     paddlePromise = initializePaddle({
@@ -64,15 +59,7 @@ export async function getPaddle() {
   return paddle;
 }
 
-export async function openPaddleCheckout({
-  plan,
-  cycle,
-  userId,
-  email,
-  discountCode,
-  discountId,
-  offerId,
-}: {
+export async function openPaddleCheckout({ plan, cycle, userId, email, discountCode, discountId, offerId }: {
   plan: Exclude<Plan, "free">;
   cycle: BillingCycle;
   userId?: string;
@@ -83,13 +70,8 @@ export async function openPaddleCheckout({
 }) {
   const priceId = priceIds[plan][cycle];
   if (!priceId) throw new Error(`Paddle ${plan} ${cycle} price ID is missing.`);
-
   const paddle = await getPaddle();
-  const discount = discountId?.trim()
-    ? { discountId: discountId.trim() }
-    : discountCode?.trim()
-      ? { discountCode: discountCode.trim() }
-      : {};
+  const discount = discountId?.trim() ? { discountId: discountId.trim() } : discountCode?.trim() ? { discountCode: discountCode.trim() } : {};
 
   paddle.Checkout.open({
     items: [{ priceId, quantity: 1 }],
@@ -101,9 +83,9 @@ export async function openPaddleCheckout({
       billing_cycle: cycle,
       source: "rivox_web",
       offer_id: offerId ?? null,
+      customer_email: email ?? null,
       offer_code: discountCode?.trim() || null,
       paddle_discount_id: discountId?.trim() || null,
-      paddle_environment: paddleEnvironment,
     },
     settings: {
       displayMode: "overlay",
