@@ -170,9 +170,9 @@ function PlanCard({
 }
 
 export default function Billing() {
-  const { user, profile } = useAuth();
+  const { user, profile, refreshProfile } = useAuth();
   const region = useRegion();
-  const [cycle, setCycle] = useState<BillingCycle>("yearly");
+  const [cycle, setCycle] = useState<BillingCycle>("monthly");
   const [invoicesThisMonth, setInvoicesThisMonth] = useState(0);
   const [promoCode, setPromoCode] = useState("");
   const [promoMessage, setPromoMessage] = useState<string | null>(null);
@@ -221,6 +221,9 @@ export default function Billing() {
       const status = await loadPaddleSubscriptionStatus();
       setSubscription(status.subscription);
       setBillingEvents(status.billingEvents);
+      if (status.subscription?.status === "active") {
+        await refreshProfile();
+      }
     } catch (error) {
       setSubscriptionMessage(error instanceof Error ? error.message : "Unable to load billing status.");
     } finally {
@@ -230,6 +233,22 @@ export default function Billing() {
 
   useEffect(() => {
     void refreshSubscription();
+  }, [user?.id]);
+
+
+  useEffect(() => {
+    const checkoutSucceeded = new URLSearchParams(window.location.search).get("checkout") === "success";
+    if (!checkoutSucceeded || !user) return;
+
+    let attempts = 0;
+    const timer = window.setInterval(async () => {
+      attempts += 1;
+      await refreshSubscription();
+      if (attempts >= 12) window.clearInterval(timer);
+    }, 2500);
+
+    void refreshSubscription();
+    return () => window.clearInterval(timer);
   }, [user?.id]);
 
   async function openPortal(mode: "overview" | "cancel" | "payment_method") {
@@ -345,7 +364,6 @@ export default function Billing() {
               Upgrade securely, track invoice usage, apply active admin-managed offers, and manage billing history from one place.
             </p>
           </div>
-          <BillingToggle cycle={cycle} setCycle={setCycle} />
         </div>
       </div>
 
@@ -397,7 +415,9 @@ export default function Billing() {
             <h2 className="text-xl font-black text-slate-950">Available plans</h2>
             <p className="mt-1 text-sm text-slate-500">Choose monthly or yearly billing and continue to secure Paddle checkout.</p>
           </div>
-          <div className="flex gap-2 rounded-xl border border-slate-200 bg-white p-2">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+            <BillingToggle cycle={cycle} setCycle={setCycle} />
+            <div className="flex gap-2 rounded-xl border border-slate-200 bg-white p-2">
             <input
               value={promoCode}
               onChange={(e) => setPromoCode(e.target.value)}
@@ -405,6 +425,7 @@ export default function Billing() {
               className="input h-10 min-w-[160px]"
             />
             <button onClick={applyPromo} className="btn-secondary h-10 px-4 text-sm">Apply</button>
+            </div>
           </div>
         </div>
         {promoMessage && <p className="mb-4 rounded-xl bg-primary-50 p-3 text-sm font-medium text-primary-700">{promoMessage}</p>}

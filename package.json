@@ -7,7 +7,9 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
-    "typecheck": "tsc -b --noEmit"
+    "typecheck": "tsc -b --noEmit",
+    "dev:sandbox": "vite --mode sandbox",
+    "build:sandbox": "tsc -b && vite build --mode sandbox"
   },
   "dependencies": {
     "@paddle/paddle-js": "^1.6.4",

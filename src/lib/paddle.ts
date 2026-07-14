@@ -2,17 +2,7 @@ import { initializePaddle, type Paddle, type PaddleEventData } from "@paddle/pad
 import type { BillingCycle, Plan } from "./pricing";
 
 const clientToken = import.meta.env.VITE_PADDLE_CLIENT_TOKEN?.trim();
-
-// Paddle client-side tokens are prefixed "test_" for sandbox and "live_" for
-// production — these are two completely separate systems on Paddle's side
-// (separate products, prices, customers). Previously this was hardcoded to
-// "production" always, so a sandbox token (test_...) got initialized against
-// Paddle's production environment, which can never work — Paddle.js just
-// shows a generic "Something went wrong" with no useful detail. Detecting
-// the environment from the token itself means the same code works correctly
-// whether VITE_PADDLE_CLIENT_TOKEN is a sandbox or live value, with zero
-// extra configuration needed.
-const paddleEnvironment: "sandbox" | "production" = clientToken?.startsWith("test_") ? "sandbox" : "production";
+const paddleEnvironment = import.meta.env.VITE_PADDLE_ENV === "sandbox" ? "sandbox" : "production";
 
 const priceIds: Record<Exclude<Plan, "free">, Record<BillingCycle, string | undefined>> = {
   pro: {
@@ -107,6 +97,7 @@ export async function openPaddleCheckout({
       billing_cycle: cycle,
       source: "rivox_web",
       offer_id: offerId ?? null,
+      customer_email: email?.trim().toLowerCase() || null,
       offer_code: discountCode?.trim() || null,
       paddle_discount_id: discountId?.trim() || null,
     },
