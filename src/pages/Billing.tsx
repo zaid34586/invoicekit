@@ -345,6 +345,7 @@ export default function Billing() {
               Upgrade securely, track invoice usage, apply active admin-managed offers, and manage billing history from one place.
             </p>
           </div>
+          <BillingToggle cycle={cycle} setCycle={setCycle} />
         </div>
       </div>
 
@@ -395,9 +396,6 @@ export default function Billing() {
           <div>
             <h2 className="text-xl font-black text-slate-950">Available plans</h2>
             <p className="mt-1 text-sm text-slate-500">Choose monthly or yearly billing and continue to secure Paddle checkout.</p>
-            <div className="mt-4">
-              <BillingToggle cycle={cycle} setCycle={setCycle} />
-            </div>
           </div>
           <div className="flex gap-2 rounded-xl border border-slate-200 bg-white p-2">
             <input
