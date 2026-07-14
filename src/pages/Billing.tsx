@@ -192,6 +192,7 @@ export default function Billing() {
   const isUnlimited = current.invoiceLimit === "unlimited";
   const planLimit = current.invoiceLimit === "unlimited" ? Number.POSITIVE_INFINITY : current.invoiceLimit;
   const checkoutSucceeded = new URLSearchParams(window.location.search).get("checkout") === "success";
+  const subscriptionReady = Boolean(subscription?.provider_subscription_id && subscription?.provider_customer_id);
 
   useEffect(() => {
     loadActiveMarketingOffers().then((items) => {
@@ -472,7 +473,7 @@ export default function Billing() {
               <p className="mt-1 text-sm text-slate-500">Manage payment methods, receipts, invoices, and cancellation through secure Paddle billing tools.</p>
             </div>
             <div className={`rounded-full px-3 py-1 text-xs font-black ${subscription?.status === "active" ? "bg-emerald-100 text-emerald-700" : subscription?.status === "past_due" ? "bg-amber-100 text-amber-700" : "bg-slate-100 text-slate-600"}`}>
-              {subscriptionLoading ? "Refreshing..." : (subscription?.status || "Awaiting Paddle sync").replace(/_/g, " ")}
+              {subscriptionLoading ? "Refreshing..." : (subscriptionReady ? subscription?.status || "active" : "Awaiting Paddle sync").replace(/_/g, " ")}
             </div>
           </div>
 
@@ -488,13 +489,13 @@ export default function Billing() {
           {subscriptionMessage && <div className="mt-4 rounded-xl border border-primary-200 bg-primary-50 px-4 py-3 text-sm font-medium text-primary-700">{subscriptionMessage}</div>}
 
           <div className="mt-5 flex flex-wrap gap-3">
-            <button disabled={!subscription || subscriptionLoading} className="btn-secondary disabled:cursor-not-allowed disabled:opacity-50" onClick={() => void openPortal("overview")}>Manage Subscription</button>
-            <button disabled={!subscription || subscriptionLoading} className="btn-secondary disabled:cursor-not-allowed disabled:opacity-50" onClick={() => void openPortal("payment_method")}>Update Payment Method</button>
-            <button disabled={!subscription || subscriptionLoading} className="btn-secondary disabled:cursor-not-allowed disabled:opacity-50" onClick={() => void openPortal("overview")}>View Receipts & Invoices</button>
+            <button disabled={!subscriptionReady || subscriptionLoading} className="btn-secondary disabled:cursor-not-allowed disabled:opacity-50" onClick={() => void openPortal("overview")}>Manage Subscription</button>
+            <button disabled={!subscriptionReady || subscriptionLoading} className="btn-secondary disabled:cursor-not-allowed disabled:opacity-50" onClick={() => void openPortal("payment_method")}>Update Payment Method</button>
+            <button disabled={!subscriptionReady || subscriptionLoading} className="btn-secondary disabled:cursor-not-allowed disabled:opacity-50" onClick={() => void openPortal("overview")}>View Receipts & Invoices</button>
             {subscription?.cancelled && subscription.status === "active" ? (
               <button disabled={subscriptionLoading} className="rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-bold text-white hover:bg-emerald-700 disabled:opacity-50" onClick={() => setModal({ title: "Keep subscription active", message: "Remove the scheduled cancellation and continue renewing this subscription?", confirmLabel: "Keep active", onConfirm: () => void undoCancellation() })}>Keep Subscription</button>
             ) : (
-              <button disabled={!subscription || subscriptionLoading} className="btn-danger disabled:cursor-not-allowed disabled:opacity-50" onClick={() => setModal({ title: "Cancel at period end", message: "Your subscription will remain active until the end of the current billing period. You can undo this before the effective date.", confirmLabel: "Schedule cancellation", variant: "danger", onConfirm: () => void requestCancellation() })}>Cancel Subscription</button>
+              <button disabled={!subscriptionReady || subscriptionLoading} className="btn-danger disabled:cursor-not-allowed disabled:opacity-50" onClick={() => setModal({ title: "Cancel at period end", message: "Your subscription will remain active until the end of the current billing period. You can undo this before the effective date.", confirmLabel: "Schedule cancellation", variant: "danger", onConfirm: () => void requestCancellation() })}>Cancel Subscription</button>
             )}
           </div>
         </section>

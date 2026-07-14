@@ -103,6 +103,7 @@ export async function openPaddleCheckout({
       offer_id: offerId ?? null,
       offer_code: discountCode?.trim() || null,
       paddle_discount_id: discountId?.trim() || null,
+      paddle_environment: paddleEnvironment,
     },
     settings: {
       displayMode: "overlay",
