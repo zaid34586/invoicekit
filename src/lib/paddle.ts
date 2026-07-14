@@ -2,7 +2,9 @@ import { initializePaddle, type Paddle, type PaddleEventData } from "@paddle/pad
 import type { BillingCycle, Plan } from "./pricing";
 
 const clientToken = import.meta.env.VITE_PADDLE_CLIENT_TOKEN?.trim();
-const paddleEnvironment = import.meta.env.VITE_PADDLE_ENV === "sandbox" ? "sandbox" : "production";
+const configuredEnvironment = import.meta.env.VITE_PADDLE_ENV?.trim().toLowerCase();
+const paddleEnvironment: "sandbox" | "production" =
+  configuredEnvironment === "sandbox" || clientToken?.startsWith("test_") ? "sandbox" : "production";
 
 const priceIds: Record<Exclude<Plan, "free">, Record<BillingCycle, string | undefined>> = {
   pro: {
@@ -97,7 +99,6 @@ export async function openPaddleCheckout({
       billing_cycle: cycle,
       source: "rivox_web",
       offer_id: offerId ?? null,
-      customer_email: email?.trim().toLowerCase() || null,
       offer_code: discountCode?.trim() || null,
       paddle_discount_id: discountId?.trim() || null,
     },
