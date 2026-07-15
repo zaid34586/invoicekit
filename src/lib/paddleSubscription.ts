@@ -72,11 +72,36 @@ export async function undoScheduledPaddleCancellation() {
   return response.subscription;
 }
 
-export async function syncPaddleTransaction(transactionId: string, environment: "sandbox" | "production") {
-  const response = await invoke<{
-    subscription: PaddleSubscriptionRecord;
-    billingEvent: BillingEventRecord;
-    plan: string;
-  }>("sync_transaction", { transaction_id: transactionId, environment });
+export type TransactionSyncResult = {
+  subscription: PaddleSubscriptionRecord;
+  billingEvent: BillingEventRecord | null;
+  profileUpdated: boolean;
+  environment: "sandbox" | "production";
+};
+
+export async function syncPaddleTransaction(transactionId: string, environment?: "sandbox" | "production") {
+  const response = await invoke<TransactionSyncResult>("sync_transaction", {
+    transaction_id: transactionId,
+    environment,
+  });
   return response;
+}
+
+export type BillingHealthResult = {
+  authenticated: boolean;
+  profileFound: boolean;
+  subscriptionFound: boolean;
+  sandboxApiConfigured: boolean;
+  productionApiConfigured: boolean;
+  environment?: "sandbox" | "production";
+  transaction?: { id: string; status: string; subscription_id: string | null; customer_id: string | null } | null;
+  errors: string[];
+};
+
+export async function checkPaddleBillingHealth(transactionId?: string, environment?: "sandbox" | "production") {
+  const response = await invoke<{ health: BillingHealthResult }>("health", {
+    transaction_id: transactionId || null,
+    environment,
+  });
+  return response.health;
 }

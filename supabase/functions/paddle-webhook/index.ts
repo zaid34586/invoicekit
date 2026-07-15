@@ -182,7 +182,7 @@ Deno.serve(async (request) => {
           cancelled: false,
           raw_payload: event,
           updated_at: new Date().toISOString(),
-        }, { onConflict: "user_id,provider_environment" });
+        }, { onConflict: "user_id" });
         await requireNoError("transaction subscription upsert", subscriptionError);
       }
     }
@@ -208,7 +208,7 @@ Deno.serve(async (request) => {
         cancelled: status === "canceled" || data.scheduled_change?.action === "cancel",
         raw_payload: event,
         updated_at: new Date().toISOString(),
-      }, { onConflict: "user_id,provider_environment" });
+      }, { onConflict: "user_id" });
       await requireNoError("subscription lifecycle upsert", subscriptionError);
     }
 
@@ -216,7 +216,7 @@ Deno.serve(async (request) => {
     const profilePlan = active ? plan : "free";
     const { error: profileError } = await admin
       .from("profiles")
-      .update({ is_pro: active && profilePlan !== "free", plan: profilePlan })
+      .update({ is_pro: active && profilePlan !== "free", plan: profilePlan, subscription_status: active ? "active" : "cancelled", subscription_id: data.subscription_id || data.id || null })
       .eq("user_id", userId);
     await requireNoError("profile plan update", profileError);
 

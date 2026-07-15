@@ -248,13 +248,14 @@ export default function Billing() {
     const transactionId = url.searchParams.get("_ptxn") || url.searchParams.get("transaction_id");
     if (!checkoutSucceeded || !user) return;
 
-    // Strip the success marker immediately, but keep the Paddle transaction ID
-    // until the direct verification fallback has had a chance to use it.
+    // Strip activation parameters immediately so refreshes do not re-run the flow.
     // so reloading or revisiting this page (even hours later) re-triggered
     // the whole "waiting for webhook" flow from scratch every single time —
     // which is why the banner kept flipping back to "Payment received..."
     // after already showing a timeout.
     url.searchParams.delete("checkout");
+    url.searchParams.delete("_ptxn");
+    url.searchParams.delete("transaction_id");
     window.history.replaceState({}, "", url.toString());
 
     // If the profile is already Pro/Business (e.g. webhook already landed
@@ -266,21 +267,19 @@ export default function Billing() {
     }
 
     setActivationStatus("waiting");
+    setSubscriptionMessage(null);
     let attempts = 0;
     let cancelled = false;
+    let timer: number | undefined;
 
-    const syncSuccessfulTransaction = async () => {
+    const activateFromTransaction = async () => {
       if (!transactionId) return;
       try {
         await syncPaddleTransaction(transactionId, paddleEnvironment);
-        // Remove the transaction ID only after the backend has verified it.
-        const cleanedUrl = new URL(window.location.href);
-        cleanedUrl.searchParams.delete("_ptxn");
-        cleanedUrl.searchParams.delete("transaction_id");
-        window.history.replaceState({}, "", cleanedUrl.toString());
+        await Promise.all([refreshSubscription(), refreshProfile()]);
       } catch (error) {
-        // Do not stop polling: the webhook may still complete independently.
-        console.error("Direct Paddle transaction sync failed", error);
+        console.error("Billing V2 transaction sync failed", error);
+        setSubscriptionMessage(error instanceof Error ? error.message : "Payment verification failed.");
       }
     };
 
@@ -291,22 +290,22 @@ export default function Billing() {
       const nowActive = freshProfile?.is_pro || freshProfile?.plan === "pro" || freshProfile?.plan === "business";
       if (nowActive) {
         setActivationStatus("success");
-        window.clearInterval(timer);
+        if (timer) window.clearInterval(timer);
         return;
       }
       if (attempts >= 15) {
         setActivationStatus("timeout");
-        window.clearInterval(timer);
+        if (timer) window.clearInterval(timer);
       }
     };
     void (async () => {
-      await syncSuccessfulTransaction();
+      await activateFromTransaction();
       await poll();
     })();
-    const timer = window.setInterval(() => void poll(), 2000);
+    timer = window.setInterval(() => void poll(), 2000);
     return () => {
       cancelled = true;
-      window.clearInterval(timer);
+      if (timer) window.clearInterval(timer);
     };
   }, [user?.id]);
 
