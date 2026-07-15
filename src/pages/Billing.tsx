@@ -246,7 +246,7 @@ export default function Billing() {
     const url = new URL(window.location.href);
     const checkoutSucceeded = url.searchParams.get("checkout") === "success";
     const transactionId = url.searchParams.get("_ptxn") || url.searchParams.get("transaction_id");
-    if (!checkoutSucceeded || !user) return;
+    if ((!checkoutSucceeded && !transactionId) || !user) return;
 
     // Strip activation parameters immediately so refreshes do not re-run the flow.
     // so reloading or revisiting this page (even hours later) re-triggered

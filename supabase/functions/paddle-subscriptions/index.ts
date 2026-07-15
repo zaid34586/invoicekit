@@ -163,7 +163,7 @@ async function upsertVerifiedTransaction(admin: any, user: { id: string; email?:
   // not by a non-existent composite constraint.
   const { data: subscription, error: subscriptionError } = await admin
     .from("subscriptions")
-    .upsert(subscriptionPayload, { onConflict: "user_id" })
+    .upsert(subscriptionPayload, { onConflict: "user_id,provider_environment" })
     .select("*")
     .single();
   if (subscriptionError) throw new Error(`Subscription upsert failed: ${subscriptionError.message}`);
