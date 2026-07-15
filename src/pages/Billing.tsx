@@ -242,8 +242,17 @@ export default function Billing() {
   }, [user?.id]);
 
   useEffect(() => {
-    const checkoutSucceeded = new URLSearchParams(window.location.search).get("checkout") === "success";
+    const url = new URL(window.location.href);
+    const checkoutSucceeded = url.searchParams.get("checkout") === "success";
     if (!checkoutSucceeded || !user) return;
+
+    // Strip the param immediately. Previously it stayed in the URL forever,
+    // so reloading or revisiting this page (even hours later) re-triggered
+    // the whole "waiting for webhook" flow from scratch every single time —
+    // which is why the banner kept flipping back to "Payment received..."
+    // after already showing a timeout.
+    url.searchParams.delete("checkout");
+    window.history.replaceState({}, "", url.toString());
 
     // If the profile is already Pro/Business (e.g. webhook already landed
     // before this page even rendered), don't show "waiting" at all.
