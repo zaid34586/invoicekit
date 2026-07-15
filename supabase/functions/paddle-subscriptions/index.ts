@@ -67,7 +67,7 @@ async function recoverSubscription(admin: any, userId: string, subscription: any
     raw_payload: { ...(subscription?.raw_payload || raw), _rivox_environment: environment },
     updated_at: new Date().toISOString(),
   };
-  const { data, error } = await admin.from("subscriptions").upsert(payload, { onConflict: "user_id" }).select("*").single();
+  const { data, error } = await admin.from("subscriptions").upsert(payload, { onConflict: "user_id,provider_environment" }).select("*").single();
   if (error) throw new Error(`Subscription recovery failed: ${error.message}`);
   return data;
 }
