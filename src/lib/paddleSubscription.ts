@@ -4,6 +4,7 @@ export type PaddleSubscriptionRecord = {
   id: string;
   user_id: string;
   provider: string;
+  provider_environment?: "sandbox" | "production";
   provider_subscription_id: string | null;
   provider_customer_id: string | null;
   product_id: string | null;
