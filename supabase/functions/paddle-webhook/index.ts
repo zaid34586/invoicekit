@@ -1,134 +1,270 @@
 import { createClient } from "@supabase/supabase-js";
 
 const encoder = new TextEncoder();
-function hex(bytes: ArrayBuffer) { return Array.from(new Uint8Array(bytes)).map((byte) => byte.toString(16).padStart(2, "0")).join(""); }
-function safeEqual(a: string, b: string) { if (a.length !== b.length) return false; let value = 0; for (let i = 0; i < a.length; i++) value |= a.charCodeAt(i) ^ b.charCodeAt(i); return value === 0; }
-async function verifySignature(rawBody: string, signatureHeader: string, secret: string) {
-  const parts = Object.fromEntries(signatureHeader.split(";").map((part) => part.split("=", 2)));
-  const timestamp = parts.ts; const signature = parts.h1;
-  if (!timestamp || !signature) return false;
-  if (Math.abs(Date.now() / 1000 - Number(timestamp)) > 300) return false;
-  const key = await crypto.subtle.importKey("raw", encoder.encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
-  const digest = await crypto.subtle.sign("HMAC", key, encoder.encode(`${timestamp}:${rawBody}`));
-  return safeEqual(hex(digest), signature);
+
+type Environment = "sandbox" | "production";
+
+type PaddleEvent = {
+  event_id?: string;
+  event_type?: string;
+  occurred_at?: string;
+  data?: Record<string, any>;
+};
+
+function hex(buffer: ArrayBuffer) {
+  return Array.from(new Uint8Array(buffer))
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+function safeEqual(a: string, b: string) {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let index = 0; index < a.length; index += 1) {
+    diff |= a.charCodeAt(index) ^ b.charCodeAt(index);
+  }
+  return diff === 0;
+}
+
+function parsePaddleSignature(header: string) {
+  let timestamp = "";
+  const signatures: string[] = [];
+
+  for (const part of header.split(";")) {
+    const separator = part.indexOf("=");
+    if (separator < 0) continue;
+    const key = part.slice(0, separator).trim();
+    const value = part.slice(separator + 1).trim();
+    if (key === "ts") timestamp = value;
+    if (key === "h1" && value) signatures.push(value.toLowerCase());
+  }
+
+  return { timestamp, signatures };
+}
+
+async function verifySignature(rawBody: string, signatureHeader: string, secretValue: string) {
+  const secret = secretValue.trim();
+  if (!secret || !signatureHeader) return false;
+
+  const { timestamp, signatures } = parsePaddleSignature(signatureHeader);
+  if (!timestamp || signatures.length === 0) return false;
+
+  const key = await crypto.subtle.importKey(
+    "raw",
+    encoder.encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  const digest = await crypto.subtle.sign(
+    "HMAC",
+    key,
+    encoder.encode(`${timestamp}:${rawBody}`),
+  );
+  const expected = hex(digest);
+  return signatures.some((signature) => safeEqual(expected, signature));
+}
+
+async function detectEnvironment(rawBody: string, signatureHeader: string): Promise<Environment | null> {
+  const sandboxSecret = Deno.env.get("PADDLE_SANDBOX_WEBHOOK_SECRET") || "";
+  const liveSecret = Deno.env.get("PADDLE_WEBHOOK_SECRET") || "";
+
+  if (sandboxSecret && await verifySignature(rawBody, signatureHeader, sandboxSecret)) {
+    return "sandbox";
+  }
+  if (liveSecret && await verifySignature(rawBody, signatureHeader, liveSecret)) {
+    return "production";
+  }
+
+  console.error("[paddle-webhook] signature check failed", {
+    signaturePresent: Boolean(signatureHeader),
+    sandboxSecretPresent: Boolean(sandboxSecret.trim()),
+    sandboxSecretLength: sandboxSecret.trim().length,
+    liveSecretPresent: Boolean(liveSecret.trim()),
+    liveSecretLength: liveSecret.trim().length,
+  });
+  return null;
+}
+
+function planFromData(data: Record<string, any>) {
+  const custom = data.custom_data || {};
+  if (custom.plan === "pro" || custom.plan === "business") return custom.plan;
+  return "free";
+}
+
+function cycleFromData(data: Record<string, any>) {
+  const custom = data.custom_data || {};
+  return custom.billing_cycle === "yearly" ? "yearly" : custom.billing_cycle === "monthly" ? "monthly" : null;
+}
+
+function isSuccessfulTransaction(eventType: string, data: Record<string, any>) {
+  return eventType === "transaction.completed" ||
+    eventType === "transaction.paid" ||
+    (eventType === "transaction.updated" && data.status === "completed");
 }
 
 Deno.serve(async (req) => {
+  if (req.method !== "POST") return new Response("Method not allowed", { status: 405 });
+
   try {
     const rawBody = await req.text();
-    const signature = req.headers.get("Paddle-Signature") || "";
+    const signatureHeader = req.headers.get("Paddle-Signature") || req.headers.get("paddle-signature") || "";
+    const environment = await detectEnvironment(rawBody, signatureHeader);
+    if (!environment) return new Response("Invalid signature", { status: 401 });
 
-    // Sandbox and Live are separate Paddle notification destinations, each
-    // with its own signing secret. Whichever one verifies tells us which
-    // environment this event actually came from — we tag every row we
-    // write with that, so a sandbox test payment can never be confused
-    // with (or overwrite) a real production subscription.
-    const liveSecret = Deno.env.get("PADDLE_WEBHOOK_SECRET") || "";
-    const sandboxSecret = Deno.env.get("PADDLE_SANDBOX_WEBHOOK_SECRET") || "";
-    let environment: "production" | "sandbox" | null = null;
-    if (liveSecret && (await verifySignature(rawBody, signature, liveSecret))) environment = "production";
-    else if (sandboxSecret && (await verifySignature(rawBody, signature, sandboxSecret))) environment = "sandbox";
-    if (!environment) {
-      console.error("paddle-webhook: signature did not match live or sandbox secret");
-      return new Response("Invalid signature", { status: 401 });
-    }
-
-    const event = JSON.parse(rawBody);
+    const event = JSON.parse(rawBody) as PaddleEvent;
+    const eventType = String(event.event_type || "");
     const data = event.data || {};
     const custom = data.custom_data || {};
-    const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+
+    const supabaseUrl = Deno.env.get("SUPABASE_URL");
+    const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+    if (!supabaseUrl || !serviceRoleKey) throw new Error("Supabase service configuration is missing.");
+    const admin = createClient(supabaseUrl, serviceRoleKey);
 
     let userId = custom.user_id || custom.userId || null;
-    if (!userId && data.id) {
-      const { data: existing } = await admin.from("subscriptions").select("user_id").eq("provider_subscription_id", data.id).maybeSingle();
-      userId = existing?.user_id || null;
-    }
+
     if (!userId && data.subscription_id) {
-      const { data: existing } = await admin.from("subscriptions").select("user_id").eq("provider_subscription_id", data.subscription_id).maybeSingle();
+      const { data: existing, error } = await admin
+        .from("subscriptions")
+        .select("user_id")
+        .eq("provider", "paddle")
+        .eq("provider_subscription_id", data.subscription_id)
+        .maybeSingle();
+      if (error) throw new Error(`Subscription lookup failed: ${error.message}`);
       userId = existing?.user_id || null;
     }
+
+    if (!userId && eventType.startsWith("subscription.") && data.id) {
+      const { data: existing, error } = await admin
+        .from("subscriptions")
+        .select("user_id")
+        .eq("provider", "paddle")
+        .eq("provider_subscription_id", data.id)
+        .maybeSingle();
+      if (error) throw new Error(`Subscription lookup failed: ${error.message}`);
+      userId = existing?.user_id || null;
+    }
+
     if (!userId && data.customer_id) {
-      const { data: existing } = await admin.from("subscriptions").select("user_id").eq("provider_customer_id", data.customer_id).maybeSingle();
+      const { data: existing, error } = await admin
+        .from("subscriptions")
+        .select("user_id")
+        .eq("provider", "paddle")
+        .eq("provider_customer_id", data.customer_id)
+        .maybeSingle();
+      if (error) throw new Error(`Customer lookup failed: ${error.message}`);
       userId = existing?.user_id || null;
     }
 
     if (!userId) {
-      console.error(`paddle-webhook: could not resolve user_id for ${event.event_type}`, { data_id: data.id, subscription_id: data.subscription_id, customer_id: data.customer_id });
+      console.warn("[paddle-webhook] event ignored because user could not be resolved", {
+        eventType,
+        eventId: event.event_id,
+        transactionId: data.id,
+        subscriptionId: data.subscription_id,
+        customerId: data.customer_id,
+      });
+      return new Response("ok", { status: 200 });
     }
 
-    const plan = custom.plan || "free";
-    const billingCycle = custom.billing_cycle || null;
+    const plan = planFromData(data);
+    const billingCycle = cycleFromData(data);
+    const rawPayload = { ...event, _rivox_environment: environment };
 
-    if (["transaction.completed", "transaction.paid"].includes(event.event_type) && userId) {
+    if (isSuccessfulTransaction(eventType, data)) {
+      const amount = Number(data.details?.totals?.grand_total || 0) / 100;
       const { error: billingError } = await admin.from("billing_events").upsert({
-        provider_event_id: event.event_id,
+        provider_event_id: event.event_id || `${eventType}:${data.id}`,
         user_id: userId,
         provider: "paddle",
-        environment,
-        event_name: event.event_type,
-        order_id: data.id,
+        provider_environment: environment,
+        event_name: eventType,
+        order_id: data.id || null,
         subscription_id: data.subscription_id || null,
         plan,
         billing_cycle: billingCycle,
-        amount: Number(data.details?.totals?.grand_total || 0) / 100,
+        amount,
         currency: data.currency_code || null,
         status: data.status || "completed",
         receipt_url: data.checkout?.url || null,
-        raw_payload: event,
+        raw_payload: rawPayload,
       }, { onConflict: "provider_event_id" });
-      if (billingError) console.error("paddle-webhook: billing_events upsert failed", billingError.message);
+      if (billingError) throw new Error(`Billing event upsert failed: ${billingError.message}`);
 
       if (data.subscription_id) {
-        const { error: subError } = await admin.from("subscriptions").upsert({
+        const { error: subscriptionError } = await admin.from("subscriptions").upsert({
           user_id: userId,
           provider: "paddle",
-          environment,
+          provider_environment: environment,
           provider_subscription_id: data.subscription_id,
           provider_customer_id: data.customer_id || null,
+          provider_order_id: data.id || null,
           plan,
           billing_cycle: billingCycle,
           status: "active",
           currency: data.currency_code || null,
-          amount: Number(data.details?.totals?.grand_total || 0) / 100,
-          raw_payload: event,
+          amount,
+          renews_at: data.billing_period?.ends_at || null,
+          cancelled: false,
+          raw_payload: rawPayload,
           updated_at: new Date().toISOString(),
-        }, { onConflict: "user_id,environment" });
-        if (subError) console.error("paddle-webhook: subscriptions upsert failed (transaction path)", subError.message);
+        }, { onConflict: "user_id" });
+        if (subscriptionError) throw new Error(`Subscription upsert failed: ${subscriptionError.message}`);
       }
 
-      const { error: profileError } = await admin.from("profiles").update({ is_pro: true, plan }).or(`user_id.eq.${userId},id.eq.${userId}`);
-      if (profileError) console.error("paddle-webhook: profiles update failed (transaction path)", profileError.message);
+      const { error: profileError } = await admin
+        .from("profiles")
+        .update({ is_pro: true, plan })
+        .or(`user_id.eq.${userId},id.eq.${userId}`);
+      if (profileError) throw new Error(`Profile update failed: ${profileError.message}`);
     }
 
-    if (String(event.event_type).startsWith("subscription.") && userId) {
-      const status = data.status || (event.event_type === "subscription.canceled" ? "canceled" : "active");
-      const { error: subError } = await admin.from("subscriptions").upsert({
+    if (eventType.startsWith("subscription.")) {
+      const status = data.status || (eventType === "subscription.canceled" ? "canceled" : "active");
+      const cancelled = status === "canceled" || data.scheduled_change?.action === "cancel";
+      const subscriptionPlan = plan === "free"
+        ? (data.custom_data?.plan || "pro")
+        : plan;
+
+      const { error: subscriptionError } = await admin.from("subscriptions").upsert({
         user_id: userId,
         provider: "paddle",
-        environment,
-        provider_subscription_id: data.id,
+        provider_environment: environment,
+        provider_subscription_id: data.id || data.subscription_id || null,
         provider_customer_id: data.customer_id || null,
         product_id: data.items?.[0]?.price?.product_id || null,
         variant_id: data.items?.[0]?.price?.id || null,
-        plan: custom.plan || plan,
-        billing_cycle: custom.billing_cycle || billingCycle,
+        plan: subscriptionPlan,
+        billing_cycle: billingCycle,
         status,
         currency: data.currency_code || null,
         renews_at: data.next_billed_at || null,
         ends_at: data.scheduled_change?.effective_at || data.canceled_at || null,
-        cancelled: status === "canceled" || Boolean(data.scheduled_change?.action === "cancel"),
-        raw_payload: event,
+        cancelled,
+        raw_payload: rawPayload,
         updated_at: new Date().toISOString(),
-      }, { onConflict: "user_id,environment" });
-      if (subError) console.error("paddle-webhook: subscriptions upsert failed (subscription path)", subError.message);
+      }, { onConflict: "user_id" });
+      if (subscriptionError) throw new Error(`Subscription lifecycle upsert failed: ${subscriptionError.message}`);
 
-      const { error: profileError } = await admin.from("profiles").update({ is_pro: status !== "canceled", plan: status === "canceled" ? "free" : (custom.plan || plan) }).or(`user_id.eq.${userId},id.eq.${userId}`);
-      if (profileError) console.error("paddle-webhook: profiles update failed (subscription path)", profileError.message);
+      const active = status !== "canceled";
+      const { error: profileError } = await admin
+        .from("profiles")
+        .update({ is_pro: active, plan: active ? subscriptionPlan : "free" })
+        .or(`user_id.eq.${userId},id.eq.${userId}`);
+      if (profileError) throw new Error(`Profile lifecycle update failed: ${profileError.message}`);
     }
 
+    console.log("[paddle-webhook] processed", {
+      eventType,
+      eventId: event.event_id,
+      environment,
+      userId,
+    });
     return new Response("ok", { status: 200 });
   } catch (error) {
-    console.error("paddle-webhook error", error);
-    return new Response(error instanceof Error ? error.message : "Webhook error", { status: 400 });
+    const message = error instanceof Error ? error.message : "Webhook error";
+    console.error("[paddle-webhook] processing failed", message, error);
+    return new Response(message, { status: 500 });
   }
 });

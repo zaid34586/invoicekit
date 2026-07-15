@@ -39,8 +39,9 @@ async function decrypt(encryptedKey: string, ivValue: string) {
   return decoder.decode(decrypted);
 }
 
-async function testPaddleKey(apiKey: string) {
-  const response = await fetch("https://api.paddle.com/products?per_page=1", {
+async function testPaddleKey(apiKey: string, environment = String(Deno.env.get("PADDLE_ENV") || "production").toLowerCase()) {
+  const baseUrl = environment === "sandbox" ? "https://sandbox-api.paddle.com" : "https://api.paddle.com";
+  const response = await fetch(`${baseUrl}/products?per_page=1`, {
     headers: { Authorization: `Bearer ${apiKey}`, Accept: "application/json" },
   });
   const body = await response.text();
