@@ -24,7 +24,7 @@ Deno.serve(async (req) => {
     // write with that, so a sandbox test payment can never be confused
     // with (or overwrite) a real production subscription.
     const liveSecret = Deno.env.get("PADDLE_WEBHOOK_SECRET") || "";
-    const sandboxSecret = Deno.env.get("PADDLE_WEBHOOK_SECRET_SANDBOX") || "";
+    const sandboxSecret = Deno.env.get("PADDLE_SANDBOX_WEBHOOK_SECRET") || "";
     let environment: "production" | "sandbox" | null = null;
     if (liveSecret && (await verifySignature(rawBody, signature, liveSecret))) environment = "production";
     else if (sandboxSecret && (await verifySignature(rawBody, signature, sandboxSecret))) environment = "sandbox";
