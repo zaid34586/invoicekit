@@ -185,6 +185,13 @@ export default function Billing() {
   const [subscriptionMessage, setSubscriptionMessage] = useState<string | null>(null);
   const subscriptionReady = Boolean(subscription?.provider_subscription_id && subscription?.provider_customer_id);
   const [modal, setModal] = useState<null | { title: string; message: string; confirmLabel: string; onConfirm: () => void; variant?: "primary" | "danger" }>(null);
+  // Tracks the post-checkout "waiting for webhook" banner. Previously this
+  // banner was driven ONLY by the `?checkout=success` URL param, so it
+  // stayed up forever (even after activation succeeded, or if it never
+  // will) — and the polling loop below gave up silently after 30s with no
+  // visible error, leaving the user staring at "activating..." with no way
+  // to know something was actually wrong. Now it has real states.
+  const [activationStatus, setActivationStatus] = useState<"idle" | "waiting" | "success" | "timeout">("idle");
 
   const plans = region === "india" ? INDIA_PLANS : GLOBAL_PLANS;
   const planId: Plan = profile?.plan === "business" ? "business" : profile?.plan === "pro" || profile?.is_pro ? "pro" : "free";
@@ -237,15 +244,39 @@ export default function Billing() {
   useEffect(() => {
     const checkoutSucceeded = new URLSearchParams(window.location.search).get("checkout") === "success";
     if (!checkoutSucceeded || !user) return;
+
+    // If the profile is already Pro/Business (e.g. webhook already landed
+    // before this page even rendered), don't show "waiting" at all.
+    const alreadyActive = profile?.is_pro || profile?.plan === "pro" || profile?.plan === "business";
+    if (alreadyActive) {
+      setActivationStatus("success");
+      return;
+    }
+
+    setActivationStatus("waiting");
     let attempts = 0;
+    let cancelled = false;
     const poll = async () => {
       attempts += 1;
-      await Promise.all([refreshSubscription(), refreshProfile()]);
-      if (attempts >= 15) window.clearInterval(timer);
+      const [, freshProfile] = await Promise.all([refreshSubscription(), refreshProfile()]);
+      if (cancelled) return;
+      const nowActive = freshProfile?.is_pro || freshProfile?.plan === "pro" || freshProfile?.plan === "business";
+      if (nowActive) {
+        setActivationStatus("success");
+        window.clearInterval(timer);
+        return;
+      }
+      if (attempts >= 15) {
+        setActivationStatus("timeout");
+        window.clearInterval(timer);
+      }
     };
     void poll();
     const timer = window.setInterval(() => void poll(), 2000);
-    return () => window.clearInterval(timer);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
   }, [user?.id]);
 
   async function openPortal(mode: "overview" | "cancel" | "payment_method") {
@@ -341,9 +372,34 @@ export default function Billing() {
 
   return (
     <div className="mx-auto max-w-6xl space-y-8">
-      {new URLSearchParams(window.location.search).get("checkout") === "success" && (
+      {activationStatus === "waiting" && (
         <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-5 py-4 text-sm font-medium text-emerald-800">
-          Payment received. Your subscription is being activated; this page will update after the Paddle webhook is processed.
+          Payment received. Your subscription is being activated; this page will update automatically in a few seconds.
+        </div>
+      )}
+      {activationStatus === "success" && (
+        <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-5 py-4 text-sm font-medium text-emerald-800">
+          🎉 Your plan is now active.
+        </div>
+      )}
+      {activationStatus === "timeout" && (
+        <div className="rounded-2xl border border-amber-200 bg-amber-50 px-5 py-4 text-sm font-medium text-amber-800">
+          Payment received, but activation is taking longer than expected. This can happen if the confirmation is
+          delayed — it should still complete shortly. If your plan doesn't update within a few minutes, please
+          contact support with your payment receipt.
+          <button
+            type="button"
+            onClick={() => {
+              setActivationStatus("waiting");
+              void Promise.all([refreshSubscription(), refreshProfile()]).then(([, freshProfile]) => {
+                const nowActive = freshProfile?.is_pro || freshProfile?.plan === "pro" || freshProfile?.plan === "business";
+                setActivationStatus(nowActive ? "success" : "timeout");
+              });
+            }}
+            className="ml-3 font-semibold underline underline-offset-2"
+          >
+            Check again
+          </button>
         </div>
       )}
       {checkoutError && (
