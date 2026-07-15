@@ -25,20 +25,27 @@ async function verify(rawBody: string, header: string, secret: string) {
 }
 
 async function detectEnvironment(rawBody: string, header: string): Promise<PaddleEnvironment | null> {
-  const sandboxSecret = Deno.env.get("PADDLE_SANDBOX_WEBHOOK_SECRET") || "";
-  const liveSecret = Deno.env.get("PADDLE_WEBHOOK_SECRET") || "";
+  // .trim() matters: a trailing newline or space picked up when copy-pasting
+  // the secret into Supabase (dashboard textarea or CLI) silently changes
+  // the HMAC key and makes every signature fail with no obvious cause.
+  const sandboxSecret = (Deno.env.get("PADDLE_SANDBOX_WEBHOOK_SECRET") || "").trim();
+  const liveSecret = (Deno.env.get("PADDLE_WEBHOOK_SECRET") || "").trim();
   if (sandboxSecret && await verify(rawBody, header, sandboxSecret)) return "sandbox";
   if (liveSecret && await verify(rawBody, header, liveSecret)) return "production";
 
   // Every delivery has been failing with "Invalid signature" — this log
   // narrows down WHY without ever printing the secret itself, so it's easy
-  // to tell apart the three usual causes: (1) the env var isn't set at all,
-  // (2) it's set but doesn't match this notification destination's actual
-  // secret (e.g. destination was deleted/recreated and the secret rotated),
-  // or (3) the header itself is malformed/missing.
+  // to tell apart the usual causes: (1) the env var isn't set at all, (2)
+  // it's set but doesn't match this notification destination's actual
+  // secret (e.g. destination was deleted/recreated and the secret
+  // rotated), (3) it has the wrong length (truncated/duplicated paste), or
+  // (4) the header itself is malformed/missing.
   console.error("paddle-webhook signature check failed", {
     hasSandboxSecret: Boolean(sandboxSecret),
+    sandboxSecretLength: sandboxSecret.length,
+    sandboxSecretPrefix: sandboxSecret.slice(0, 12),
     hasLiveSecret: Boolean(liveSecret),
+    liveSecretLength: liveSecret.length,
     signatureHeaderPresent: Boolean(header),
     signatureHeaderPreview: header ? header.slice(0, 20) : null,
   });
