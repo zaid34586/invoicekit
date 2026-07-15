@@ -1,6 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 
-const encoder = new TextEncoder();
+import { Environment as PaddleEnvironment, Paddle } from "@paddle/paddle-node-sdk";
 
 type Environment = "sandbox" | "production";
 
@@ -11,77 +11,81 @@ type PaddleEvent = {
   data?: Record<string, any>;
 };
 
-function hex(buffer: ArrayBuffer) {
-  return Array.from(new Uint8Array(buffer))
+async function sha256(value: string) {
+  const bytes = new TextEncoder().encode(value);
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  return Array.from(new Uint8Array(digest))
     .map((byte) => byte.toString(16).padStart(2, "0"))
     .join("");
 }
 
-function safeEqual(a: string, b: string) {
-  if (a.length !== b.length) return false;
-  let diff = 0;
-  for (let index = 0; index < a.length; index += 1) {
-    diff |= a.charCodeAt(index) ^ b.charCodeAt(index);
-  }
-  return diff === 0;
-}
-
-function parsePaddleSignature(header: string) {
-  let timestamp = "";
-  const signatures: string[] = [];
-
-  for (const part of header.split(";")) {
-    const separator = part.indexOf("=");
-    if (separator < 0) continue;
-    const key = part.slice(0, separator).trim();
-    const value = part.slice(separator + 1).trim();
-    if (key === "ts") timestamp = value;
-    if (key === "h1" && value) signatures.push(value.toLowerCase());
-  }
-
-  return { timestamp, signatures };
-}
-
-async function verifySignature(rawBody: string, signatureHeader: string, secretValue: string) {
+async function verifyWithOfficialSdk(
+  rawBody: string,
+  signatureHeader: string,
+  environment: Environment,
+  secretValue: string,
+) {
   const secret = secretValue.trim();
-  if (!secret || !signatureHeader) return false;
+  if (!secret || !signatureHeader) return { ok: false, error: "missing secret or signature" };
 
-  const { timestamp, signatures } = parsePaddleSignature(signatureHeader);
-  if (!timestamp || signatures.length === 0) return false;
+  const apiKey = environment === "sandbox"
+    ? (Deno.env.get("PADDLE_SANDBOX_API_KEY") || "").trim()
+    : (Deno.env.get("PADDLE_API_KEY") || "").trim();
 
-  const key = await crypto.subtle.importKey(
-    "raw",
-    encoder.encode(secret),
-    { name: "HMAC", hash: "SHA-256" },
-    false,
-    ["sign"],
-  );
-  const digest = await crypto.subtle.sign(
-    "HMAC",
-    key,
-    encoder.encode(`${timestamp}:${rawBody}`),
-  );
-  const expected = hex(digest);
-  return signatures.some((signature) => safeEqual(expected, signature));
+  if (!apiKey) return { ok: false, error: `missing ${environment} API key` };
+
+  try {
+    const paddle = new Paddle(apiKey, {
+      environment: environment === "sandbox"
+        ? PaddleEnvironment.sandbox
+        : PaddleEnvironment.production,
+    });
+    await paddle.webhooks.unmarshal(rawBody, secret, signatureHeader);
+    return { ok: true, error: null };
+  } catch (error) {
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
 }
 
 async function detectEnvironment(rawBody: string, signatureHeader: string): Promise<Environment | null> {
-  const sandboxSecret = Deno.env.get("PADDLE_SANDBOX_WEBHOOK_SECRET") || "";
-  const liveSecret = Deno.env.get("PADDLE_WEBHOOK_SECRET") || "";
+  const sandboxSecret = (Deno.env.get("PADDLE_SANDBOX_WEBHOOK_SECRET") || "").trim();
+  const liveSecret = (Deno.env.get("PADDLE_WEBHOOK_SECRET") || "").trim();
 
-  if (sandboxSecret && await verifySignature(rawBody, signatureHeader, sandboxSecret)) {
-    return "sandbox";
-  }
-  if (liveSecret && await verifySignature(rawBody, signatureHeader, liveSecret)) {
-    return "production";
-  }
+  const sandboxResult = await verifyWithOfficialSdk(
+    rawBody,
+    signatureHeader,
+    "sandbox",
+    sandboxSecret,
+  );
+  if (sandboxResult.ok) return "sandbox";
 
-  console.error("[paddle-webhook] signature check failed", {
+  const liveResult = await verifyWithOfficialSdk(
+    rawBody,
+    signatureHeader,
+    "production",
+    liveSecret,
+  );
+  if (liveResult.ok) return "production";
+
+  const signatureTimestamp = signatureHeader.match(/(?:^|;)ts=([^;]+)/)?.[1] || null;
+  const signaturePrefix = signatureHeader.match(/(?:^|;)h1=([^;]+)/)?.[1]?.slice(0, 12) || null;
+
+  console.error("[paddle-webhook] official SDK signature verification failed", {
     signaturePresent: Boolean(signatureHeader),
-    sandboxSecretPresent: Boolean(sandboxSecret.trim()),
-    sandboxSecretLength: sandboxSecret.trim().length,
-    liveSecretPresent: Boolean(liveSecret.trim()),
-    liveSecretLength: liveSecret.trim().length,
+    signatureTimestamp,
+    signaturePrefix,
+    rawBodyLength: rawBody.length,
+    sandboxSecretPresent: Boolean(sandboxSecret),
+    sandboxSecretLength: sandboxSecret.length,
+    sandboxSecretDigest: sandboxSecret ? await sha256(sandboxSecret) : null,
+    sandboxError: sandboxResult.error,
+    liveSecretPresent: Boolean(liveSecret),
+    liveSecretLength: liveSecret.length,
+    liveSecretDigest: liveSecret ? await sha256(liveSecret) : null,
+    liveError: liveResult.error,
   });
   return null;
 }
