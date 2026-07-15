@@ -29,6 +29,19 @@ async function detectEnvironment(rawBody: string, header: string): Promise<Paddl
   const liveSecret = Deno.env.get("PADDLE_WEBHOOK_SECRET") || "";
   if (sandboxSecret && await verify(rawBody, header, sandboxSecret)) return "sandbox";
   if (liveSecret && await verify(rawBody, header, liveSecret)) return "production";
+
+  // Every delivery has been failing with "Invalid signature" — this log
+  // narrows down WHY without ever printing the secret itself, so it's easy
+  // to tell apart the three usual causes: (1) the env var isn't set at all,
+  // (2) it's set but doesn't match this notification destination's actual
+  // secret (e.g. destination was deleted/recreated and the secret rotated),
+  // or (3) the header itself is malformed/missing.
+  console.error("paddle-webhook signature check failed", {
+    hasSandboxSecret: Boolean(sandboxSecret),
+    hasLiveSecret: Boolean(liveSecret),
+    signatureHeaderPresent: Boolean(header),
+    signatureHeaderPreview: header ? header.slice(0, 20) : null,
+  });
   return null;
 }
 
