@@ -38,6 +38,8 @@ export type BillingEventRecord = {
 export type SubscriptionStatusResponse = {
   subscription: PaddleSubscriptionRecord | null;
   billingEvents: BillingEventRecord[];
+  ready?: boolean;
+  syncMessage?: string | null;
 };
 
 async function invoke<T>(action: string, payload: Record<string, unknown> = {}) {

@@ -5,6 +5,8 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+type Environment = "sandbox" | "production";
+
 async function paddleRequest(apiKey: string, baseUrl: string, path: string, init: RequestInit = {}) {
   const response = await fetch(`${baseUrl}${path}`, {
     ...init,
@@ -25,6 +27,78 @@ async function paddleRequest(apiKey: string, baseUrl: string, path: string, init
   return parsed;
 }
 
+function getStoredEnvironment(rawPayload: any): Environment | null {
+  const value = String(
+    rawPayload?._rivox_environment ||
+    rawPayload?.environment ||
+    rawPayload?.data?._rivox_environment ||
+    rawPayload?.data?.environment ||
+    "",
+  ).toLowerCase();
+  if (value === "sandbox") return "sandbox";
+  if (value === "production" || value === "live") return "production";
+  return null;
+}
+
+function getPaddleConfig(environment: Environment) {
+  const apiKey = environment === "sandbox" ? Deno.env.get("PADDLE_SANDBOX_API_KEY") : Deno.env.get("PADDLE_API_KEY");
+  if (!apiKey) throw new Error(environment === "sandbox" ? "PADDLE_SANDBOX_API_KEY is not configured." : "PADDLE_API_KEY is not configured.");
+  return {
+    apiKey,
+    baseUrl: environment === "sandbox" ? "https://sandbox-api.paddle.com" : "https://api.paddle.com",
+  };
+}
+
+async function hydrateSubscription(admin: any, subscription: any, billingEvents: any[], userId: string) {
+  if (subscription?.provider_subscription_id && subscription?.provider_customer_id) return subscription;
+
+  const latest = (billingEvents || []).find((event: any) => event.subscription_id || event.raw_payload?.data?.subscription_id);
+  const raw = latest?.raw_payload || subscription?.raw_payload || null;
+  const remoteSubscriptionId = subscription?.provider_subscription_id || latest?.subscription_id || raw?.data?.subscription_id || null;
+  let remoteCustomerId = subscription?.provider_customer_id || raw?.data?.customer_id || null;
+  const environment = getStoredEnvironment(raw);
+
+  if (!remoteSubscriptionId) return subscription || null;
+
+  let remote: any = null;
+  if (environment) {
+    try {
+      const { apiKey, baseUrl } = getPaddleConfig(environment);
+      const result = await paddleRequest(apiKey, baseUrl, `/subscriptions/${encodeURIComponent(remoteSubscriptionId)}`);
+      remote = result?.data || null;
+      remoteCustomerId = remote?.customer_id || remoteCustomerId;
+    } catch (error) {
+      console.error("subscription hydration from Paddle failed", { userId, remoteSubscriptionId, environment, error });
+    }
+  }
+
+  const payload = {
+    user_id: userId,
+    provider: "paddle",
+    provider_subscription_id: remoteSubscriptionId,
+    provider_customer_id: remoteCustomerId,
+    product_id: remote?.items?.[0]?.price?.product_id || subscription?.product_id || null,
+    variant_id: remote?.items?.[0]?.price?.id || subscription?.variant_id || null,
+    plan: subscription?.plan || latest?.plan || raw?.data?.custom_data?.plan || "pro",
+    billing_cycle: subscription?.billing_cycle || latest?.billing_cycle || raw?.data?.custom_data?.billing_cycle || null,
+    status: remote?.status || subscription?.status || "active",
+    currency: remote?.currency_code || subscription?.currency || latest?.currency || raw?.data?.currency_code || null,
+    amount: subscription?.amount || latest?.amount || null,
+    renews_at: remote?.next_billed_at || subscription?.renews_at || null,
+    ends_at: remote?.scheduled_change?.effective_at || remote?.canceled_at || subscription?.ends_at || null,
+    cancelled: remote?.status === "canceled" || remote?.scheduled_change?.action === "cancel" || subscription?.cancelled || false,
+    raw_payload: remote ? { ...remote, _rivox_environment: environment } : raw || {},
+    updated_at: new Date().toISOString(),
+  };
+
+  const { data: recovered, error } = await admin.from("subscriptions").upsert(payload, { onConflict: "user_id" }).select("*").single();
+  if (error) {
+    console.error("subscription recovery upsert failed", { userId, error, payload });
+    throw new Error(`Unable to sync subscription record: ${error.message}`);
+  }
+  return recovered;
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
@@ -36,19 +110,21 @@ Deno.serve(async (req) => {
 
     const authClient = createClient(supabaseUrl, anonKey, { global: { headers: { Authorization: authHeader } } });
     const { data: { user }, error: authError } = await authClient.auth.getUser();
-    if (authError || !user) throw new Error("Unauthorized");
+    if (authError || !user) return Response.json({ ok: false, error: "Unauthorized" }, { status: 401, headers: corsHeaders });
 
     const admin = createClient(supabaseUrl, serviceRoleKey);
     const payload = await req.json().catch(() => ({}));
     const action = String(payload.action || "status");
 
-    let { data: subscription, error: subscriptionError } = await admin
+    const { data: subscriptions, error: subscriptionError } = await admin
       .from("subscriptions")
       .select("*")
       .eq("user_id", user.id)
       .eq("provider", "paddle")
-      .maybeSingle();
-    if (subscriptionError) throw subscriptionError;
+      .order("updated_at", { ascending: false })
+      .limit(1);
+    if (subscriptionError) throw new Error(`Unable to read subscription: ${subscriptionError.message}`);
+    let subscription = subscriptions?.[0] || null;
 
     const { data: billingEvents, error: billingError } = await admin
       .from("billing_events")
@@ -57,45 +133,37 @@ Deno.serve(async (req) => {
       .eq("provider", "paddle")
       .order("created_at", { ascending: false })
       .limit(25);
-    if (billingError) throw billingError;
+    if (billingError) throw new Error(`Unable to read billing history: ${billingError.message}`);
 
-    if (!subscription) {
-      const latest = (billingEvents || []).find((event: any) => event.subscription_id || event.raw_payload?.data?.subscription_id);
-      const raw = latest?.raw_payload;
-      const remoteSubscriptionId = latest?.subscription_id || raw?.data?.subscription_id || null;
-      const remoteCustomerId = raw?.data?.customer_id || null;
-      if (remoteSubscriptionId) {
-        const { data: recovered, error: recoverError } = await admin.from("subscriptions").upsert({
-          user_id: user.id,
-          provider: "paddle",
-          provider_subscription_id: remoteSubscriptionId,
-          provider_customer_id: remoteCustomerId,
-          plan: latest?.plan || raw?.data?.custom_data?.plan || "pro",
-          billing_cycle: latest?.billing_cycle || raw?.data?.custom_data?.billing_cycle || null,
-          status: "active",
-          currency: latest?.currency || raw?.data?.currency_code || null,
-          amount: latest?.amount || null,
-          raw_payload: raw || null,
-          updated_at: new Date().toISOString(),
-        }, { onConflict: "user_id" }).select("*").single();
-        if (recoverError) throw recoverError;
-        subscription = recovered;
-      }
+    try {
+      subscription = await hydrateSubscription(admin, subscription, billingEvents || [], user.id);
+    } catch (error) {
+      console.error("status hydration warning", error);
+      if (action !== "status") throw error;
     }
 
     if (action === "status") {
-      return Response.json({ ok: true, status: { subscription: subscription || null, billingEvents: billingEvents || [] } }, { headers: corsHeaders });
+      const ready = Boolean(subscription?.provider_subscription_id && subscription?.provider_customer_id);
+      return Response.json({
+        ok: true,
+        status: {
+          subscription: subscription || null,
+          billingEvents: billingEvents || [],
+          ready,
+          syncMessage: ready ? null : "Paddle subscription identifiers are still syncing.",
+        },
+      }, { headers: corsHeaders });
     }
 
     if (!subscription?.provider_subscription_id || !subscription?.provider_customer_id) {
-      throw new Error("Paddle subscription details are still syncing. Please wait a few seconds and try again.");
+      throw new Error("Paddle subscription details are still syncing. Retry after the latest webhook is delivered.");
     }
 
-    const rawEnvironment = String(subscription.raw_payload?.environment || subscription.raw_payload?.data?.environment || "").toLowerCase();
-    const isSandbox = rawEnvironment === "sandbox" || Boolean(Deno.env.get("PADDLE_SANDBOX_API_KEY"));
-    const apiKey = isSandbox ? Deno.env.get("PADDLE_SANDBOX_API_KEY") : Deno.env.get("PADDLE_API_KEY");
-    if (!apiKey) throw new Error(isSandbox ? "PADDLE_SANDBOX_API_KEY is not configured." : "PADDLE_API_KEY is not configured.");
-    const baseUrl = isSandbox ? "https://sandbox-api.paddle.com" : "https://api.paddle.com";
+    const environment = getStoredEnvironment(subscription.raw_payload);
+    if (!environment) throw new Error("Subscription environment is missing. Resend the latest Paddle webhook after deploying the environment-aware webhook.");
+    const { apiKey, baseUrl } = getPaddleConfig(environment);
+
+    console.log("paddle-subscriptions action", { action, userId: user.id, environment, subscriptionId: subscription.provider_subscription_id, customerId: subscription.provider_customer_id });
 
     if (action === "portal") {
       const result = await paddleRequest(apiKey, baseUrl, `/customers/${encodeURIComponent(subscription.provider_customer_id)}/portal-sessions`, {
@@ -105,8 +173,13 @@ Deno.serve(async (req) => {
       const urls = result?.data?.urls;
       const subscriptionUrls = Array.isArray(urls?.subscriptions) ? urls.subscriptions[0] : null;
       const mode = String(payload.mode || "overview");
-      const url = mode === "cancel" ? subscriptionUrls?.cancel_subscription : mode === "payment_method" ? subscriptionUrls?.update_subscription_payment_method : urls?.general?.overview;
-      if (!url) throw new Error("Paddle did not return the requested portal link.");
+      const url = mode === "cancel"
+        ? subscriptionUrls?.cancel_subscription
+        : mode === "payment_method"
+          ? subscriptionUrls?.update_subscription_payment_method
+          : urls?.general?.overview;
+      if (!url) throw new Error("Paddle did not return the requested customer portal link.");
+      await admin.from("subscriptions").update({ last_portal_opened_at: new Date().toISOString() }).eq("user_id", user.id);
       return Response.json({ ok: true, url }, { headers: corsHeaders });
     }
 
@@ -122,11 +195,13 @@ Deno.serve(async (req) => {
         status: remote?.status || subscription.status,
         cancelled: remote?.status === "canceled" || scheduled?.action === "cancel",
         ends_at: scheduled?.effective_at || remote?.canceled_at || subscription.ends_at,
+        cancellation_requested_at: new Date().toISOString(),
+        cancellation_effective_at: scheduled?.effective_at || remote?.canceled_at || null,
         renews_at: remote?.next_billed_at || subscription.renews_at,
-        raw_payload: remote || subscription.raw_payload,
+        raw_payload: { ...remote, _rivox_environment: environment },
         updated_at: new Date().toISOString(),
       }).eq("user_id", user.id).select("*").single();
-      if (updateError) throw updateError;
+      if (updateError) throw new Error(`Unable to save cancellation: ${updateError.message}`);
       return Response.json({ ok: true, subscription: updated }, { headers: corsHeaders });
     }
 
@@ -140,17 +215,20 @@ Deno.serve(async (req) => {
         status: remote?.status || "active",
         cancelled: false,
         ends_at: null,
+        cancellation_requested_at: null,
+        cancellation_effective_at: null,
         renews_at: remote?.next_billed_at || subscription.renews_at,
-        raw_payload: remote || subscription.raw_payload,
+        raw_payload: { ...remote, _rivox_environment: environment },
         updated_at: new Date().toISOString(),
       }).eq("user_id", user.id).select("*").single();
-      if (updateError) throw updateError;
+      if (updateError) throw new Error(`Unable to remove cancellation: ${updateError.message}`);
       return Response.json({ ok: true, subscription: updated }, { headers: corsHeaders });
     }
 
     throw new Error("Unsupported subscription action.");
   } catch (error) {
-    console.error("paddle-subscriptions error", error);
-    return Response.json({ ok: false, error: error instanceof Error ? error.message : "Unexpected error" }, { status: 400, headers: corsHeaders });
+    const message = error instanceof Error ? error.message : "Unexpected error";
+    console.error("paddle-subscriptions error", { message, error });
+    return Response.json({ ok: false, error: message }, { status: 400, headers: corsHeaders });
   }
 });
