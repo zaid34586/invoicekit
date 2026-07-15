@@ -3,7 +3,7 @@ import type { BillingCycle, Plan } from "./pricing";
 
 const clientToken = import.meta.env.VITE_PADDLE_CLIENT_TOKEN?.trim();
 const configuredEnvironment = import.meta.env.VITE_PADDLE_ENV?.trim().toLowerCase();
-const paddleEnvironment = configuredEnvironment === "sandbox" || clientToken?.startsWith("test_") ? "sandbox" : "production";
+export const paddleEnvironment = configuredEnvironment === "sandbox" || clientToken?.startsWith("test_") ? "sandbox" : "production";
 
 const priceIds: Record<Exclude<Plan, "free">, Record<BillingCycle, string | undefined>> = {
   pro: {

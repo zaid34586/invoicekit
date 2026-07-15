@@ -71,3 +71,12 @@ export async function undoScheduledPaddleCancellation() {
   const response = await invoke<{ subscription: PaddleSubscriptionRecord }>("undo_cancel");
   return response.subscription;
 }
+
+export async function syncPaddleTransaction(transactionId: string, environment: "sandbox" | "production") {
+  const response = await invoke<{
+    subscription: PaddleSubscriptionRecord;
+    billingEvent: BillingEventRecord;
+    plan: string;
+  }>("sync_transaction", { transaction_id: transactionId, environment });
+  return response;
+}

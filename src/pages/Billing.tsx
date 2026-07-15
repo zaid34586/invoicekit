@@ -13,13 +13,14 @@ import {
   getPlanLimitLabel,
 } from "../lib/pricing";
 import { supabase } from "../lib/supabase";
-import { openPaddleCheckout } from "../lib/paddle";
+import { openPaddleCheckout, paddleEnvironment } from "../lib/paddle";
 import { formatOfferDiscount, getOfferForPlanCycle, loadActiveMarketingOffers, type MarketingOffer } from "../lib/offers";
 import { trackGrowthEvent } from "../lib/growth";
 import {
   cancelPaddleSubscription,
   createPaddlePortalSession,
   loadPaddleSubscriptionStatus,
+  syncPaddleTransaction,
   undoScheduledPaddleCancellation,
   type BillingEventRecord,
   type PaddleSubscriptionRecord,
@@ -244,9 +245,11 @@ export default function Billing() {
   useEffect(() => {
     const url = new URL(window.location.href);
     const checkoutSucceeded = url.searchParams.get("checkout") === "success";
+    const transactionId = url.searchParams.get("_ptxn") || url.searchParams.get("transaction_id");
     if (!checkoutSucceeded || !user) return;
 
-    // Strip the param immediately. Previously it stayed in the URL forever,
+    // Strip the success marker immediately, but keep the Paddle transaction ID
+    // until the direct verification fallback has had a chance to use it.
     // so reloading or revisiting this page (even hours later) re-triggered
     // the whole "waiting for webhook" flow from scratch every single time —
     // which is why the banner kept flipping back to "Payment received..."
@@ -265,6 +268,22 @@ export default function Billing() {
     setActivationStatus("waiting");
     let attempts = 0;
     let cancelled = false;
+
+    const syncSuccessfulTransaction = async () => {
+      if (!transactionId) return;
+      try {
+        await syncPaddleTransaction(transactionId, paddleEnvironment);
+        // Remove the transaction ID only after the backend has verified it.
+        const cleanedUrl = new URL(window.location.href);
+        cleanedUrl.searchParams.delete("_ptxn");
+        cleanedUrl.searchParams.delete("transaction_id");
+        window.history.replaceState({}, "", cleanedUrl.toString());
+      } catch (error) {
+        // Do not stop polling: the webhook may still complete independently.
+        console.error("Direct Paddle transaction sync failed", error);
+      }
+    };
+
     const poll = async () => {
       attempts += 1;
       const [, freshProfile] = await Promise.all([refreshSubscription(), refreshProfile()]);
@@ -280,7 +299,10 @@ export default function Billing() {
         window.clearInterval(timer);
       }
     };
-    void poll();
+    void (async () => {
+      await syncSuccessfulTransaction();
+      await poll();
+    })();
     const timer = window.setInterval(() => void poll(), 2000);
     return () => {
       cancelled = true;
