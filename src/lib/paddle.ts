@@ -19,6 +19,16 @@ const priceIds: Record<Exclude<Plan, "free">, Record<BillingCycle, string | unde
 let paddlePromise: Promise<Paddle | undefined> | null = null;
 
 function handlePaddleEvent(event: PaddleEventData) {
+  const detail = event as unknown as { name?: string; data?: Record<string, unknown> };
+  const transactionId = String(
+    detail?.data?.transaction_id ||
+    detail?.data?.transactionId ||
+    (detail?.name === "checkout.completed" ? detail?.data?.id : "") ||
+    ""
+  );
+  if (transactionId.startsWith("txn_")) {
+    window.sessionStorage.setItem("rivox:last-paddle-transaction", transactionId);
+  }
   window.dispatchEvent(new CustomEvent("rivox:paddle-event", { detail: event }));
 }
 

@@ -52,6 +52,21 @@ async function invoke<T>(action: string, payload: Record<string, unknown> = {}) 
   return data as T & { ok: true };
 }
 
+
+export type PaddleTransactionSyncResult = {
+  subscription: PaddleSubscriptionRecord;
+  billingEvents: BillingEventRecord[];
+  plan: "pro" | "business";
+};
+
+export async function syncPaddleTransaction(transactionId: string, environment: "sandbox" | "production") {
+  const response = await invoke<PaddleTransactionSyncResult>("sync_transaction", {
+    transaction_id: transactionId,
+    environment,
+  });
+  return response;
+}
+
 export async function loadPaddleSubscriptionStatus() {
   const response = await invoke<{ status: SubscriptionStatusResponse }>("status");
   return response.status;
@@ -70,38 +85,4 @@ export async function cancelPaddleSubscription(effectiveFrom: "next_billing_peri
 export async function undoScheduledPaddleCancellation() {
   const response = await invoke<{ subscription: PaddleSubscriptionRecord }>("undo_cancel");
   return response.subscription;
-}
-
-export type TransactionSyncResult = {
-  subscription: PaddleSubscriptionRecord;
-  billingEvent: BillingEventRecord | null;
-  profileUpdated: boolean;
-  environment: "sandbox" | "production";
-};
-
-export async function syncPaddleTransaction(transactionId: string, environment?: "sandbox" | "production") {
-  const response = await invoke<TransactionSyncResult>("sync_transaction", {
-    transaction_id: transactionId,
-    environment,
-  });
-  return response;
-}
-
-export type BillingHealthResult = {
-  authenticated: boolean;
-  profileFound: boolean;
-  subscriptionFound: boolean;
-  sandboxApiConfigured: boolean;
-  productionApiConfigured: boolean;
-  environment?: "sandbox" | "production";
-  transaction?: { id: string; status: string; subscription_id: string | null; customer_id: string | null } | null;
-  errors: string[];
-};
-
-export async function checkPaddleBillingHealth(transactionId?: string, environment?: "sandbox" | "production") {
-  const response = await invoke<{ health: BillingHealthResult }>("health", {
-    transaction_id: transactionId || null,
-    environment,
-  });
-  return response.health;
 }

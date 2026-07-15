@@ -243,66 +243,84 @@ export default function Billing() {
   }, [user?.id]);
 
   useEffect(() => {
-    const url = new URL(window.location.href);
-    const checkoutSucceeded = url.searchParams.get("checkout") === "success";
-    const transactionId = url.searchParams.get("_ptxn") || url.searchParams.get("transaction_id");
-    if ((!checkoutSucceeded && !transactionId) || !user) return;
+    if (!user) return;
 
-    // Strip activation parameters immediately so refreshes do not re-run the flow.
-    // so reloading or revisiting this page (even hours later) re-triggered
-    // the whole "waiting for webhook" flow from scratch every single time —
-    // which is why the banner kept flipping back to "Payment received..."
-    // after already showing a timeout.
+    const url = new URL(window.location.href);
+    const transactionFromUrl =
+      url.searchParams.get("_ptxn") ||
+      url.searchParams.get("transaction_id") ||
+      "";
+    const transactionFromSession = window.sessionStorage.getItem("rivox:last-paddle-transaction") || "";
+    const transactionId = transactionFromUrl.startsWith("txn_")
+      ? transactionFromUrl
+      : transactionFromSession.startsWith("txn_")
+        ? transactionFromSession
+        : "";
+    const checkoutSucceeded = url.searchParams.get("checkout") === "success" || Boolean(transactionId);
+    if (!checkoutSucceeded) return;
+
     url.searchParams.delete("checkout");
     url.searchParams.delete("_ptxn");
     url.searchParams.delete("transaction_id");
     window.history.replaceState({}, "", url.toString());
 
-    // If the profile is already Pro/Business (e.g. webhook already landed
-    // before this page even rendered), don't show "waiting" at all.
-    const alreadyActive = profile?.is_pro || profile?.plan === "pro" || profile?.plan === "business";
-    if (alreadyActive) {
-      setActivationStatus("success");
-      return;
-    }
-
-    setActivationStatus("waiting");
-    setSubscriptionMessage(null);
-    let attempts = 0;
     let cancelled = false;
     let timer: number | undefined;
+    let attempts = 0;
+    setActivationStatus("waiting");
+    setSubscriptionMessage(null);
 
-    const activateFromTransaction = async () => {
-      if (!transactionId) return;
-      try {
-        await syncPaddleTransaction(transactionId, paddleEnvironment);
-        await Promise.all([refreshSubscription(), refreshProfile()]);
-      } catch (error) {
-        console.error("Billing V2 transaction sync failed", error);
-        setSubscriptionMessage(error instanceof Error ? error.message : "Payment verification failed.");
+    const finishActivation = async () => {
+      if (transactionId) {
+        try {
+          const synced = await syncPaddleTransaction(transactionId, paddleEnvironment);
+          if (cancelled) return true;
+          setSubscription(synced.subscription);
+          setBillingEvents(synced.billingEvents);
+          window.sessionStorage.removeItem("rivox:last-paddle-transaction");
+          const freshProfile = await refreshProfile();
+          if (cancelled) return true;
+          const active = freshProfile?.is_pro || freshProfile?.plan === "pro" || freshProfile?.plan === "business";
+          if (active) {
+            setActivationStatus("success");
+            return true;
+          }
+        } catch (error) {
+          const message = error instanceof Error ? error.message : "Unable to verify the Paddle payment.";
+          setSubscriptionMessage(message);
+          // 409 can be temporary while Paddle finishes creating identifiers.
+          if (!message.toLowerCase().includes("not ready") && !message.toLowerCase().includes("not completed")) {
+            setActivationStatus("timeout");
+            return true;
+          }
+        }
       }
+
+      const [, freshProfile] = await Promise.all([refreshSubscription(), refreshProfile()]);
+      if (cancelled) return true;
+      const active = freshProfile?.is_pro || freshProfile?.plan === "pro" || freshProfile?.plan === "business";
+      if (active) {
+        setActivationStatus("success");
+        return true;
+      }
+      return false;
     };
 
     const poll = async () => {
       attempts += 1;
-      const [, freshProfile] = await Promise.all([refreshSubscription(), refreshProfile()]);
-      if (cancelled) return;
-      const nowActive = freshProfile?.is_pro || freshProfile?.plan === "pro" || freshProfile?.plan === "business";
-      if (nowActive) {
-        setActivationStatus("success");
+      const done = await finishActivation();
+      if (done) {
         if (timer) window.clearInterval(timer);
         return;
       }
-      if (attempts >= 15) {
+      if (attempts >= 20) {
         setActivationStatus("timeout");
         if (timer) window.clearInterval(timer);
       }
     };
-    void (async () => {
-      await activateFromTransaction();
-      await poll();
-    })();
-    timer = window.setInterval(() => void poll(), 2000);
+
+    void poll();
+    timer = window.setInterval(() => void poll(), 3000);
     return () => {
       cancelled = true;
       if (timer) window.clearInterval(timer);
