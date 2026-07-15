@@ -36,7 +36,7 @@ async function recoverSubscription(admin: any, userId: string, subscription: any
   const event = events.find((item) => item.subscription_id || item.order_id || item.raw_payload?.data?.subscription_id);
   if (!event) return subscription;
   const raw = event.raw_payload || {};
-  const environment: Environment = subscription?.provider_environment === "sandbox" || (raw?._rivox_environment === "sandbox" || raw?.raw_payload?._rivox_environment === "sandbox") ? "sandbox" : "production";
+  const environment: Environment = subscription?.provider_environment === "sandbox" || raw?._rivox_environment === "sandbox" ? "sandbox" : "production";
   let subscriptionId = subscription?.provider_subscription_id || event.subscription_id || raw?.data?.subscription_id || null;
   let customerId = subscription?.provider_customer_id || raw?.data?.customer_id || null;
 

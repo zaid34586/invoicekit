@@ -1,6 +1,5 @@
 {
   "imports": {
-    "@supabase/supabase-js": "jsr:@supabase/supabase-js@2",
-    "@paddle/paddle-node-sdk": "npm:@paddle/paddle-node-sdk@3.8.0"
+    "@supabase/supabase-js": "jsr:@supabase/supabase-js@2"
   }
 }
