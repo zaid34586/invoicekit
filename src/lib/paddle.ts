@@ -19,16 +19,6 @@ const priceIds: Record<Exclude<Plan, "free">, Record<BillingCycle, string | unde
 let paddlePromise: Promise<Paddle | undefined> | null = null;
 
 function handlePaddleEvent(event: PaddleEventData) {
-  const detail = event as unknown as { name?: string; data?: Record<string, unknown> };
-  const transactionId = String(
-    detail?.data?.transaction_id ||
-    detail?.data?.transactionId ||
-    (detail?.name === "checkout.completed" ? detail?.data?.id : "") ||
-    ""
-  );
-  if (transactionId.startsWith("txn_")) {
-    window.sessionStorage.setItem("rivox:last-paddle-transaction", transactionId);
-  }
   window.dispatchEvent(new CustomEvent("rivox:paddle-event", { detail: event }));
 }
 
@@ -43,7 +33,9 @@ export function getPaddleConfigurationStatus() {
 }
 
 export async function getPaddle() {
-  if (!clientToken) throw new Error("Paddle client token is missing. Add VITE_PADDLE_CLIENT_TOKEN and redeploy.");
+  if (!clientToken) {
+    throw new Error("Paddle client token is missing. Add VITE_PADDLE_CLIENT_TOKEN and redeploy.");
+  }
 
   if (!paddlePromise) {
     paddlePromise = initializePaddle({
@@ -69,7 +61,15 @@ export async function getPaddle() {
   return paddle;
 }
 
-export async function openPaddleCheckout({ plan, cycle, userId, email, discountCode, discountId, offerId }: {
+export async function openPaddleCheckout({
+  plan,
+  cycle,
+  userId,
+  email,
+  discountCode,
+  discountId,
+  offerId,
+}: {
   plan: Exclude<Plan, "free">;
   cycle: BillingCycle;
   userId?: string;
@@ -80,8 +80,13 @@ export async function openPaddleCheckout({ plan, cycle, userId, email, discountC
 }) {
   const priceId = priceIds[plan][cycle];
   if (!priceId) throw new Error(`Paddle ${plan} ${cycle} price ID is missing.`);
+
   const paddle = await getPaddle();
-  const discount = discountId?.trim() ? { discountId: discountId.trim() } : discountCode?.trim() ? { discountCode: discountCode.trim() } : {};
+  const discount = discountId?.trim()
+    ? { discountId: discountId.trim() }
+    : discountCode?.trim()
+      ? { discountCode: discountCode.trim() }
+      : {};
 
   paddle.Checkout.open({
     items: [{ priceId, quantity: 1 }],
@@ -93,7 +98,6 @@ export async function openPaddleCheckout({ plan, cycle, userId, email, discountC
       billing_cycle: cycle,
       source: "rivox_web",
       offer_id: offerId ?? null,
-      customer_email: email ?? null,
       offer_code: discountCode?.trim() || null,
       paddle_discount_id: discountId?.trim() || null,
     },
