@@ -132,26 +132,35 @@ Deno.serve(async (request) => {
       }
 
       const activationPayload = {
-        p_user_id: user.id,
-        p_environment: environment,
-        p_transaction_id: transactionId,
-        p_subscription_id: subscriptionId,
-        p_customer_id: customerId,
-        p_plan: plan,
-        p_billing_cycle: billingCycle,
-        p_status: "active",
-        p_currency: transaction.currency_code || null,
-        p_amount: amountFromTransaction(transaction),
-        p_customer_email: transaction?.custom_data?.customer_email || user.email || null,
-        p_renews_at: transaction?.billing_period?.ends_at || null,
-        p_product_id: transaction?.items?.[0]?.price?.product_id || null,
-        p_price_id: transaction?.items?.[0]?.price?.id || null,
-        p_raw_payload: transaction,
+        user_id: user.id,
+        environment,
+        transaction_id: transactionId,
+        subscription_id: subscriptionId,
+        customer_id: customerId,
+        plan,
+        billing_cycle: billingCycle,
+        status: "active",
+        currency: transaction.currency_code || null,
+        amount: amountFromTransaction(transaction),
+        customer_email: transaction?.custom_data?.customer_email || user.email || null,
+        renews_at: transaction?.billing_period?.ends_at || null,
+        product_id: transaction?.items?.[0]?.price?.product_id || null,
+        price_id: transaction?.items?.[0]?.price?.id || null,
+        raw_payload: transaction,
       };
 
+      console.log("[billing-v4] verified transaction", {
+        transactionId,
+        userId: user.id,
+        environment,
+        plan,
+        subscriptionId,
+        customerId,
+      });
+
       const { data: activation, error: activationError } = await admin.rpc(
-        "activate_paddle_transaction_v3",
-        activationPayload,
+        "activate_paddle_transaction_v4",
+        { p_payload: activationPayload },
       );
       if (activationError) throw new Error(`Database activation failed: ${activationError.message}`);
 
