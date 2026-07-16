@@ -186,19 +186,21 @@ Deno.serve(async (request) => {
     }
 
     const environment = normalizeEnvironment(body.environment);
+    const hasExplicitEnvironment = body.environment === "sandbox" || body.environment === "production";
+
     let subscriptionQuery = admin
       .from("subscriptions")
       .select("*")
       .eq("user_id", user.id)
-      .eq("provider", "paddle")
+      .or("provider.eq.paddle,billing_provider.eq.paddle")
       .order("updated_at", { ascending: false })
       .limit(1);
-    if (body.environment === "sandbox" || body.environment === "production") {
+    if (hasExplicitEnvironment) {
       subscriptionQuery = subscriptionQuery.eq("provider_environment", environment);
     }
     const { data: subscriptionRows, error: subscriptionError } = await subscriptionQuery;
     if (subscriptionError) throw new Error(subscriptionError.message);
-    const subscription = subscriptionRows?.[0] || null;
+    let subscription = subscriptionRows?.[0] || null;
 
     const { data: events, error: eventsError } = await admin
       .from("billing_events")
@@ -208,6 +210,67 @@ Deno.serve(async (request) => {
       .order("created_at", { ascending: false })
       .limit(25);
     if (eventsError) throw new Error(eventsError.message);
+
+    // Recovery path for accounts where payment/profile activation succeeded but the
+    // subscriptions row was missed by an older webhook deployment. This only runs
+    // for status requests and only uses a completed Paddle event belonging to the
+    // authenticated user. Checkout, payment verification and activation RPC remain untouched.
+    if (action === "status" && !subscription) {
+      const completedEvent = (events || []).find((event: any) => {
+        const raw = event?.raw_payload?.data || event?.raw_payload || {};
+        return event?.status === "completed" && Boolean(event?.subscription_id || raw?.subscription_id) && Boolean(raw?.customer_id);
+      });
+
+      if (completedEvent) {
+        const raw = completedEvent?.raw_payload?.data || completedEvent?.raw_payload || {};
+        const recoveredSubscriptionId = completedEvent?.subscription_id || raw?.subscription_id || null;
+        const recoveredCustomerId = raw?.customer_id || null;
+        const recoveredEnvironment = hasExplicitEnvironment ? environment : normalizeEnvironment(completedEvent?.provider_environment);
+
+        const recoveryRow = {
+          user_id: user.id,
+          provider: "paddle",
+          billing_provider: "paddle",
+          provider_environment: recoveredEnvironment,
+          provider_subscription_id: recoveredSubscriptionId,
+          provider_customer_id: recoveredCustomerId,
+          provider_order_id: completedEvent?.order_id || raw?.id || null,
+          product_id: raw?.items?.[0]?.price?.product_id || null,
+          variant_id: raw?.items?.[0]?.price?.id || null,
+          plan: completedEvent?.plan || raw?.custom_data?.plan || "pro",
+          billing_cycle: completedEvent?.billing_cycle || raw?.custom_data?.billing_cycle || null,
+          status: "active",
+          customer_email: raw?.custom_data?.customer_email || user.email || null,
+          currency: completedEvent?.currency || raw?.currency_code || null,
+          amount: Number(completedEvent?.amount || amountFromTransaction(raw) || 0),
+          renews_at: raw?.billing_period?.ends_at || null,
+          cancelled: false,
+          raw_payload: completedEvent?.raw_payload || {},
+          updated_at: new Date().toISOString(),
+        };
+
+        const { data: repaired, error: repairError } = await admin
+          .from("subscriptions")
+          .upsert(recoveryRow, { onConflict: "user_id,provider_environment" })
+          .select("*")
+          .single();
+
+        if (repairError) {
+          console.error("[billing-status] subscription recovery failed", {
+            userId: user.id,
+            environment: recoveredEnvironment,
+            message: repairError.message,
+          });
+        } else {
+          subscription = repaired;
+          console.log("[billing-status] recovered subscription from completed billing event", {
+            userId: user.id,
+            environment: recoveredEnvironment,
+            subscriptionId: recoveredSubscriptionId,
+          });
+        }
+      }
+    }
 
     if (action === "status") {
       const ready = Boolean(subscription?.provider_subscription_id && subscription?.provider_customer_id);

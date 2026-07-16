@@ -1,4 +1,5 @@
 import { supabase } from "./supabase";
+import { paddleEnvironment } from "./paddle";
 
 export type PaddleSubscriptionRecord = {
   id: string;
@@ -68,21 +69,21 @@ export async function syncPaddleTransaction(transactionId: string, environment: 
 }
 
 export async function loadPaddleSubscriptionStatus() {
-  const response = await invoke<{ status: SubscriptionStatusResponse }>("status");
+  const response = await invoke<{ status: SubscriptionStatusResponse }>("status", { environment: paddleEnvironment });
   return response.status;
 }
 
 export async function createPaddlePortalSession(mode: "overview" | "cancel" | "payment_method" = "overview") {
-  const response = await invoke<{ url: string }>("portal", { mode });
+  const response = await invoke<{ url: string }>("portal", { mode, environment: paddleEnvironment });
   return response.url;
 }
 
 export async function cancelPaddleSubscription(effectiveFrom: "next_billing_period" | "immediately" = "next_billing_period") {
-  const response = await invoke<{ subscription: PaddleSubscriptionRecord }>("cancel", { effective_from: effectiveFrom });
+  const response = await invoke<{ subscription: PaddleSubscriptionRecord }>("cancel", { effective_from: effectiveFrom, environment: paddleEnvironment });
   return response.subscription;
 }
 
 export async function undoScheduledPaddleCancellation() {
-  const response = await invoke<{ subscription: PaddleSubscriptionRecord }>("undo_cancel");
+  const response = await invoke<{ subscription: PaddleSubscriptionRecord }>("undo_cancel", { environment: paddleEnvironment });
   return response.subscription;
 }
