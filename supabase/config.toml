@@ -49,5 +49,22 @@ verify_jwt = true
 import_map = "./functions/create-team-member/deno.json"
 entrypoint = "./functions/create-team-member/index.ts"
 
+[functions.paddle-webhook]
+enabled = true
+verify_jwt = false
+import_map = "./functions/paddle-webhook/deno.json"
+entrypoint = "./functions/paddle-webhook/index.ts"
+# Paddle calls this URL directly with a Paddle-Signature header, not a Supabase
+# user JWT. verify_jwt must stay false or Supabase rejects the request with a
+# 401 before our own signature check in index.ts ever runs.
+
+[functions.lemon-webhook]
+enabled = true
+verify_jwt = false
+import_map = "./functions/lemon-webhook/deno.json"
+entrypoint = "./functions/lemon-webhook/index.ts"
+# Same reasoning as paddle-webhook: Lemon Squeezy signs requests itself and
+# does not send a Supabase JWT.
+
 [functions.subscription-automation]
 verify_jwt = true
