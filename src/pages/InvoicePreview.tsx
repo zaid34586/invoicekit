@@ -260,22 +260,31 @@ export default function InvoicePreview() {
   const isForeignCurrency = invoiceCurrency !== baseCurrency;
   const exchangeRate = invoice.exchange_rate ?? 1;
 
-  // Prefer the pre-converted, locked invoice-currency amounts (new fields).
-  // Fall back to computing them from the locked base amounts for invoices
-  // saved before these snapshot fields existed.
-  const baseSubtotal = invoice.base_subtotal ?? Number(invoice.subtotal);
-  const baseTotalRaw = invoice.base_total ?? Number(invoice.total);
+  // Item rates are stored in invoice currency. The item sum is therefore the
+  // authoritative invoice-currency subtotal. This also self-repairs display
+  // for older foreign-currency invoices whose snapshot was accidentally
+  // multiplied by the exchange rate twice.
+  const itemSubtotal = invoice.items.reduce(
+    (sum, item) => sum + lineAmount(item),
+    0
+  );
 
-  const displaySubtotal =
+  const storedInvoiceSubtotal =
     invoice.invoice_subtotal ??
-    (isForeignCurrency ? convertCurrency(baseSubtotal, exchangeRate) : baseSubtotal);
-  const displayTotal =
-    invoice.invoice_total ??
-    (isForeignCurrency ? convertCurrency(baseTotalRaw, exchangeRate) : baseTotalRaw);
+    (isForeignCurrency
+      ? convertCurrency(Number(invoice.subtotal), exchangeRate)
+      : Number(invoice.subtotal));
 
-  // No locked per-tax-line (CGST/SGST/IGST) invoice-currency fields exist in
-  // the current model, so these are still derived from the locked base
-  // amounts on the invoice row itself (never from Profile/Clients).
+  const subtotalMismatch =
+    Math.abs(storedInvoiceSubtotal - itemSubtotal) >
+    Math.max(0.01, Math.abs(itemSubtotal) * 0.001);
+
+  const displaySubtotal = subtotalMismatch
+    ? itemSubtotal
+    : storedInvoiceSubtotal;
+
+  // Tax columns remain stored in base currency, so convert them once for
+  // invoice display. Never convert item rates or item amounts.
   const displayCgst = isForeignCurrency
     ? convertCurrency(Number(invoice.cgst), exchangeRate)
     : Number(invoice.cgst);
@@ -285,7 +294,14 @@ export default function InvoicePreview() {
   const displayIgst = isForeignCurrency
     ? convertCurrency(Number(invoice.igst), exchangeRate)
     : Number(invoice.igst);
-  const baseTotalDisplay = baseTotalRaw;
+
+  const displayTotal =
+    displaySubtotal + displayCgst + displaySgst + displayIgst;
+
+  const baseTotalDisplay =
+    isForeignCurrency && exchangeRate > 0
+      ? Math.round((displayTotal / exchangeRate) * 100) / 100
+      : displayTotal;
 
   // ── Tax: use the LOCKED tax_label/tax_note/tax_type from the invoice row.
   // decideTax() is invoked ONLY as a fallback for legacy invoices that were

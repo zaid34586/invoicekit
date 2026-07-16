@@ -17,7 +17,6 @@ import {
   getCurrencyForCountry,
   getCurrencySymbol,
   formatMoney,
-  convertCurrency,
 } from "../lib/currency";
 import { decideTax } from "../lib/tax";
 
@@ -231,12 +230,26 @@ export default function NewInvoice() {
     });
   }, [taxDecision.taxRate, profile?.country]);
 
-  // Converted amounts for display when invoice currency differs from base
-  const displaySubtotal = isForeignCurrency ? convertCurrency(calc.subtotal, exchangeRate) : calc.subtotal;
-  const displayCgst     = isForeignCurrency ? convertCurrency(calc.cgst, exchangeRate)     : calc.cgst;
-  const displaySgst     = isForeignCurrency ? convertCurrency(calc.sgst, exchangeRate)     : calc.sgst;
-  const displayIgst     = isForeignCurrency ? convertCurrency(calc.igst, exchangeRate)     : calc.igst;
-  const displayTotal    = isForeignCurrency ? convertCurrency(calc.total, exchangeRate)    : calc.total;
+  // Item rates are entered directly in the selected invoice currency.
+  // Therefore calc.* is already expressed in invoiceCurrency and must never
+  // be multiplied by the exchange rate again. The exchange rate is used only
+  // to derive the business/base-currency equivalent stored for reporting.
+  const displaySubtotal = calc.subtotal;
+  const displayCgst = calc.cgst;
+  const displaySgst = calc.sgst;
+  const displayIgst = calc.igst;
+  const displayTotal = calc.total;
+
+  const toBaseCurrency = (amount: number) =>
+    isForeignCurrency && exchangeRate > 0
+      ? Math.round((amount / exchangeRate) * 100) / 100
+      : amount;
+
+  const baseSubtotal = toBaseCurrency(calc.subtotal);
+  const baseCgst = toBaseCurrency(calc.cgst);
+  const baseSgst = toBaseCurrency(calc.sgst);
+  const baseIgst = toBaseCurrency(calc.igst);
+  const baseTotal = toBaseCurrency(calc.total);
 
   function updateItem(id: string, patch: Partial<LineItem>) {
     setItems((prev) =>
@@ -317,12 +330,13 @@ export default function NewInvoice() {
         client_state: clientState || null,
         client_gstin: clientGstin.trim().toUpperCase() || null,
         items,
-        // GST fields always stored in base currency (INR) — unchanged
-        subtotal: calc.subtotal,
-        cgst: calc.cgst,
-        sgst: calc.sgst,
-        igst: calc.igst,
-        total: calc.total,
+        // Legacy/reporting total columns are stored in business base currency.
+        // The invoice-currency snapshot is stored separately below.
+        subtotal: baseSubtotal,
+        cgst: baseCgst,
+        sgst: baseSgst,
+        igst: baseIgst,
+        total: baseTotal,
         status,
         notes: notes.trim() || null,
         invoice_date: invoiceDate,
@@ -330,7 +344,7 @@ export default function NewInvoice() {
         // ── Currency fields (locked at save time) ──
         invoice_currency: invoiceCurrency,
         exchange_rate: isForeignCurrency ? exchangeRate : 1,
-        base_total: calc.total,  // always in base currency
+        base_total: baseTotal,
 
         // ── Self-contained snapshot fields ──────────────────────────
         // Everything an invoice needs so Preview/PDF/Reports never have to
@@ -350,9 +364,9 @@ export default function NewInvoice() {
         tax_label: taxDecision.taxLabel,
         tax_note: taxDecision.taxNote,
 
-        base_subtotal: calc.subtotal,
-        invoice_subtotal: displaySubtotal,
-        invoice_total: displayTotal,
+        base_subtotal: baseSubtotal,
+        invoice_subtotal: calc.subtotal,
+        invoice_total: calc.total,
       })
       .select("*")
       .single();
@@ -735,12 +749,7 @@ export default function NewInvoice() {
                     )}
                   </div>
                   <div className="col-span-12 text-right text-sm font-medium text-slate-700">
-                    Amount: {formatMoney(
-                      isForeignCurrency
-                        ? convertCurrency(lineAmount(item), exchangeRate)
-                        : lineAmount(item),
-                      invoiceCurrency
-                    )}
+                    Amount: {formatMoney(lineAmount(item), invoiceCurrency)}
                   </div>
                 </div>
               ))}
@@ -835,13 +844,13 @@ export default function NewInvoice() {
                           <td className="py-1">{b.rate}%</td>
                           <td className="text-right py-1">
                             {formatMoney(
-                              isForeignCurrency ? convertCurrency(b.taxable, exchangeRate) : b.taxable,
+                              b.taxable,
                               invoiceCurrency
                             )}
                           </td>
                           <td className="text-right py-1">
                             {formatMoney(
-                              isForeignCurrency ? convertCurrency(b.tax, exchangeRate) : b.tax,
+                              b.tax,
                               invoiceCurrency
                             )}
                           </td>

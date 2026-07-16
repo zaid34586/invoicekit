@@ -3,7 +3,7 @@ import { useParams, Link } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 import type { Invoice, Profile } from "../lib/types";
 import { formatDate } from "../lib/constants";
-import { formatMoney } from "../lib/currency";
+import { convertCurrency, formatMoney } from "../lib/currency";
 import { lineAmount } from "../lib/gst";
 
 export default function ShareInvoice() {
@@ -88,6 +88,27 @@ export default function ShareInvoice() {
   "USD";
 
   const isInterState = invoice.igst > 0;
+  const baseCurrency =
+    invoice.base_currency ?? invoice.business_currency ?? profile?.currency ?? "USD";
+  const isForeignCurrency = invoiceCurrency !== baseCurrency;
+  const exchangeRate = invoice.exchange_rate ?? 1;
+
+  const itemSubtotal = invoice.items.reduce(
+    (sum, item) => sum + lineAmount(item),
+    0
+  );
+  const displayCgst = isForeignCurrency
+    ? convertCurrency(Number(invoice.cgst), exchangeRate)
+    : Number(invoice.cgst);
+  const displaySgst = isForeignCurrency
+    ? convertCurrency(Number(invoice.sgst), exchangeRate)
+    : Number(invoice.sgst);
+  const displayIgst = isForeignCurrency
+    ? convertCurrency(Number(invoice.igst), exchangeRate)
+    : Number(invoice.igst);
+  const displaySubtotal = itemSubtotal;
+  const displayTotal =
+    displaySubtotal + displayCgst + displaySgst + displayIgst;
 
   return (
     <div className="min-h-screen bg-slate-50 py-6 px-4">
@@ -269,14 +290,14 @@ export default function ShareInvoice() {
               <div className="flex justify-between">
                 <span className="text-slate-500">Subtotal</span>
                 <span className="font-medium text-slate-900">
-                  {formatMoney(Number(invoice.subtotal), invoiceCurrency)}
+                  {formatMoney(displaySubtotal, invoiceCurrency)}
                 </span>
               </div>
               {isInterState ? (
                 <div className="flex justify-between">
                   <span className="text-slate-500">IGST</span>
                   <span className="font-medium text-slate-900">
-                    {formatMoney(Number(invoice.igst), invoiceCurrency)}
+                    {formatMoney(displayIgst, invoiceCurrency)}
                   </span>
                 </div>
               ) : (
@@ -284,13 +305,13 @@ export default function ShareInvoice() {
                   <div className="flex justify-between">
                     <span className="text-slate-500">CGST</span>
                     <span className="font-medium text-slate-900">
-                      {formatMoney(Number(invoice.cgst), invoiceCurrency)}
+                      {formatMoney(displayCgst, invoiceCurrency)}
                     </span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-slate-500">SGST</span>
                     <span className="font-medium text-slate-900">
-                      {formatMoney(Number(invoice.sgst), invoiceCurrency)}
+                      {formatMoney(displaySgst, invoiceCurrency)}
                     
                     </span>
                   </div>
@@ -299,7 +320,7 @@ export default function ShareInvoice() {
               <div className="bg-primary-600 text-white rounded-lg px-4 py-3 flex justify-between items-center mt-3">
                 <span className="font-semibold">Grand Total</span>
                 <span className="text-lg font-bold">
-                  {formatMoney(Number(invoice.total), invoiceCurrency)}
+                  {formatMoney(displayTotal, invoiceCurrency)}
                 </span>
               </div>
             </div>
@@ -361,7 +382,7 @@ export default function ShareInvoice() {
             </div>
             <h2 className="text-xl font-bold text-slate-900 mb-2">Pay Invoice</h2>
             <p className="text-sm text-slate-500 mb-1">
-              Amount due: {formatMoney(Number(invoice.total), invoiceCurrency)}
+              Amount due: {formatMoney(displayTotal, invoiceCurrency)}
             </p>
             <p className="text-sm text-amber-600 font-medium mt-4">
               Payment gateway coming soon
