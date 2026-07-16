@@ -225,21 +225,68 @@ export default function Billing() {
   }, [user]);
 
   async function refreshSubscription() {
-    if (!user) return;
+    if (!user) return null;
     setSubscriptionLoading(true);
     try {
       const status = await loadPaddleSubscriptionStatus();
       setSubscription(status.subscription);
       setBillingEvents(status.billingEvents);
+      return status.subscription;
     } catch (error) {
       setSubscriptionMessage(error instanceof Error ? error.message : "Unable to load billing status.");
+      return null;
     } finally {
       setSubscriptionLoading(false);
     }
   }
 
+  // Initial load + "opened while webhook still processing" watcher.
+  //
+  // Previously this only did a single one-shot fetch. If the profile
+  // already showed a paid plan but the `subscriptions` row hadn't yet
+  // received its Paddle IDs (webhook still catching up), the page would
+  // stay on "Awaiting Paddle sync" forever until the user manually
+  // refreshed — nothing here ever re-checked. This now polls automatically
+  // (every 2s, capped at 30s) in exactly that situation, and skips entirely
+  // if the checkout-redirect effect below already owns the "waiting" flow
+  // (so the two never poll the same thing at once).
   useEffect(() => {
-    void refreshSubscription();
+    if (!user) return;
+    let cancelled = false;
+    let timer: number | undefined;
+
+    (async () => {
+      const fresh = await refreshSubscription();
+      if (cancelled) return;
+
+      const url = new URL(window.location.href);
+      const cameFromCheckout =
+        url.searchParams.get("checkout") === "success" ||
+        Boolean(url.searchParams.get("_ptxn")) ||
+        Boolean(url.searchParams.get("transaction_id")) ||
+        Boolean(window.sessionStorage.getItem("rivox:last-paddle-transaction"));
+      if (cameFromCheckout) return; // the effect below handles this case
+
+      const ready = Boolean(fresh?.provider_subscription_id && fresh?.provider_customer_id);
+      const planLooksPaid = profile?.is_pro || profile?.plan === "pro" || profile?.plan === "business";
+      if (ready || !planLooksPaid) return; // already synced, or genuinely free — nothing to watch
+
+      let attempts = 0;
+      timer = window.setInterval(async () => {
+        attempts += 1;
+        const latest = await refreshSubscription();
+        if (cancelled) return;
+        const nowReady = Boolean(latest?.provider_subscription_id && latest?.provider_customer_id);
+        if (nowReady || attempts >= 15) {
+          if (timer) window.clearInterval(timer);
+        }
+      }, 2000);
+    })();
+
+    return () => {
+      cancelled = true;
+      if (timer) window.clearInterval(timer);
+    };
   }, [user?.id]);
 
   useEffect(() => {
@@ -281,7 +328,17 @@ export default function Billing() {
           const freshProfile = await refreshProfile();
           if (cancelled) return true;
           const active = freshProfile?.is_pro || freshProfile?.plan === "pro" || freshProfile?.plan === "business";
-          if (active) {
+          const ready = Boolean(
+            synced.subscription?.provider_subscription_id && synced.subscription?.provider_customer_id
+          );
+          // Previously this declared "success" as soon as the PROFILE showed
+          // a paid plan, without checking whether the subscription record's
+          // Paddle IDs had actually been written yet. If those two updates
+          // landed in slightly different order, polling stopped here while
+          // the badge/buttons (which key off the IDs, not the plan) stayed
+          // stuck on "Awaiting Paddle sync" forever — exactly the reported
+          // bug. Now both must be true before we stop polling.
+          if (active && ready) {
             setActivationStatus("success");
             return true;
           }
@@ -296,10 +353,11 @@ export default function Billing() {
         }
       }
 
-      const [, freshProfile] = await Promise.all([refreshSubscription(), refreshProfile()]);
+      const [freshSub, freshProfile] = await Promise.all([refreshSubscription(), refreshProfile()]);
       if (cancelled) return true;
       const active = freshProfile?.is_pro || freshProfile?.plan === "pro" || freshProfile?.plan === "business";
-      if (active) {
+      const ready = Boolean(freshSub?.provider_subscription_id && freshSub?.provider_customer_id);
+      if (active && ready) {
         setActivationStatus("success");
         return true;
       }
@@ -313,14 +371,14 @@ export default function Billing() {
         if (timer) window.clearInterval(timer);
         return;
       }
-      if (attempts >= 20) {
+      if (attempts >= 15) {
         setActivationStatus("timeout");
         if (timer) window.clearInterval(timer);
       }
     };
 
     void poll();
-    timer = window.setInterval(() => void poll(), 3000);
+    timer = window.setInterval(() => void poll(), 2000);
     return () => {
       cancelled = true;
       if (timer) window.clearInterval(timer);
@@ -439,9 +497,10 @@ export default function Billing() {
             type="button"
             onClick={() => {
               setActivationStatus("waiting");
-              void Promise.all([refreshSubscription(), refreshProfile()]).then(([, freshProfile]) => {
-                const nowActive = freshProfile?.is_pro || freshProfile?.plan === "pro" || freshProfile?.plan === "business";
-                setActivationStatus(nowActive ? "success" : "timeout");
+              void Promise.all([refreshSubscription(), refreshProfile()]).then(([freshSub, freshProfile]) => {
+                const active = freshProfile?.is_pro || freshProfile?.plan === "pro" || freshProfile?.plan === "business";
+                const ready = Boolean(freshSub?.provider_subscription_id && freshSub?.provider_customer_id);
+                setActivationStatus(active && ready ? "success" : "timeout");
               });
             }}
             className="ml-3 font-semibold underline underline-offset-2"
