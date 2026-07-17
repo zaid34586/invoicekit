@@ -5,6 +5,7 @@ import { formatMoney } from "../lib/currency";
 import type { Invoice, Client } from "../lib/types";
 import * as XLSX from "xlsx";
 import jsPDF from "jspdf";
+import { invoiceBaseAmount, invoiceDate, startOfDay, endOfDay, isWithin } from "../lib/invoiceAnalytics";
 
 // Type definitions
 type DateFilter = "today" | "week" | "month" | "year" | "custom";
@@ -339,106 +340,140 @@ supabase
     }
     loadData();
   }, [user]);
-function exportCSV() {
-  const headers = [
-    "Invoice No",
-    "Client",
-    "Status",
-    "Invoice Date",
-    "Due Date",
-    "Subtotal",
-    "GST",
-    "Total",
-  ];
 
-  const rows = invoices.map((i) => [
-    i.invoice_number,
-    i.client_name,
-    i.status,
-    i.invoice_date,
-    i.due_date,
-    i.subtotal,
-    Number(i.cgst) + Number(i.sgst) + Number(i.igst),
-    i.total,
-  ]);
+  const now = new Date();
+  const getDateRange = (): { start: Date; end: Date } => {
+    if (dateFilter === "today") return { start: startOfDay(now), end: endOfDay(now) };
+    if (dateFilter === "week") {
+      const start = startOfDay(now);
+      start.setDate(now.getDate() - ((now.getDay() + 6) % 7));
+      return { start, end: endOfDay(now) };
+    }
+    if (dateFilter === "year") return { start: new Date(now.getFullYear(), 0, 1), end: endOfDay(now) };
+    if (dateFilter === "custom") {
+      const start = customStartDate ? startOfDay(new Date(`${customStartDate}T00:00:00`)) : new Date(0);
+      const end = customEndDate ? endOfDay(new Date(`${customEndDate}T00:00:00`)) : endOfDay(now);
+      return { start, end };
+    }
+    return { start: new Date(now.getFullYear(), now.getMonth(), 1), end: endOfDay(now) };
+  };
 
-  const csv = [
-    headers.join(","),
-    ...rows.map((r) => r.join(",")),
-  ].join("\n");
-
-  const blob = new Blob([csv], {
-    type: "text/csv;charset=utf-8;",
+  const activeRange = getDateRange();
+  const filteredInvoices = invoices.filter((invoice) => {
+    const matchesDate = isWithin(invoiceDate(invoice), activeRange.start, activeRange.end);
+    const matchesStatus = selectedStatus === "all" || invoice.status === selectedStatus;
+    const matchesClient = selectedClient === "all" || invoice.client_name === selectedClient;
+    return matchesDate && matchesStatus && matchesClient;
   });
 
+  const reportRangeLabel = `${activeRange.start.toLocaleDateString()} - ${activeRange.end.toLocaleDateString()}`;
+
+function exportCSV() {
+  const escape = (value: unknown) => `"${String(value ?? "").replace(/"/g, '""')}"`;
+  const headers = ["Invoice No", "Client", "Status", "Invoice Date", "Due Date", "Invoice Currency", "Exchange Rate", "Invoice Subtotal", "Invoice Total", `Base Total (${currency})`];
+  const rows = filteredInvoices.map((invoice) => [
+    invoice.invoice_number,
+    invoice.client_name,
+    invoice.status,
+    invoice.invoice_date,
+    invoice.due_date,
+    invoice.invoice_currency ?? currency,
+    Number(invoice.exchange_rate ?? 1).toFixed(6),
+    Number(invoice.invoice_subtotal ?? invoice.subtotal ?? 0).toFixed(2),
+    Number(invoice.invoice_total ?? invoice.total ?? 0).toFixed(2),
+    invoiceBaseAmount(invoice).toFixed(2),
+  ]);
+  const csv = [headers, ...rows].map((row) => row.map(escape).join(",")).join("\n");
+  const blob = new Blob(["\uFEFF", csv], { type: "text/csv;charset=utf-8;" });
   const link = document.createElement("a");
   link.href = URL.createObjectURL(blob);
-  link.download = "Invoice_Report.csv";
+  link.download = `Rivox_Report_${new Date().toISOString().slice(0, 10)}.csv`;
   link.click();
+  URL.revokeObjectURL(link.href);
 }
+
 function exportPDF() {
   const doc = new jsPDF();
-
-  doc.setFontSize(18);
-  doc.text("Rivox Reports", 20, 20);
-
+  const paidTotal = filteredInvoices.filter((invoice) => invoice.status === "paid").reduce((sum, invoice) => sum + invoiceBaseAmount(invoice), 0);
+  const pendingTotal = filteredInvoices.filter((invoice) => invoice.status === "sent").reduce((sum, invoice) => sum + invoiceBaseAmount(invoice), 0);
+  const overdueTotal = filteredInvoices.filter((invoice) => invoice.status === "overdue").reduce((sum, invoice) => sum + invoiceBaseAmount(invoice), 0);
+  doc.setFontSize(20);
+  doc.text(profile?.business_name || "Rivox Business Report", 14, 18);
+  doc.setFontSize(10);
+  doc.text(`Report period: ${reportRangeLabel}`, 14, 27);
+  doc.text(`Base currency: ${currency}`, 14, 33);
+  doc.text(`Generated: ${new Date().toLocaleString()}`, 14, 39);
   doc.setFontSize(12);
-
-  doc.text(`Total Revenue: ${formatMoney(totalRevenue, currency)}`, 20, 40);
-  doc.text(`Paid Invoices: ${paidInvoices}`, 20, 50);
-  doc.text(`Pending Invoices: ${pendingInvoices}`, 20, 60);
-  doc.text(`Overdue Invoices: ${overdueInvoices}`, 20, 70);
-  doc.text(`Total Clients: ${totalClients}`, 20, 80);
-
-  doc.save("Invoice_Report.pdf");
+  doc.text(`Paid revenue: ${formatMoney(paidTotal, currency)}`, 14, 51);
+  doc.text(`Pending: ${formatMoney(pendingTotal, currency)}`, 14, 59);
+  doc.text(`Overdue: ${formatMoney(overdueTotal, currency)}`, 14, 67);
+  doc.text(`Invoices: ${filteredInvoices.length}`, 14, 75);
+  let y = 88;
+  doc.setFontSize(9);
+  filteredInvoices.slice(0, 28).forEach((invoice) => {
+    doc.text(`${invoice.invoice_number} | ${invoice.client_name.slice(0, 24)} | ${invoice.status} | ${formatMoney(invoiceBaseAmount(invoice), currency)}`, 14, y);
+    y += 6;
+  });
+  if (filteredInvoices.length > 28) doc.text(`+ ${filteredInvoices.length - 28} more invoices (see CSV/Excel export)`, 14, y + 3);
+  doc.save(`Rivox_Report_${new Date().toISOString().slice(0, 10)}.pdf`);
 }
+
 function exportExcel() {
-  const rows = invoices.map((i) => ({
-    "Invoice No": i.invoice_number,
-    Client: i.client_name,
-    Status: i.status,
-    "Invoice Date": i.invoice_date,
-    "Due Date": i.due_date,
-    Subtotal: i.subtotal,
-    GST: Number(i.cgst) + Number(i.sgst) + Number(i.igst),
-    Total: i.total,
+  const rows = filteredInvoices.map((invoice) => ({
+    "Invoice No": invoice.invoice_number,
+    Client: invoice.client_name,
+    Status: invoice.status,
+    "Invoice Date": invoice.invoice_date,
+    "Due Date": invoice.due_date,
+    "Invoice Currency": invoice.invoice_currency ?? currency,
+    "Exchange Rate": Number(invoice.exchange_rate ?? 1),
+    "Invoice Subtotal": Number(Number(invoice.invoice_subtotal ?? invoice.subtotal ?? 0).toFixed(2)),
+    "Invoice Total": Number(Number(invoice.invoice_total ?? invoice.total ?? 0).toFixed(2)),
+    [`Base Total (${currency})`]: Number(invoiceBaseAmount(invoice).toFixed(2)),
   }));
-
   const worksheet = XLSX.utils.json_to_sheet(rows);
+  worksheet["!cols"] = [14, 24, 12, 14, 14, 16, 14, 18, 16, 18].map((wch) => ({ wch }));
+  worksheet["!autofilter"] = { ref: worksheet["!ref"] || "A1:J1" };
+  const summary = XLSX.utils.aoa_to_sheet([
+    ["Rivox Report Summary"],
+    ["Period", reportRangeLabel],
+    ["Base Currency", currency],
+    ["Invoice Count", filteredInvoices.length],
+    ["Total Base Value", Number(filteredInvoices.reduce((sum, invoice) => sum + invoiceBaseAmount(invoice), 0).toFixed(2))],
+  ]);
+  summary["!cols"] = [{ wch: 24 }, { wch: 24 }];
   const workbook = XLSX.utils.book_new();
-
+  XLSX.utils.book_append_sheet(workbook, summary, "Summary");
   XLSX.utils.book_append_sheet(workbook, worksheet, "Invoices");
-
-  XLSX.writeFile(workbook, "Invoice_Report.xlsx");
+  XLSX.writeFile(workbook, `Rivox_Report_${new Date().toISOString().slice(0, 10)}.xlsx`);
 }
   // Calculate analytics
-  const now = new Date();
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
   const lastMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
   const lastMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0);
 
   // Revenue analytics
-  const totalRevenue = invoices.reduce((sum, inv) => sum + Number(inv.total), 0);
+  const totalRevenue = filteredInvoices.reduce((sum, inv) => sum + invoiceBaseAmount(inv), 0);
   const revenueThisMonth = invoices
     .filter((inv) => new Date(inv.created_at) >= monthStart && inv.status === "paid")
-    .reduce((sum, inv) => sum + Number(inv.total), 0);
+    .reduce((sum, inv) => sum + invoiceBaseAmount(inv), 0);
   const revenueLastMonth = invoices
     .filter((inv) => {
       const date = new Date(inv.created_at);
       return date >= lastMonthStart && date <= lastMonthEnd && inv.status === "paid";
     })
-    .reduce((sum, inv) => sum + Number(inv.total), 0);
+    .reduce((sum, inv) => sum + invoiceBaseAmount(inv), 0);
 
   const revenueGrowth = revenueLastMonth > 0
     ? Math.round(((revenueThisMonth - revenueLastMonth) / revenueLastMonth) * 100)
     : 0;
 
   // Invoice analytics
-  const totalInvoices = invoices.length;
-  const paidInvoices = invoices.filter((inv) => inv.status === "paid").length;
-  const pendingInvoices = invoices.filter((inv) => inv.status === "sent").length;
-  const overdueInvoices = invoices.filter((inv) => inv.status === "overdue").length;
-  const draftInvoices = invoices.filter((inv) => inv.status === "draft").length;
+  const totalInvoices = filteredInvoices.length;
+  const paidInvoices = filteredInvoices.filter((inv) => inv.status === "paid").length;
+  const pendingInvoices = filteredInvoices.filter((inv) => inv.status === "sent").length;
+  const overdueInvoices = filteredInvoices.filter((inv) => inv.status === "overdue").length;
+  const draftInvoices = filteredInvoices.filter((inv) => inv.status === "draft").length;
 
   // Client analytics
   const totalClients = clients.length;
@@ -446,11 +481,11 @@ function exportExcel() {
 
   // Top clients by revenue
   const clientRevenue = new Map<string, { revenue: number; invoices: number }>();
-  invoices.forEach((inv) => {
+  filteredInvoices.forEach((inv) => {
     if (inv.status === "paid") {
       const current = clientRevenue.get(inv.client_name) || { revenue: 0, invoices: 0 };
       clientRevenue.set(inv.client_name, {
-        revenue: current.revenue + Number(inv.total),
+        revenue: current.revenue + invoiceBaseAmount(inv),
         invoices: current.invoices + 1,
       });
     }
@@ -463,13 +498,13 @@ function exportExcel() {
   const highestPayingClient = topClients[0]?.name || "N/A";
 
   // Tax summary
-  const totalCGST = invoices.reduce((sum, inv) => sum + Number(inv.cgst || 0), 0);
-  const totalSGST = invoices.reduce((sum, inv) => sum + Number(inv.sgst || 0), 0);
-  const totalIGST = invoices.reduce((sum, inv) => sum + Number(inv.igst || 0), 0);
+  const totalCGST = filteredInvoices.reduce((sum, inv) => sum + Number(inv.cgst || 0), 0);
+  const totalSGST = filteredInvoices.reduce((sum, inv) => sum + Number(inv.sgst || 0), 0);
+  const totalIGST = filteredInvoices.reduce((sum, inv) => sum + Number(inv.igst || 0), 0);
   const totalGST = totalCGST + totalSGST + totalIGST;
 
   // Chart data (with placeholder data if no real data)
-  const hasData = invoices.length > 0;
+  const hasData = filteredInvoices.length > 0;
 
   // Revenue trend data (last 6 months)
   const revenueTrendData = hasData
@@ -478,12 +513,12 @@ function exportExcel() {
         for (let i = 5; i >= 0; i--) {
           const monthStart = new Date(now.getFullYear(), now.getMonth() - i, 1);
           const monthEnd = new Date(now.getFullYear(), now.getMonth() - i + 1, 0);
-          const monthRevenue = invoices
+          const monthRevenue = filteredInvoices
             .filter((inv) => {
               const date = new Date(inv.created_at);
               return date >= monthStart && date <= monthEnd && inv.status === "paid";
             })
-            .reduce((sum, inv) => sum + Number(inv.total), 0);
+            .reduce((sum, inv) => sum + invoiceBaseAmount(inv), 0);
           data.push(monthRevenue);
         }
         return data;
@@ -640,7 +675,7 @@ function exportExcel() {
       </div>
 
       {/* Empty State */}
-      {!loading && invoices.length === 0 ? (
+      {!loading && filteredInvoices.length === 0 ? (
         <div className="card p-12 text-center">
           <div className="w-20 h-20 bg-slate-100 rounded-full flex items-center justify-center mx-auto mb-4">
             <svg className="w-10 h-10 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
