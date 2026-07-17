@@ -152,6 +152,7 @@ function getStateLabel(country: string): string {
 function getEmptyForm(defaultCountry?: string | null, defaultCountryCode?: string | null) {
   return {
     name: "",
+    company_name: "",
     country: defaultCountry ?? "United States",
     country_code: defaultCountryCode ?? "+1",
     phone: "",
@@ -174,6 +175,10 @@ export default function Clients() {
   const [historyClient, setHistoryClient] = useState<Client | null>(null);
   const [historyInvoices, setHistoryInvoices] = useState<Invoice[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [search, setSearch] = useState("");
+  const [deleteTarget, setDeleteTarget] = useState<Client | null>(null);
+  const [deleteInvoicesToo, setDeleteInvoicesToo] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     async function load() {
@@ -199,6 +204,7 @@ export default function Clients() {
     setEditingId(client.id);
     setForm({
       name: client.name,
+      company_name: client.company_name ?? "",
       country: client.country ?? profile?.country ?? "United States",
       country_code: client.country_code ?? profile?.country_code ?? "+1",
       phone: client.phone ?? "",
@@ -232,13 +238,53 @@ export default function Clients() {
       return;
     }
     setSaving(true);
+    const normalizedEmail = form.email.trim().toLowerCase();
+    const normalizedName = form.name.trim();
+    const normalizedPhone = form.phone.trim();
+
+    // Prevent duplicate clients before insert/update. Email is the primary
+    // identity when present; otherwise fall back to name + phone.
+    let duplicateQuery = supabase
+      .from("clients")
+      .select("id")
+      .eq("user_id", user.id);
+
+    if (normalizedEmail) {
+      duplicateQuery = duplicateQuery.ilike("email", normalizedEmail);
+    } else if (normalizedPhone) {
+      duplicateQuery = duplicateQuery
+        .ilike("name", normalizedName)
+        .eq("phone", normalizedPhone);
+    } else {
+      duplicateQuery = duplicateQuery.ilike("name", normalizedName);
+    }
+
+    if (editingId) duplicateQuery = duplicateQuery.neq("id", editingId);
+
+    const { data: duplicate, error: duplicateError } = await duplicateQuery.limit(1).maybeSingle();
+    if (duplicateError) {
+      setSaving(false);
+      setError(duplicateError.message);
+      return;
+    }
+    if (duplicate) {
+      setSaving(false);
+      setError(
+        normalizedEmail
+          ? "A client with this email already exists."
+          : "A matching client already exists."
+      );
+      return;
+    }
+
     const payload = {
       user_id: user.id,
-      name: form.name.trim(),
+      name: normalizedName,
+      company_name: form.company_name.trim() || null,
       country: form.country,
       country_code: form.country_code,
-      phone: form.phone.trim() || null,
-      email: form.email.trim() || null,
+      phone: normalizedPhone || null,
+      email: normalizedEmail || null,
       address: form.address.trim() || null,
       state: form.state || null,
       gstin: form.gstin.trim().toUpperCase() || null,
@@ -275,12 +321,51 @@ export default function Clients() {
     setShowForm(false);
   }
 
-  async function handleDelete(client: Client) {
-    if (!confirm(`Delete client "${client.name}"? This cannot be undone.`)) return;
-    const { error } = await supabase.from("clients").delete().eq("id", client.id);
-    if (!error) {
-      setClients((prev) => prev.filter((c) => c.id !== client.id));
+  function requestDelete(client: Client) {
+    setDeleteTarget(client);
+    setDeleteInvoicesToo(false);
+    setError(null);
+  }
+
+  async function confirmDelete() {
+    if (!deleteTarget || !user) return;
+    setDeleting(true);
+    setError(null);
+
+    // Invoices currently store the client name rather than a client_id, so
+    // deleting related invoices is an explicit optional action.
+    if (deleteInvoicesToo) {
+      let invoiceDeleteQuery = supabase
+        .from("invoices")
+        .delete()
+        .eq("user_id", user.id);
+
+      invoiceDeleteQuery = deleteTarget.email
+        ? invoiceDeleteQuery.ilike("client_email", deleteTarget.email)
+        : invoiceDeleteQuery.eq("client_name", deleteTarget.name);
+
+      const { error: invoiceDeleteError } = await invoiceDeleteQuery;
+      if (invoiceDeleteError) {
+        setDeleting(false);
+        setError(invoiceDeleteError.message);
+        return;
+      }
     }
+
+    const { error: clientDeleteError } = await supabase
+      .from("clients")
+      .delete()
+      .eq("id", deleteTarget.id)
+      .eq("user_id", user.id);
+
+    setDeleting(false);
+    if (clientDeleteError) {
+      setError(clientDeleteError.message);
+      return;
+    }
+
+    setClients((prev) => prev.filter((c) => c.id !== deleteTarget.id));
+    setDeleteTarget(null);
   }
 
   async function showHistory(client: Client) {
@@ -298,6 +383,18 @@ export default function Clients() {
 
   const availableStates = getStatesForCountry(form.country);
   const stateLabel = getStateLabel(form.country);
+  const normalizedSearch = search.trim().toLowerCase();
+  const filteredClients = normalizedSearch
+    ? clients.filter((client) =>
+        [
+          client.name,
+          client.company_name,
+          client.email,
+          client.phone,
+          client.country,
+        ].some((value) => value?.toLowerCase().includes(normalizedSearch))
+      )
+    : clients;
 
   return (
     <div className="max-w-7xl mx-auto space-y-6 animate-fade-in">
@@ -365,16 +462,31 @@ export default function Clients() {
                   <div className="h-10 w-10 rounded-xl bg-violet-100 text-violet-700 flex items-center justify-center font-bold">1</div>
                   <div><p className="font-semibold text-slate-900">Client identity</p><p className="text-xs text-slate-500">Start with the primary business or contact name.</p></div>
                 </div>
-                <label className="label">
-                  Client name <span className="text-red-500">*</span>
-                </label>
-                <input
-                  value={form.name}
-                  onChange={(e) => setForm({ ...form, name: e.target.value })}
-                  className="input"
-                  placeholder="Acme Corp"
-                  autoFocus
-                />
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="label">
+                      Client name <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      value={form.name}
+                      onChange={(e) => setForm({ ...form, name: e.target.value })}
+                      className="input"
+                      placeholder="John Doe"
+                      autoFocus
+                    />
+                  </div>
+                  <div>
+                    <label className="label">
+                      Company name <span className="text-slate-400 font-normal">(optional)</span>
+                    </label>
+                    <input
+                      value={form.company_name}
+                      onChange={(e) => setForm({ ...form, company_name: e.target.value })}
+                      className="input"
+                      placeholder="Acme Corp"
+                    />
+                  </div>
+                </div>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -490,6 +602,23 @@ export default function Clients() {
         </div>
       )}
 
+      {!loading && clients.length > 0 && (
+        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+          <div className="relative">
+            <svg className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="m21 21-4.35-4.35m1.35-5.65a7 7 0 1 1-14 0 7 7 0 0 1 14 0Z" />
+            </svg>
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="input pl-10"
+              placeholder="Search by client, company, email, phone or country"
+              aria-label="Search clients"
+            />
+          </div>
+        </div>
+      )}
+
       {loading ? (
         <div className="card p-8 text-center text-sm text-slate-500">Loading...</div>
       ) : clients.length === 0 ? (
@@ -507,15 +636,23 @@ export default function Clients() {
             Add your first client
           </button>
         </div>
+      ) : filteredClients.length === 0 ? (
+        <div className="card p-10 text-center">
+          <h3 className="font-semibold text-slate-900">No matching clients</h3>
+          <p className="mt-1 text-sm text-slate-500">Try a different name, company, email or phone number.</p>
+        </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {clients.map((client) => (
+          {filteredClients.map((client) => (
             <div key={client.id} className="group overflow-hidden rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition duration-200 hover:-translate-y-1 hover:border-violet-200 hover:shadow-lg space-y-4">
               <div className="flex items-start justify-between gap-3">
                 <div className="flex items-center gap-3">
                   <div className="h-11 w-11 shrink-0 rounded-2xl bg-gradient-to-br from-violet-600 to-indigo-600 text-white flex items-center justify-center font-bold shadow-md">{client.name.slice(0,1).toUpperCase()}</div>
                   <div>
                   <h3 className="font-semibold text-slate-900">{client.name}</h3>
+                  {client.company_name && (
+                    <p className="text-xs font-medium text-violet-700 mt-0.5">{client.company_name}</p>
+                  )}
                   {client.gstin && (
                     <p className="text-xs text-slate-500 mt-0.5">
                       {client.country === "India" ? "GSTIN" : "Tax ID"}: {client.gstin}
@@ -553,7 +690,7 @@ export default function Clients() {
                   Edit
                 </button>
                 <button
-                  onClick={() => handleDelete(client)}
+                  onClick={() => requestDelete(client)}
                   className="text-sm text-red-500 font-medium hover:underline"
                 >
                   Delete
@@ -561,6 +698,34 @@ export default function Clients() {
               </div>
             </div>
           ))}
+        </div>
+      )}
+
+      {deleteTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-slate-900/50 backdrop-blur-sm" onClick={() => !deleting && setDeleteTarget(null)} />
+          <div className="relative w-full max-w-lg rounded-3xl border border-slate-200 bg-white p-6 shadow-2xl">
+            <h2 className="text-xl font-bold text-slate-900">Delete client data</h2>
+            <p className="mt-2 text-sm text-slate-600">Choose what should be removed for <strong>{deleteTarget.name}</strong>.</p>
+
+            <div className="mt-5 space-y-3">
+              <label className="flex cursor-pointer items-start gap-3 rounded-2xl border border-slate-200 p-4">
+                <input type="radio" name="deleteMode" checked={!deleteInvoicesToo} onChange={() => setDeleteInvoicesToo(false)} className="mt-1" />
+                <span><span className="block font-semibold text-slate-900">Delete client only</span><span className="text-sm text-slate-500">Existing invoices stay in your invoice history.</span></span>
+              </label>
+              <label className="flex cursor-pointer items-start gap-3 rounded-2xl border border-red-200 bg-red-50/50 p-4">
+                <input type="radio" name="deleteMode" checked={deleteInvoicesToo} onChange={() => setDeleteInvoicesToo(true)} className="mt-1" />
+                <span><span className="block font-semibold text-red-700">Delete client and invoices</span><span className="text-sm text-red-600">All invoices matching this client name will be permanently deleted.</span></span>
+              </label>
+            </div>
+
+            <div className="mt-6 flex justify-end gap-3">
+              <button type="button" className="btn-ghost" disabled={deleting} onClick={() => setDeleteTarget(null)}>Cancel</button>
+              <button type="button" disabled={deleting} onClick={confirmDelete} className="rounded-xl bg-red-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-60">
+                {deleting ? "Deleting..." : "Delete data"}
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

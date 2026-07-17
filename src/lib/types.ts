@@ -49,6 +49,7 @@ export interface Client {
   user_id: string;
 
   name: string;
+  company_name: string | null;
 
   country: string | null;
   country_code: string | null;
