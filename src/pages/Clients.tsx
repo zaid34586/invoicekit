@@ -242,37 +242,59 @@ export default function Clients() {
     const normalizedName = form.name.trim();
     const normalizedPhone = form.phone.trim();
 
-    // Prevent duplicate clients before insert/update. Email is the primary
-    // identity when present; otherwise fall back to name + phone.
-    let duplicateQuery = supabase
+    // Block a duplicate when ANY primary identity matches: name, email,
+    // or full phone number. The old logic checked email first and skipped
+    // name/phone whenever an email was present, so duplicates could still be
+    // created with a different email.
+    const normalizeText = (value?: string | null) =>
+      (value ?? "").trim().toLocaleLowerCase();
+    const normalizePhone = (countryCode?: string | null, phone?: string | null) => {
+      const code = (countryCode ?? "").replace(/\D/g, "");
+      const number = (phone ?? "").replace(/\D/g, "");
+      return number ? `${code}${number}` : "";
+    };
+
+    const candidateName = normalizeText(normalizedName);
+    const candidateEmail = normalizeText(normalizedEmail);
+    const candidatePhone = normalizePhone(form.country_code, normalizedPhone);
+
+    const { data: existingClients, error: duplicateError } = await supabase
       .from("clients")
-      .select("id")
+      .select("id, name, email, phone, country_code")
       .eq("user_id", user.id);
 
-    if (normalizedEmail) {
-      duplicateQuery = duplicateQuery.ilike("email", normalizedEmail);
-    } else if (normalizedPhone) {
-      duplicateQuery = duplicateQuery
-        .ilike("name", normalizedName)
-        .eq("phone", normalizedPhone);
-    } else {
-      duplicateQuery = duplicateQuery.ilike("name", normalizedName);
-    }
-
-    if (editingId) duplicateQuery = duplicateQuery.neq("id", editingId);
-
-    const { data: duplicate, error: duplicateError } = await duplicateQuery.limit(1).maybeSingle();
     if (duplicateError) {
       setSaving(false);
       setError(duplicateError.message);
       return;
     }
+
+    const duplicate = (existingClients ?? []).find((client) => {
+      if (editingId && client.id === editingId) return false;
+
+      const sameName = candidateName && normalizeText(client.name) === candidateName;
+      const sameEmail = candidateEmail && normalizeText(client.email) === candidateEmail;
+      const samePhone =
+        candidatePhone && normalizePhone(client.country_code, client.phone) === candidatePhone;
+
+      return Boolean(sameName || sameEmail || samePhone);
+    });
+
     if (duplicate) {
       setSaving(false);
+      const sameName = candidateName && normalizeText(duplicate.name) === candidateName;
+      const sameEmail = candidateEmail && normalizeText(duplicate.email) === candidateEmail;
+      const samePhone =
+        candidatePhone && normalizePhone(duplicate.country_code, duplicate.phone) === candidatePhone;
+
       setError(
-        normalizedEmail
+        sameEmail
           ? "A client with this email already exists."
-          : "A matching client already exists."
+          : samePhone
+            ? "A client with this phone number already exists."
+            : sameName
+              ? "A client with this name already exists."
+              : "This client already exists."
       );
       return;
     }
@@ -299,7 +321,11 @@ export default function Clients() {
         .single();
       setSaving(false);
       if (error) {
-        setError(error.message);
+        setError(
+          error.code === "23505"
+            ? "A client with the same name, email, or phone number already exists."
+            : error.message
+        );
         return;
       }
       setClients((prev) =>
@@ -313,7 +339,11 @@ export default function Clients() {
         .single();
       setSaving(false);
       if (error) {
-        setError(error.message);
+        setError(
+          error.code === "23505"
+            ? "A client with the same name, email, or phone number already exists."
+            : error.message
+        );
         return;
       }
       setClients((prev) => [data as Client, ...prev]);
