@@ -1,10 +1,45 @@
-Rivox Premium Branding v1
+RIVOX HARDCODED OFFER CLEANUP + ADMIN-DRIVEN OFFERS
 
-Includes:
-- Build fix for UpgradeModal PricingPlan.price error
-- New reusable Rivox logo component
-- Premium navbar, hero and footer
-- Refined design tokens, buttons, cards and forms
-- Updated logo and favicon assets
+WHAT THIS PATCH DOES
+- Removes hardcoded "Save 33%" from Monthly/Yearly toggles.
+- Removes YEARLY33 and LAUNCH20 static offer banner cards.
+- Loads active offers from Supabase admin_promo_codes.
+- Shows each applicable offer inside the Pro/Business plan card.
+- Applies the active admin offer code automatically to Paddle checkout.
+- Billing promo validation now checks admin-managed active offers.
+- Adds anonymous read-only RLS policy so public landing/pricing pages can read active offers.
 
-No SQL migration required.
+IMPORTANT
+Extract this ZIP. The extracted folder itself is the SOURCE. Copy its contents directly into:
+C:\Users\mz712\Desktop\invoicekit
+Do NOT create another invoicekit-main folder inside the project.
+
+POWERSHELL COPY
+$source = "C:\Users\mz712\Downloads\rivox-hardcoded-offers-fix"
+$dest   = "C:\Users\mz712\Desktop\invoicekit"
+
+Get-ChildItem -Path $source -Recurse -File | ForEach-Object {
+  $relativePath = $_.FullName.Substring($source.Length).TrimStart('\')
+  $destPath = Join-Path $dest $relativePath
+  New-Item -ItemType Directory -Force -Path (Split-Path $destPath) | Out-Null
+  Copy-Item $_.FullName $destPath -Force
+  Write-Host "Copied: $relativePath" -ForegroundColor Green
+}
+
+RUN ONLY THE NEW MIGRATION
+Because your Supabase migration history is not synchronized, do NOT run a full `supabase db push` yet.
+Open Supabase Dashboard > SQL Editor and run only:
+supabase/migrations/20260712123000_public_active_promos.sql
+
+THEN TEST AND DEPLOY
+npm run build
+git add src/components/landing/Pricing.tsx src/pages/Billing.tsx src/lib/pricing.ts src/lib/offers.ts supabase/migrations/20260712123000_public_active_promos.sql
+git commit -m "fix(marketing): remove hardcoded offers and load admin promos"
+git push origin main
+
+LIVE TEST
+1. Pricing toggle should show only Monthly / Yearly.
+2. Static YEARLY33 and LAUNCH20 banner section should be gone.
+3. With no active admin offers, no discount badge should show.
+4. Create/enable an offer in Admin > Pricing & Offers.
+5. Offer badge, title and code should appear inside the matching plan card.

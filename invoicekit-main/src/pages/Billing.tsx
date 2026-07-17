@@ -8,18 +8,24 @@ import {
   INDIA_PLANS,
   Plan,
   PricingPlan,
-  YEARLY_DISCOUNT_PERCENT,
   formatPlanPrice,
   getAnnualTotal,
   getPlanLimitLabel,
 } from "../lib/pricing";
 import { supabase } from "../lib/supabase";
 import { openPaddleCheckout } from "../lib/paddle";
-import { fetchPublicOffers, isOfferApplicable, type MarketingOffer } from "../lib/offers";
+import { formatOfferDiscount, getOfferForPlanCycle, loadActiveMarketingOffers, type MarketingOffer } from "../lib/offers";
+import { trackGrowthEvent } from "../lib/growth";
+import {
+  cancelPaddleSubscription,
+  createPaddlePortalSession,
+  loadPaddleSubscriptionStatus,
+  undoScheduledPaddleCancellation,
+  type BillingEventRecord,
+  type PaddleSubscriptionRecord,
+} from "../lib/paddleSubscription";
 
-const BILLING_HISTORY = [
-  { id: "1", date: "2026-06-15", invoiceNumber: "BILL-2026-001", plan: "Manual Pro", amount: 0, status: "active" },
-];
+
 
 function Modal({
   isOpen,
@@ -77,7 +83,7 @@ function BillingToggle({ cycle, setCycle }: { cycle: BillingCycle; setCycle: (cy
         onClick={() => setCycle("yearly")}
         className={`rounded-full px-4 py-2 text-sm font-semibold transition ${cycle === "yearly" ? "bg-primary-600 text-white" : "text-slate-600"}`}
       >
-        Yearly <span className="text-xs">Save {YEARLY_DISCOUNT_PERCENT}%</span>
+        Yearly
       </button>
     </div>
   );
@@ -89,12 +95,14 @@ function PlanCard({
   currentPlan,
   onUpgrade,
   loading,
+  offer,
 }: {
   plan: PricingPlan;
   cycle: BillingCycle;
   currentPlan: Plan;
-  onUpgrade: (plan: PricingPlan) => void;
+  onUpgrade: (plan: PricingPlan, offer?: MarketingOffer) => void;
   loading?: boolean;
+  offer?: MarketingOffer;
 }) {
   const isCurrent = currentPlan === plan.id;
   const isFree = plan.id === "free";
@@ -107,7 +115,7 @@ function PlanCard({
       )}
       <div>
         <p className="text-xs font-bold uppercase tracking-wide text-primary-600">{plan.tagline}</p>
-        <h3 className="mt-2 text-xl font-bold text-slate-950">{plan.name}</h3>
+        <div className="mt-2 flex flex-wrap items-center gap-2"><h3 className="text-xl font-bold text-slate-950">{plan.name}</h3>{offer && !isFree && <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-black text-emerald-700">{formatOfferDiscount(offer)}</span>}</div>
         <p className="mt-2 min-h-[44px] text-sm leading-6 text-slate-600">{plan.description}</p>
       </div>
 
@@ -120,6 +128,13 @@ function PlanCard({
           </p>
         )}
       </div>
+
+      {offer && !isFree && (
+        <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 p-4">
+          <p className="text-sm font-black text-emerald-900">{offer.label}</p>
+          <p className="mt-1 text-xs font-medium text-emerald-700">Code <span className="font-mono font-black">{offer.code}</span> will be applied at checkout.</p>
+        </div>
+      )}
 
       <div className="mt-5 rounded-xl bg-slate-50 p-4 text-sm">
         <p className="font-bold text-slate-900">{getPlanLimitLabel(plan.invoiceLimit, "invoices/month")}</p>
@@ -138,7 +153,7 @@ function PlanCard({
       </ul>
 
       <button
-        onClick={() => onUpgrade(plan)}
+        onClick={() => onUpgrade(plan, offer)}
         disabled={isCurrent || isFree || loading}
         className={`mt-6 w-full rounded-xl px-4 py-3 text-sm font-bold transition ${
           isCurrent || isFree
@@ -164,6 +179,10 @@ export default function Billing() {
   const [offers, setOffers] = useState<MarketingOffer[]>([]);
   const [checkoutLoading, setCheckoutLoading] = useState<Plan | null>(null);
   const [checkoutError, setCheckoutError] = useState<string | null>(null);
+  const [subscription, setSubscription] = useState<PaddleSubscriptionRecord | null>(null);
+  const [billingEvents, setBillingEvents] = useState<BillingEventRecord[]>([]);
+  const [subscriptionLoading, setSubscriptionLoading] = useState(false);
+  const [subscriptionMessage, setSubscriptionMessage] = useState<string | null>(null);
   const [modal, setModal] = useState<null | { title: string; message: string; confirmLabel: string; onConfirm: () => void; variant?: "primary" | "danger" }>(null);
 
   const plans = region === "india" ? INDIA_PLANS : GLOBAL_PLANS;
@@ -171,6 +190,13 @@ export default function Billing() {
   const current = plans[planId];
   const invoiceBalance = Number(profile?.credits ?? 0);
   const isUnlimited = current.invoiceLimit === "unlimited" || planId !== "free";
+
+  useEffect(() => {
+    loadActiveMarketingOffers().then((items) => {
+      setOffers(items);
+      items.forEach((offer) => void trackGrowthEvent({ event: "offer_view", offerId: offer.id }));
+    });
+  }, []);
 
   useEffect(() => {
     async function loadUsage() {
@@ -188,11 +214,66 @@ export default function Billing() {
     loadUsage();
   }, [user]);
 
+  async function refreshSubscription() {
+    if (!user) return;
+    setSubscriptionLoading(true);
+    try {
+      const status = await loadPaddleSubscriptionStatus();
+      setSubscription(status.subscription);
+      setBillingEvents(status.billingEvents);
+    } catch (error) {
+      setSubscriptionMessage(error instanceof Error ? error.message : "Unable to load billing status.");
+    } finally {
+      setSubscriptionLoading(false);
+    }
+  }
+
   useEffect(() => {
-    let mounted = true;
-    fetchPublicOffers().then((rows) => mounted && setOffers(rows)).catch(() => mounted && setOffers([]));
-    return () => { mounted = false; };
-  }, []);
+    void refreshSubscription();
+  }, [user?.id]);
+
+  async function openPortal(mode: "overview" | "cancel" | "payment_method") {
+    setSubscriptionMessage(null);
+    setSubscriptionLoading(true);
+    try {
+      const url = await createPaddlePortalSession(mode);
+      window.open(url, "_blank", "noopener,noreferrer");
+    } catch (error) {
+      setSubscriptionMessage(error instanceof Error ? error.message : "Unable to open Paddle portal.");
+    } finally {
+      setSubscriptionLoading(false);
+    }
+  }
+
+  async function requestCancellation() {
+    setSubscriptionMessage(null);
+    setSubscriptionLoading(true);
+    try {
+      const updated = await cancelPaddleSubscription("next_billing_period");
+      setSubscription(updated);
+      setSubscriptionMessage("Cancellation scheduled for the end of the current billing period.");
+      await refreshSubscription();
+    } catch (error) {
+      setSubscriptionMessage(error instanceof Error ? error.message : "Unable to cancel subscription.");
+    } finally {
+      setSubscriptionLoading(false);
+    }
+  }
+
+  async function undoCancellation() {
+    setSubscriptionMessage(null);
+    setSubscriptionLoading(true);
+    try {
+      const updated = await undoScheduledPaddleCancellation();
+      setSubscription(updated);
+      setSubscriptionMessage("Scheduled cancellation removed. Your subscription will continue.");
+      await refreshSubscription();
+    } catch (error) {
+      setSubscriptionMessage(error instanceof Error ? error.message : "Unable to keep subscription active.");
+    } finally {
+      setSubscriptionLoading(false);
+    }
+  }
 
   const usage = useMemo(() => {
     const freeUsed = Math.min(invoicesThisMonth, FREE_PLAN_LIMIT);
@@ -204,14 +285,16 @@ export default function Billing() {
     return { freeUsed, freeRemaining, extraRemaining, totalRemaining, totalLimit, percentage };
   }, [invoiceBalance, invoicesThisMonth, isUnlimited]);
 
-  function handleUpgrade(plan: PricingPlan) {
+  function handleUpgrade(plan: PricingPlan, offer?: MarketingOffer) {
     if (plan.id === "free") return;
+    if (offer) void trackGrowthEvent({ event: "offer_click", offerId: offer.id, plan: plan.id, billingCycle: cycle });
     setCheckoutError(null);
     setModal({
       title: `Upgrade to ${plan.name}`,
       message: `Continue to the secure Paddle checkout for the ${plan.name} ${cycle} plan. Your plan activates automatically after payment confirmation.`,
       confirmLabel: "Continue to checkout",
       onConfirm: async () => {
+        void trackGrowthEvent({ event: "checkout_start", offerId: offer?.id, plan: plan.id, billingCycle: cycle });
         try {
           setCheckoutLoading(plan.id);
           await openPaddleCheckout({
@@ -219,7 +302,9 @@ export default function Billing() {
             cycle,
             userId: user?.id,
             email: user?.email,
-            discountCode: offers.find((offer) => offer.code === promoCode.trim().toUpperCase() && offer.paddle_synced && isOfferApplicable(offer, plan.id, cycle))?.code,
+            discountCode: promoCode.trim() || (offer?.paddleDiscountId ? undefined : offer?.code) || undefined,
+            discountId: promoCode.trim() ? undefined : offer?.paddleDiscountId ?? undefined,
+            offerId: offer?.id,
           });
         } catch (error) {
           setCheckoutError(error instanceof Error ? error.message : "Unable to start checkout.");
@@ -231,18 +316,12 @@ export default function Billing() {
 
   function applyPromo() {
     const code = promoCode.trim().toUpperCase();
-    const offer = offers.find((item) => item.code === code);
+    const offer = offers.find((item) => item.code.toUpperCase() === code);
     if (!offer) {
-      setPromoMessage("This offer is not active or has expired.");
+      setPromoMessage("This offer is not active or is not available from Rivox Admin.");
       return;
     }
-    const applicablePlans = (["pro", "business"] as const).filter((plan) => isOfferApplicable(offer, plan, cycle));
-    if (applicablePlans.length === 0) {
-      setPromoMessage(`This code is not available for ${cycle} billing.`);
-      return;
-    }
-    const discount = offer.discount_type === "percentage" ? `${offer.discount_value}%` : `${offer.discount_value} fixed`;
-    setPromoMessage(`${offer.code}: ${discount} off ${applicablePlans.join("/")} plans.${offer.paddle_synced ? " It will be sent to Paddle checkout." : " It is currently display-only until synced with Paddle."}`);
+    setPromoMessage(`${offer.code}: ${formatOfferDiscount(offer)} on ${offer.appliesTo.join("/")} ${offer.billingScope === "all" ? "monthly and yearly" : offer.billingScope} plans.`);
   }
 
   return (
@@ -263,7 +342,7 @@ export default function Billing() {
             <p className="text-sm font-bold uppercase tracking-wide text-primary-200">Billing command center</p>
             <h1 className="mt-3 text-3xl font-black tracking-tight">Manage your plan, usage, and invoice capacity.</h1>
             <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-300">
-              Upgrade when payments go live, track invoice usage, apply launch offers, and manage billing history from one place.
+              Upgrade securely, track invoice usage, apply active admin-managed offers, and manage billing history from one place.
             </p>
           </div>
           <BillingToggle cycle={cycle} setCycle={setCycle} />
@@ -331,25 +410,43 @@ export default function Billing() {
         {promoMessage && <p className="mb-4 rounded-xl bg-primary-50 p-3 text-sm font-medium text-primary-700">{promoMessage}</p>}
         <div className="grid gap-6 lg:grid-cols-3">
           {(["free", "pro", "business"] as Plan[]).map((id) => (
-            <PlanCard key={id} plan={plans[id]} cycle={cycle} currentPlan={planId} onUpgrade={handleUpgrade} loading={checkoutLoading === id} />
+            <PlanCard key={id} plan={plans[id]} cycle={cycle} currentPlan={planId} onUpgrade={handleUpgrade} loading={checkoutLoading === id} offer={getOfferForPlanCycle(offers, id, cycle)} />
           ))}
         </div>
       </section>
 
       {planId !== "free" && (
         <section className="card p-6">
-          <h2 className="text-lg font-bold text-slate-950">Subscription actions</h2>
-          <p className="mt-1 text-sm text-slate-500">These actions become active after payment gateway integration.</p>
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+            <div>
+              <h2 className="text-lg font-bold text-slate-950">Subscription actions</h2>
+              <p className="mt-1 text-sm text-slate-500">Manage payment methods, receipts, invoices, and cancellation through secure Paddle billing tools.</p>
+            </div>
+            <div className={`rounded-full px-3 py-1 text-xs font-black ${subscription?.status === "active" ? "bg-emerald-100 text-emerald-700" : subscription?.status === "past_due" ? "bg-amber-100 text-amber-700" : "bg-slate-100 text-slate-600"}`}>
+              {subscriptionLoading ? "Refreshing..." : (subscription?.status || "Awaiting Paddle sync").replace(/_/g, " ")}
+            </div>
+          </div>
+
+          {subscription && (
+            <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              <div className="rounded-2xl bg-slate-50 p-4"><p className="text-xs font-bold uppercase tracking-wide text-slate-400">Billing cycle</p><p className="mt-2 font-black capitalize text-slate-950">{subscription.billing_cycle || "—"}</p></div>
+              <div className="rounded-2xl bg-slate-50 p-4"><p className="text-xs font-bold uppercase tracking-wide text-slate-400">Renews</p><p className="mt-2 font-black text-slate-950">{subscription.renews_at ? new Date(subscription.renews_at).toLocaleDateString("en-IN") : "—"}</p></div>
+              <div className="rounded-2xl bg-slate-50 p-4"><p className="text-xs font-bold uppercase tracking-wide text-slate-400">Provider</p><p className="mt-2 font-black capitalize text-slate-950">{subscription.provider}</p></div>
+              <div className="rounded-2xl bg-slate-50 p-4"><p className="text-xs font-bold uppercase tracking-wide text-slate-400">Subscription ID</p><p className="mt-2 truncate font-mono text-xs font-bold text-slate-700">{subscription.provider_subscription_id || "—"}</p></div>
+            </div>
+          )}
+
+          {subscriptionMessage && <div className="mt-4 rounded-xl border border-primary-200 bg-primary-50 px-4 py-3 text-sm font-medium text-primary-700">{subscriptionMessage}</div>}
+
           <div className="mt-5 flex flex-wrap gap-3">
-            <button className="btn-secondary" onClick={() => setModal({ title: "Manage Subscription", message: "Live billing portal will be available after payment gateway integration.", confirmLabel: "Got it", onConfirm: () => {} })}>
-              Manage Subscription
-            </button>
-            <button className="btn-secondary" onClick={() => setModal({ title: "Download Receipts", message: "Receipts will appear here after live payments are enabled.", confirmLabel: "Got it", onConfirm: () => {} })}>
-              Download Receipts
-            </button>
-            <button className="btn-danger" onClick={() => setModal({ title: "Cancel Subscription", message: "Cancellation will be available after live subscriptions are enabled.", confirmLabel: "Got it", variant: "danger", onConfirm: () => {} })}>
-              Cancel Subscription
-            </button>
+            <button disabled={!subscription || subscriptionLoading} className="btn-secondary disabled:cursor-not-allowed disabled:opacity-50" onClick={() => void openPortal("overview")}>Manage Subscription</button>
+            <button disabled={!subscription || subscriptionLoading} className="btn-secondary disabled:cursor-not-allowed disabled:opacity-50" onClick={() => void openPortal("payment_method")}>Update Payment Method</button>
+            <button disabled={!subscription || subscriptionLoading} className="btn-secondary disabled:cursor-not-allowed disabled:opacity-50" onClick={() => void openPortal("overview")}>View Receipts & Invoices</button>
+            {subscription?.cancelled && subscription.status === "active" ? (
+              <button disabled={subscriptionLoading} className="rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-bold text-white hover:bg-emerald-700 disabled:opacity-50" onClick={() => setModal({ title: "Keep subscription active", message: "Remove the scheduled cancellation and continue renewing this subscription?", confirmLabel: "Keep active", onConfirm: () => void undoCancellation() })}>Keep Subscription</button>
+            ) : (
+              <button disabled={!subscription || subscriptionLoading} className="btn-danger disabled:cursor-not-allowed disabled:opacity-50" onClick={() => setModal({ title: "Cancel at period end", message: "Your subscription will remain active until the end of the current billing period. You can undo this before the effective date.", confirmLabel: "Schedule cancellation", variant: "danger", onConfirm: () => void requestCancellation() })}>Cancel Subscription</button>
+            )}
           </div>
         </section>
       )}
@@ -357,7 +454,7 @@ export default function Billing() {
       <section className="card">
         <div className="border-b border-slate-100 p-6">
           <h2 className="text-lg font-bold text-slate-950">Billing history</h2>
-          <p className="mt-1 text-sm text-slate-500">Manual and future gateway receipts will appear here.</p>
+          <p className="mt-1 text-sm text-slate-500">Paddle transactions, renewals, and receipts linked to your account appear here.</p>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full">
@@ -371,13 +468,15 @@ export default function Billing() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {BILLING_HISTORY.map((item) => (
+              {billingEvents.length === 0 ? (
+                <tr><td colSpan={5} className="px-6 py-10 text-center text-sm text-slate-500">No Paddle billing events yet.</td></tr>
+              ) : billingEvents.map((item) => (
                 <tr key={item.id} className="hover:bg-slate-50">
-                  <td className="px-6 py-4 text-sm text-slate-700">{new Date(item.date).toLocaleDateString("en-IN")}</td>
-                  <td className="px-6 py-4 text-sm font-mono text-slate-600">{item.invoiceNumber}</td>
-                  <td className="px-6 py-4 text-sm text-slate-700">{item.plan}</td>
-                  <td className="px-6 py-4 text-sm font-bold text-slate-950">{item.amount === 0 ? "Free / Manual" : `${current.symbol}${item.amount}`}</td>
-                  <td className="px-6 py-4"><span className="rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-bold text-emerald-700">{item.status}</span></td>
+                  <td className="px-6 py-4 text-sm text-slate-700">{new Date(item.created_at).toLocaleDateString("en-IN")}</td>
+                  <td className="px-6 py-4 text-sm font-mono text-slate-600">{item.order_id || item.provider_event_id}</td>
+                  <td className="px-6 py-4 text-sm text-slate-700">{item.plan || "—"}</td>
+                  <td className="px-6 py-4 text-sm font-bold text-slate-950">{item.amount === 0 ? "—" : `${item.currency || ""} ${Number(item.amount).toLocaleString("en-US")}`}</td>
+                  <td className="px-6 py-4"><span className="rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-bold text-emerald-700">{item.status || item.event_name}</span></td>
                 </tr>
               ))}
             </tbody>

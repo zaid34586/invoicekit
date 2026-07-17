@@ -65,26 +65,39 @@ export async function openPaddleCheckout({
   userId,
   email,
   discountCode,
+  discountId,
+  offerId,
 }: {
   plan: Exclude<Plan, "free">;
   cycle: BillingCycle;
   userId?: string;
   email?: string;
   discountCode?: string;
+  discountId?: string;
+  offerId?: string;
 }) {
   const priceId = priceIds[plan][cycle];
   if (!priceId) throw new Error(`Paddle ${plan} ${cycle} price ID is missing.`);
 
   const paddle = await getPaddle();
+  const discount = discountId?.trim()
+    ? { discountId: discountId.trim() }
+    : discountCode?.trim()
+      ? { discountCode: discountCode.trim() }
+      : {};
+
   paddle.Checkout.open({
     items: [{ priceId, quantity: 1 }],
     customer: email ? { email } : undefined,
-    discountCode: discountCode?.trim() || undefined,
+    ...discount,
     customData: {
       user_id: userId ?? null,
       plan,
       billing_cycle: cycle,
       source: "rivox_web",
+      offer_id: offerId ?? null,
+      offer_code: discountCode?.trim() || null,
+      paddle_discount_id: discountId?.trim() || null,
     },
     settings: {
       displayMode: "overlay",

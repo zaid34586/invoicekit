@@ -51,6 +51,23 @@ function HostHomeRedirect() {
   const { isStaffHost, isAdminHost } = getPortalHost();
   if (isStaffHost) return <Navigate to="/staff/login" replace />;
   if (isAdminHost) return <Navigate to="/admin/login" replace />;
+
+  const { user, loading } = useAuth();
+  // If Supabase already established a session by the time we land here
+  // (e.g. the email-confirmation link's redirect ended up on "/" instead of
+  // "/login?confirmed=1" for any reason — dashboard allow-list mismatch,
+  // stale link, etc.), don't silently show the marketing landing page.
+  // Funnel straight into the login form with the confirmed banner instead,
+  // so the user re-enters their credentials and the normal post-login flow
+  // (business-setup → verify-phone → dashboard) takes over from there.
+  if (loading) {
+    return <LoadingScreen />;
+  }
+
+  if (user) {
+    return <Navigate to="/login?confirmed=1" replace />;
+  }
+
   return <Landing />;
 }
 

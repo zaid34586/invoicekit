@@ -231,28 +231,67 @@ function ActivityItem({
   );
 }
 
-// Revenue chart placeholder
+// Revenue chart built from the user's real paid invoices (no placeholder data)
 function RevenueChart({
   period,
   currency,
+  invoices,
 }: {
   period: "7d" | "30d" | "year";
   currency: string;
+  invoices: Invoice[];
 }) {
-  // Placeholder data based on period
-  const chartData = {
-    "7d": [3200, 4100, 2800, 5600, 4300, 3800, 5200],
-    "30d": [
-      2100, 3200, 2800, 4100, 3600, 2900, 4300, 3800, 5100, 4600, 3200, 5800,
-      4200, 3900, 4800, 5500, 4100, 3700, 6200, 4900, 4300, 5100, 4700, 3800,
-      5400, 4200, 6100, 5300, 4400, 5900,
-    ],
-    "year": [42000, 38000, 51000, 46000, 52000, 48000, 55000, 49000, 58000, 53000, 61000, 57000],
-  };
+  const now = new Date();
+  const startOfDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const endOfDay = (d: Date) =>
+    new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59, 999);
+  const invoiceDate = (inv: Invoice) => new Date(inv.invoice_date || inv.created_at);
 
-  const data = chartData[period];
-  const maxValue = Math.max(...data);
-  const total = data.reduce((a, b) => a + b, 0);
+  const paid = invoices.filter((inv) => inv.status === "paid");
+  const buckets: { label: string; value: number; start: Date; end: Date }[] = [];
+
+  if (period === "year") {
+    for (let month = 0; month < 12; month += 1) {
+      const start = new Date(now.getFullYear(), month, 1);
+      const end = new Date(now.getFullYear(), month + 1, 0, 23, 59, 59, 999);
+      buckets.push({ label: start.toLocaleDateString("en-US", { month: "short" }), start, end, value: 0 });
+    }
+  } else {
+    const days = period === "7d" ? 7 : 30;
+    for (let offset = days - 1; offset >= 0; offset -= 1) {
+      const date = new Date(now);
+      date.setDate(now.getDate() - offset);
+      buckets.push({
+        label: date.toLocaleDateString("en-US", { day: "2-digit", month: "short" }),
+        start: startOfDay(date),
+        end: endOfDay(date),
+        value: 0,
+      });
+    }
+  }
+
+  paid.forEach((inv) => {
+    const date = invoiceDate(inv);
+    const bucket = buckets.find((b) => date >= b.start && date <= b.end);
+    if (bucket) bucket.value += Number(inv.total) || 0;
+  });
+
+  const data = buckets.map((b) => b.value);
+  const total = data.reduce((sum, v) => sum + v, 0);
+  const maxValue = Math.max(...data, 1);
+
+  const currentStart = buckets[0]?.start ?? startOfDay(now);
+  const currentEnd = buckets[buckets.length - 1]?.end ?? endOfDay(now);
+  const duration = currentEnd.getTime() - currentStart.getTime() + 1;
+  const previousEnd = new Date(currentStart.getTime() - 1);
+  const previousStart = new Date(previousEnd.getTime() - duration + 1);
+  const previousTotal = paid
+    .filter((inv) => {
+      const d = invoiceDate(inv);
+      return d >= previousStart && d <= previousEnd;
+    })
+    .reduce((sum, inv) => sum + (Number(inv.total) || 0), 0);
+  const growth = previousTotal > 0 ? ((total - previousTotal) / previousTotal) * 100 : total > 0 ? 100 : 0;
 
   return (
     <div className="relative overflow-hidden rounded-3xl border border-slate-200/80 bg-white p-6 shadow-[0_22px_70px_-35px_rgba(30,41,59,.4)]">
@@ -263,44 +302,34 @@ function RevenueChart({
             Revenue Overview
           </h3>
           <p className="text-sm text-slate-500 mt-0.5">
-            Total: {formatMoney(total, currency)}
+            Paid revenue: {formatMoney(total, currency)}
           </p>
         </div>
-        <div className="flex items-center gap-2 text-sm">
-          <span className="flex items-center gap-1 text-green-600 font-medium">
-            <svg
-              className="w-4 h-4"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-              strokeWidth={2}
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M5 10l7-7m0 0l7 7m-7-7v18"
-              />
-            </svg>
-            12.5%
-          </span>
-          <span className="text-slate-500">vs last period</span>
-        </div>
+        {total > 0 || previousTotal > 0 ? (
+          <div className={`text-sm font-medium ${growth >= 0 ? "text-green-600" : "text-red-600"}`}>
+            {growth >= 0 ? "+" : ""}
+            {growth.toFixed(1)}% <span className="font-normal text-slate-500">vs previous period</span>
+          </div>
+        ) : null}
       </div>
 
       {/* Simple bar chart */}
       <div className="flex items-end gap-1.5 h-40">
-        {data.slice(-10).map((value, i) => (
+        {buckets.map((bucket, i) => (
           <div
-            key={i}
+            key={`${bucket.label}-${i}`}
             className="flex-1 bg-gradient-to-t from-primary-500 to-primary-400 rounded-t transition-all duration-500 hover:from-primary-600 hover:to-primary-500 group relative"
-            style={{ height: `${(value / maxValue) * 100}%` }}
+            style={{ height: `${Math.max((bucket.value / maxValue) * 100, bucket.value > 0 ? 4 : 1)}%` }}
           >
             <div className="absolute -top-8 left-1/2 -translate-x-1/2 bg-slate-900 text-white text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">
-              {formatMoney(value, currency)}
+              {bucket.label}: {formatMoney(bucket.value, currency)}
             </div>
           </div>
         ))}
       </div>
+      {total === 0 && (
+        <p className="mt-4 text-center text-sm text-slate-500">No paid revenue in this period.</p>
+      )}
     </div>
   );
 }
@@ -496,8 +525,6 @@ export default function Dashboard() {
               />
             </svg>
           }
-          trend="up"
-          trendValue="12.5%"
           color="green"
           loading={loading}
         />
@@ -519,8 +546,6 @@ export default function Dashboard() {
               />
             </svg>
           }
-          trend="up"
-          trendValue="8%"
           color="primary"
           loading={loading}
         />
@@ -542,8 +567,6 @@ export default function Dashboard() {
               />
             </svg>
           }
-          trend="up"
-          trendValue="15%"
           color="green"
           loading={loading}
         />
@@ -565,8 +588,6 @@ export default function Dashboard() {
               />
             </svg>
           }
-          trend="neutral"
-          trendValue="Same"
           color="amber"
           loading={loading}
         />
@@ -588,8 +609,6 @@ export default function Dashboard() {
               />
             </svg>
           }
-          trend="up"
-          trendValue="3 new"
           color="blue"
           loading={loading}
         />
@@ -632,6 +651,7 @@ export default function Dashboard() {
         <RevenueChart
   period={chartPeriod}
   currency={profile?.currency ?? "USD"}
+  invoices={invoices}
 />
       </div>
 

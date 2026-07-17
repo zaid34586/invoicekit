@@ -1,0 +1,33 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root { color-scheme: light; }
+  html { font-family: "Inter", system-ui, sans-serif; scroll-behavior: smooth; }
+  body { @apply bg-slate-50 text-slate-900 antialiased; }
+  ::selection { @apply bg-primary-200 text-slate-950; }
+}
+
+@layer components {
+  .btn { @apply inline-flex items-center justify-center gap-2 rounded-xl font-bold transition-all duration-200 disabled:cursor-not-allowed disabled:opacity-50; }
+  .btn-primary { @apply btn bg-primary-600 px-4 py-2.5 text-white shadow-lg shadow-primary-600/15 hover:-translate-y-0.5 hover:bg-primary-700 active:translate-y-0; }
+  .btn-secondary { @apply btn border border-slate-300 bg-white px-4 py-2.5 text-slate-700 shadow-sm hover:-translate-y-0.5 hover:border-primary-300 hover:text-primary-700 active:translate-y-0; }
+  .btn-danger { @apply btn bg-red-600 px-4 py-2.5 text-white shadow-sm hover:bg-red-700 active:scale-[0.98]; }
+  .btn-ghost { @apply btn px-3 py-2 text-slate-600 hover:bg-slate-100 hover:text-slate-950; }
+  .input { @apply w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-sm text-slate-900 shadow-sm placeholder:text-slate-400 focus:border-primary-500 focus:outline-none focus:ring-4 focus:ring-primary-500/10; }
+  .label { @apply mb-1.5 block text-sm font-bold text-slate-700; }
+  .card { @apply rounded-2xl border border-slate-200/80 bg-white shadow-sm; }
+  .card-premium { @apply rounded-3xl border border-white/80 bg-white/90 shadow-premium backdrop-blur; }
+  .badge { @apply inline-flex items-center rounded-full px-2.5 py-1 text-xs font-bold; }
+}
+
+@keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+.animate-fade-in { animation: fadeIn 0.3s ease-out; }
+@keyframes scaleIn { from { opacity: 0; transform: scale(0.96); } to { opacity: 1; transform: scale(1); } }
+.animate-scale-in { animation: scaleIn 0.22s ease-out; }
+
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 999px; }
+::-webkit-scrollbar-thumb:hover { background: #94a3b8; }

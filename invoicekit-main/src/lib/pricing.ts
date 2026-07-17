@@ -20,8 +20,6 @@ export interface PricingPlan {
   limitations?: string[];
 }
 
-export const YEARLY_DISCOUNT_PERCENT = 33;
-
 export const INDIA_PLANS: Record<Plan, PricingPlan> = {
   free: {
     id: "free",
@@ -45,7 +43,7 @@ export const INDIA_PLANS: Record<Plan, PricingPlan> = {
     tagline: "For growing businesses",
     description: "Powerful billing, reports, and payment-ready invoicing for small teams.",
     monthlyPrice: 12499,
-    yearlyMonthlyPrice: 8333,
+    yearlyMonthlyPrice: 12499,
     currency: "INR",
     symbol: "₹",
     invoiceLimit: 500,
@@ -68,7 +66,7 @@ export const INDIA_PLANS: Record<Plan, PricingPlan> = {
     tagline: "For serious operations",
     description: "Advanced controls, team workflows, API-ready billing, and brand control.",
     monthlyPrice: 20999,
-    yearlyMonthlyPrice: 13999,
+    yearlyMonthlyPrice: 20999,
     currency: "INR",
     symbol: "₹",
     invoiceLimit: "unlimited",
@@ -101,14 +99,14 @@ export const GLOBAL_PLANS: Record<Plan, PricingPlan> = {
     currency: "USD",
     symbol: "$",
     monthlyPrice: 150,
-    yearlyMonthlyPrice: 100,
+    yearlyMonthlyPrice: 150,
   },
   business: {
     ...INDIA_PLANS.business,
     currency: "USD",
     symbol: "$",
     monthlyPrice: 250,
-    yearlyMonthlyPrice: 167,
+    yearlyMonthlyPrice: 250,
   },
 };
 

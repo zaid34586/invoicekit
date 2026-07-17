@@ -7,7 +7,6 @@ import {
 } from "react";
 import type { Session, User } from "@supabase/supabase-js";
 import { supabase } from "../lib/supabase";
-import { SITE_URL } from "../config/env";
 import { ADMIN_EMAIL } from "../lib/constants";
 import type { Profile } from "../lib/types";
 
@@ -23,6 +22,25 @@ interface AuthContextValue {
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
+
+const VERIFICATION_PENDING_KEY = "rivox_email_verification_pending";
+
+function isVerificationCallbackUrl() {
+  if (typeof window === "undefined") return false;
+
+  const search = new URLSearchParams(window.location.search);
+  const hash = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+  const authType = search.get("type") || hash.get("type");
+
+  return (
+    authType === "signup" ||
+    authType === "email" ||
+    search.has("token_hash") ||
+    search.has("code") ||
+    hash.has("access_token") ||
+    hash.has("refresh_token")
+  );
+}
 
 function normalizeEmail(email: string) {
   return email.trim().toLowerCase();
@@ -153,9 +171,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return existing as Profile;
     }
 
+    // Use upsert (not insert) here. Right after email confirmation,
+    // initializeAuth()'s getSession() and the onAuthStateChange(SIGNED_IN)
+    // listener both fire on the same page load and can call this function
+    // concurrently. With a plain insert, the second call hit a duplicate-key
+    // error on user_id and set `profile` to null PERMANENTLY — even though a
+    // profile row existed — which is what caused "Loading your workspace" to
+    // hang forever after clicking the real email verification link. upsert
+    // makes the "losing" concurrent call a harmless no-op update instead of
+    // an error.
     const { data: created, error: createError } = await supabase
       .from("profiles")
-      .insert(createDefaultProfile(userId, cleanEmail))
+      .upsert(createDefaultProfile(userId, cleanEmail), { onConflict: "user_id" })
       .select("*")
       .single();
 
@@ -220,8 +247,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange(async (_event, nextSession) => {
+    } = supabase.auth.onAuthStateChange(async (event, nextSession) => {
       if (!mounted) return;
+
+      const verificationPending =
+        localStorage.getItem(VERIFICATION_PENDING_KEY) === "1";
+      const cameFromVerificationLink = isVerificationCallbackUrl();
+      const isAutoVerificationSession =
+        event === "SIGNED_IN" &&
+        Boolean(nextSession?.user?.email_confirmed_at) &&
+        window.location.pathname !== "/login" &&
+        (verificationPending || cameFromVerificationLink);
+
+      if (isAutoVerificationSession) {
+        localStorage.removeItem(VERIFICATION_PENDING_KEY);
+        await supabase.auth.signOut({ scope: "local" });
+        clearSupabaseStorage();
+        setSession(null);
+        setProfile(null);
+        window.location.replace("/login?confirmed=1");
+        return;
+      }
+
       await syncSession(nextSession);
     });
 
@@ -259,7 +306,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       email: cleanEmail,
       password,
       options: {
-        emailRedirectTo: `${SITE_URL}/login?confirmed=1`,
+        emailRedirectTo: `${window.location.origin}/login?confirmed=1`,
       },
     });
 
@@ -271,6 +318,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return { error: error.message };
     }
 
+    localStorage.setItem(VERIFICATION_PENDING_KEY, "1");
     return { error: null };
   };
 

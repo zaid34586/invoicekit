@@ -1,0 +1,10 @@
+Rivox Premium Branding v1
+
+Includes:
+- Build fix for UpgradeModal PricingPlan.price error
+- New reusable Rivox logo component
+- Premium navbar, hero and footer
+- Refined design tokens, buttons, cards and forms
+- Updated logo and favicon assets
+
+No SQL migration required.
