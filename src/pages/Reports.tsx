@@ -5,7 +5,7 @@ import { formatMoney } from "../lib/currency";
 import type { Invoice, Client } from "../lib/types";
 import * as XLSX from "xlsx";
 import jsPDF from "jspdf";
-import { invoiceBaseAmount, invoiceDate, startOfDay, endOfDay, isWithin } from "../lib/invoiceAnalytics";
+import { invoiceBaseAmount, invoiceDisplayAmount, invoiceDate, startOfDay, endOfDay, isWithin } from "../lib/invoiceAnalytics";
 
 // Type definitions
 type DateFilter = "today" | "week" | "month" | "year" | "custom";
@@ -370,19 +370,30 @@ supabase
 
 function exportCSV() {
   const escape = (value: unknown) => `"${String(value ?? "").replace(/"/g, '""')}"`;
-  const headers = ["Invoice No", "Client", "Status", "Invoice Date", "Due Date", "Invoice Currency", "Exchange Rate", "Invoice Subtotal", "Invoice Total", `Base Total (${currency})`];
-  const rows = filteredInvoices.map((invoice) => [
-    invoice.invoice_number,
-    invoice.client_name,
-    invoice.status,
-    invoice.invoice_date,
-    invoice.due_date,
-    invoice.invoice_currency ?? currency,
-    Number(invoice.exchange_rate ?? 1).toFixed(6),
-    Number(invoice.invoice_subtotal ?? invoice.subtotal ?? 0).toFixed(2),
-    Number(invoice.invoice_total ?? invoice.total ?? 0).toFixed(2),
-    invoiceBaseAmount(invoice).toFixed(2),
-  ]);
+  const headers = [
+    "Invoice No", "Client", "Country", "Status", "Invoice Date", "Due Date",
+    "Invoice Currency", "Exchange Rate", "Invoice Subtotal", "Tax",
+    "Invoice Total", `Base Total (${currency})`,
+  ];
+  const rows = filteredInvoices.map((invoice) => {
+    const invoiceSubtotal = Number(invoice.invoice_subtotal ?? invoice.subtotal ?? 0);
+    const invoiceTotal = invoiceDisplayAmount(invoice);
+    const tax = Math.max(0, invoiceTotal - invoiceSubtotal);
+    return [
+      invoice.invoice_number,
+      invoice.client_name,
+      invoice.client_country ?? "",
+      invoice.status,
+      invoice.invoice_date,
+      invoice.due_date,
+      invoice.invoice_currency ?? currency,
+      Number(invoice.exchange_rate ?? 1).toFixed(6),
+      invoiceSubtotal.toFixed(2),
+      tax.toFixed(2),
+      invoiceTotal.toFixed(2),
+      invoiceBaseAmount(invoice).toFixed(2),
+    ];
+  });
   const csv = [headers, ...rows].map((row) => row.map(escape).join(",")).join("\n");
   const blob = new Blob(["\uFEFF", csv], { type: "text/csv;charset=utf-8;" });
   const link = document.createElement("a");
@@ -392,60 +403,192 @@ function exportCSV() {
   URL.revokeObjectURL(link.href);
 }
 
-function exportPDF() {
+async function exportPDF() {
   const doc = new jsPDF();
   const paidTotal = filteredInvoices.filter((invoice) => invoice.status === "paid").reduce((sum, invoice) => sum + invoiceBaseAmount(invoice), 0);
   const pendingTotal = filteredInvoices.filter((invoice) => invoice.status === "sent").reduce((sum, invoice) => sum + invoiceBaseAmount(invoice), 0);
   const overdueTotal = filteredInvoices.filter((invoice) => invoice.status === "overdue").reduce((sum, invoice) => sum + invoiceBaseAmount(invoice), 0);
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const businessName = profile?.business_name || "Rivox Business Report";
+
+  doc.setFillColor(30, 27, 75);
+  doc.rect(0, 0, pageWidth, 42, "F");
+
+  if (profile?.logo_url) {
+    try {
+      const response = await fetch(profile.logo_url);
+      const blob = await response.blob();
+      const dataUrl = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result));
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+      });
+      doc.addImage(dataUrl, "PNG", 14, 9, 24, 24, undefined, "FAST");
+    } catch {
+      // Report still exports when a remote logo blocks browser access.
+    }
+  }
+
+  doc.setTextColor(255, 255, 255);
   doc.setFontSize(20);
-  doc.text(profile?.business_name || "Rivox Business Report", 14, 18);
-  doc.setFontSize(10);
-  doc.text(`Report period: ${reportRangeLabel}`, 14, 27);
-  doc.text(`Base currency: ${currency}`, 14, 33);
-  doc.text(`Generated: ${new Date().toLocaleString()}`, 14, 39);
-  doc.setFontSize(12);
-  doc.text(`Paid revenue: ${formatMoney(paidTotal, currency)}`, 14, 51);
-  doc.text(`Pending: ${formatMoney(pendingTotal, currency)}`, 14, 59);
-  doc.text(`Overdue: ${formatMoney(overdueTotal, currency)}`, 14, 67);
-  doc.text(`Invoices: ${filteredInvoices.length}`, 14, 75);
-  let y = 88;
+  doc.text(businessName, profile?.logo_url ? 43 : 14, 18);
   doc.setFontSize(9);
-  filteredInvoices.slice(0, 28).forEach((invoice) => {
-    doc.text(`${invoice.invoice_number} | ${invoice.client_name.slice(0, 24)} | ${invoice.status} | ${formatMoney(invoiceBaseAmount(invoice), currency)}`, 14, y);
-    y += 6;
+  const details = [profile?.address, profile?.phone, profile?.email].filter(Boolean).join(" • ");
+  if (details) doc.text(details.slice(0, 95), profile?.logo_url ? 43 : 14, 26);
+  doc.text(`Business report • ${reportRangeLabel}`, profile?.logo_url ? 43 : 14, 33);
+
+  doc.setTextColor(15, 23, 42);
+  const cards = [
+    ["Paid", paidTotal], ["Pending", pendingTotal], ["Overdue", overdueTotal], ["Invoices", filteredInvoices.length],
+  ] as const;
+  cards.forEach(([label, value], index) => {
+    const x = 14 + index * 47;
+    doc.setFillColor(245, 247, 255);
+    doc.roundedRect(x, 49, 42, 24, 3, 3, "F");
+    doc.setFontSize(8);
+    doc.setTextColor(100, 116, 139);
+    doc.text(label, x + 4, 57);
+    doc.setFontSize(11);
+    doc.setTextColor(15, 23, 42);
+    doc.text(typeof value === "number" && label !== "Invoices" ? formatMoney(value, currency) : String(value), x + 4, 67, { maxWidth: 35 });
   });
-  if (filteredInvoices.length > 28) doc.text(`+ ${filteredInvoices.length - 28} more invoices (see CSV/Excel export)`, 14, y + 3);
+
+  doc.setFontSize(9);
+  doc.setTextColor(71, 85, 105);
+  doc.text(`Base currency: ${currency}`, 14, 82);
+  doc.text(`Generated: ${new Date().toLocaleString()}`, 110, 82);
+
+  let y = 93;
+  const drawHeader = () => {
+    doc.setFillColor(79, 70, 229);
+    doc.rect(14, y, 182, 9, "F");
+    doc.setTextColor(255, 255, 255);
+    doc.setFontSize(8);
+    doc.text("Invoice", 17, y + 6);
+    doc.text("Client", 43, y + 6);
+    doc.text("Status", 96, y + 6);
+    doc.text("Currency", 119, y + 6);
+    doc.text("Invoice total", 143, y + 6);
+    doc.text(`Base (${currency})`, 173, y + 6, { align: "right" });
+    y += 12;
+  };
+  drawHeader();
+
+  filteredInvoices.forEach((invoice, index) => {
+    if (y > 275) {
+      doc.addPage();
+      y = 18;
+      drawHeader();
+    }
+    if (index % 2 === 0) {
+      doc.setFillColor(248, 250, 252);
+      doc.rect(14, y - 3, 182, 9, "F");
+    }
+    doc.setTextColor(15, 23, 42);
+    doc.setFontSize(8);
+    doc.text(invoice.invoice_number, 17, y + 3);
+    doc.text(invoice.client_name.slice(0, 26), 43, y + 3);
+    doc.text(invoice.status, 96, y + 3);
+    doc.text(invoice.invoice_currency ?? currency, 119, y + 3);
+    doc.text(invoiceDisplayAmount(invoice).toFixed(2), 143, y + 3);
+    doc.text(invoiceBaseAmount(invoice).toFixed(2), 193, y + 3, { align: "right" });
+    y += 9;
+  });
+
+  const pages = doc.getNumberOfPages();
+  for (let page = 1; page <= pages; page += 1) {
+    doc.setPage(page);
+    doc.setFontSize(8);
+    doc.setTextColor(148, 163, 184);
+    doc.text("Generated by Rivox Business OS", 14, 290);
+    doc.text(`Page ${page} of ${pages}`, 196, 290, { align: "right" });
+  }
   doc.save(`Rivox_Report_${new Date().toISOString().slice(0, 10)}.pdf`);
 }
 
 function exportExcel() {
-  const rows = filteredInvoices.map((invoice) => ({
+  const invoiceRows = filteredInvoices.map((invoice) => ({
     "Invoice No": invoice.invoice_number,
     Client: invoice.client_name,
+    Country: invoice.client_country ?? "",
     Status: invoice.status,
     "Invoice Date": invoice.invoice_date,
     "Due Date": invoice.due_date,
     "Invoice Currency": invoice.invoice_currency ?? currency,
     "Exchange Rate": Number(invoice.exchange_rate ?? 1),
     "Invoice Subtotal": Number(Number(invoice.invoice_subtotal ?? invoice.subtotal ?? 0).toFixed(2)),
-    "Invoice Total": Number(Number(invoice.invoice_total ?? invoice.total ?? 0).toFixed(2)),
-    [`Base Total (${currency})`]: Number(invoiceBaseAmount(invoice).toFixed(2)),
+    "Invoice Total": invoiceDisplayAmount(invoice),
+    [`Base Total (${currency})`]: invoiceBaseAmount(invoice),
   }));
-  const worksheet = XLSX.utils.json_to_sheet(rows);
-  worksheet["!cols"] = [14, 24, 12, 14, 14, 16, 14, 18, 16, 18].map((wch) => ({ wch }));
-  worksheet["!autofilter"] = { ref: worksheet["!ref"] || "A1:J1" };
+
+  const paidTotal = filteredInvoices.filter((i) => i.status === "paid").reduce((s, i) => s + invoiceBaseAmount(i), 0);
+  const pendingTotal = filteredInvoices.filter((i) => i.status === "sent").reduce((s, i) => s + invoiceBaseAmount(i), 0);
+  const overdueTotal = filteredInvoices.filter((i) => i.status === "overdue").reduce((s, i) => s + invoiceBaseAmount(i), 0);
   const summary = XLSX.utils.aoa_to_sheet([
+    [businessNameForExport()],
     ["Rivox Report Summary"],
     ["Period", reportRangeLabel],
     ["Base Currency", currency],
     ["Invoice Count", filteredInvoices.length],
-    ["Total Base Value", Number(filteredInvoices.reduce((sum, invoice) => sum + invoiceBaseAmount(invoice), 0).toFixed(2))],
+    ["Paid Revenue", Number(paidTotal.toFixed(2))],
+    ["Pending", Number(pendingTotal.toFixed(2))],
+    ["Overdue", Number(overdueTotal.toFixed(2))],
+    ["Generated", new Date().toLocaleString()],
   ]);
-  summary["!cols"] = [{ wch: 24 }, { wch: 24 }];
+  summary["!cols"] = [{ wch: 24 }, { wch: 28 }];
+
+  const invoicesSheet = XLSX.utils.json_to_sheet(invoiceRows);
+  invoicesSheet["!cols"] = [14, 24, 18, 12, 14, 14, 16, 14, 18, 18, 18].map((wch) => ({ wch }));
+  invoicesSheet["!autofilter"] = { ref: invoicesSheet["!ref"] || "A1:K1" };
+
+  const clientMap = new Map<string, { count: number; paid: number; pending: number; total: number }>();
+  filteredInvoices.forEach((invoice) => {
+    const current = clientMap.get(invoice.client_name) ?? { count: 0, paid: 0, pending: 0, total: 0 };
+    const value = invoiceBaseAmount(invoice);
+    current.count += 1;
+    current.total += value;
+    if (invoice.status === "paid") current.paid += value;
+    if (invoice.status === "sent" || invoice.status === "overdue") current.pending += value;
+    clientMap.set(invoice.client_name, current);
+  });
+  const clientsSheet = XLSX.utils.json_to_sheet(Array.from(clientMap.entries()).map(([client, data]) => ({
+    Client: client,
+    "Invoice Count": data.count,
+    [`Total (${currency})`]: Number(data.total.toFixed(2)),
+    [`Paid (${currency})`]: Number(data.paid.toFixed(2)),
+    [`Pending (${currency})`]: Number(data.pending.toFixed(2)),
+  })));
+  clientsSheet["!cols"] = [{ wch: 28 }, { wch: 15 }, { wch: 18 }, { wch: 18 }, { wch: 18 }];
+  clientsSheet["!autofilter"] = { ref: clientsSheet["!ref"] || "A1:E1" };
+
+  const currencyMap = new Map<string, { count: number; invoiceTotal: number; baseTotal: number }>();
+  filteredInvoices.forEach((invoice) => {
+    const code = invoice.invoice_currency ?? currency;
+    const current = currencyMap.get(code) ?? { count: 0, invoiceTotal: 0, baseTotal: 0 };
+    current.count += 1;
+    current.invoiceTotal += invoiceDisplayAmount(invoice);
+    current.baseTotal += invoiceBaseAmount(invoice);
+    currencyMap.set(code, current);
+  });
+  const currencySheet = XLSX.utils.json_to_sheet(Array.from(currencyMap.entries()).map(([code, data]) => ({
+    Currency: code,
+    "Invoice Count": data.count,
+    "Invoice Currency Total": Number(data.invoiceTotal.toFixed(2)),
+    [`Base Total (${currency})`]: Number(data.baseTotal.toFixed(2)),
+  })));
+  currencySheet["!cols"] = [{ wch: 14 }, { wch: 15 }, { wch: 24 }, { wch: 20 }];
+
   const workbook = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(workbook, summary, "Summary");
-  XLSX.utils.book_append_sheet(workbook, worksheet, "Invoices");
+  XLSX.utils.book_append_sheet(workbook, invoicesSheet, "Invoices");
+  XLSX.utils.book_append_sheet(workbook, clientsSheet, "Clients");
+  XLSX.utils.book_append_sheet(workbook, currencySheet, "Currencies");
   XLSX.writeFile(workbook, `Rivox_Report_${new Date().toISOString().slice(0, 10)}.xlsx`);
+}
+
+function businessNameForExport(): string {
+  return profile?.business_name || "Rivox Business Report";
 }
   // Calculate analytics
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
