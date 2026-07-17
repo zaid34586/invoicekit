@@ -1,6 +1,6 @@
 import { getExchangeRate } from "../lib/exchangeRate";
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../context/AuthContext";
 import { useUpgrade } from "../context/UpgradeContext";
@@ -64,6 +64,12 @@ export default function NewInvoice() {
   const { user, profile } = useAuth();
   const { openUpgrade } = useUpgrade();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const editId = searchParams.get("edit");
+  const duplicateId = searchParams.get("duplicate");
+  const sourceInvoiceId = editId ?? duplicateId;
+  const isEditMode = Boolean(editId);
+  const isDuplicateMode = Boolean(duplicateId);
   const businessState = profile?.state ?? null;
 
   // Base currency comes from the business profile (defaults to INR)
@@ -90,6 +96,7 @@ export default function NewInvoice() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [clients, setClients] = useState<Client[]>([]);
+  const [sourceLoading, setSourceLoading] = useState(Boolean(sourceInvoiceId));
 
   // ── Currency state ────────────────────────────────────────────────────────
   // invoiceCurrency is derived from the selected client country. The user can
@@ -172,7 +179,7 @@ export default function NewInvoice() {
 
   useEffect(() => {
     async function loadNextNumber() {
-      if (!user) return;
+      if (!user || isEditMode) return;
       const { count } = await supabase
         .from("invoices")
         .select("*", { count: "exact", head: true })
@@ -181,7 +188,62 @@ export default function NewInvoice() {
       setInvoiceNumber(`INV-${String(next).padStart(3, "0")}`);
     }
     loadNextNumber();
-  }, [user]);
+  }, [user, isEditMode]);
+
+  useEffect(() => {
+    async function loadSourceInvoice() {
+      if (!user || !sourceInvoiceId) {
+        setSourceLoading(false);
+        return;
+      }
+
+      setSourceLoading(true);
+      const { data, error: loadError } = await supabase
+        .from("invoices")
+        .select("*")
+        .eq("id", sourceInvoiceId)
+        .eq("user_id", user.id)
+        .single();
+
+      if (loadError || !data) {
+        setError(loadError?.message ?? "Invoice not found");
+        setSourceLoading(false);
+        return;
+      }
+
+      const invoice = data as import("../lib/types").Invoice;
+      const country = invoice.client_country ?? profile?.country ?? "United States";
+      const countryCode = COUNTRIES.find((item) => item.name === country)?.code ?? "";
+      const storedPhone = invoice.client_phone ?? "";
+      const phoneWithoutCode = countryCode && storedPhone.startsWith(countryCode)
+        ? storedPhone.slice(countryCode.length).trim()
+        : storedPhone;
+
+      if (isEditMode) setInvoiceNumber(invoice.invoice_number);
+      setInvoiceDate(isDuplicateMode ? todayISO() : invoice.invoice_date);
+      setDueDate(isDuplicateMode ? addDaysISO(15) : invoice.due_date);
+      setStatus(isDuplicateMode ? "draft" : invoice.status);
+      setClientName(invoice.client_name);
+      setClientCountry(country);
+      setClientCountryCode(countryCode);
+      setClientPhone(phoneWithoutCode);
+      setClientEmail(invoice.client_email ?? "");
+      setClientAddress(invoice.client_address ?? "");
+      setClientState(invoice.client_state ?? "");
+      setClientGstin(invoice.client_gstin ?? "");
+      setItems((invoice.items ?? []).map((item) => ({ ...item, id: makeId() })));
+      setNotes(invoice.notes ?? "");
+
+      if (invoice.exchange_rate && Number(invoice.exchange_rate) > 0) {
+        setExchangeRate(Number(invoice.exchange_rate));
+        setRateManualOverride(true);
+      }
+
+      setSourceLoading(false);
+    }
+
+    loadSourceInvoice();
+  }, [user, sourceInvoiceId, isEditMode, isDuplicateMode, profile?.country]);
 
   useEffect(() => {
     async function loadClients() {
@@ -304,7 +366,7 @@ export default function NewInvoice() {
       return;
     }
 
-    if (!profile?.is_pro) {
+    if (!isEditMode && !profile?.is_pro) {
       const { count } = await supabase
         .from("invoices")
         .select("*", { count: "exact", head: true })
@@ -315,102 +377,104 @@ export default function NewInvoice() {
       }
     }
 
+    const payload = {
+      user_id: user.id,
+      invoice_number: invoiceNumber,
+      client_name: clientName.trim(),
+      client_phone: clientPhone.trim()
+        ? `${clientCountryCode} ${clientPhone.trim()}`
+        : null,
+      client_email: clientEmail.trim() || null,
+      client_address: clientAddress.trim() || null,
+      client_state: clientState || null,
+      client_gstin: clientGstin.trim().toUpperCase() || null,
+      items,
+      subtotal: baseSubtotal,
+      cgst: baseCgst,
+      sgst: baseSgst,
+      igst: baseIgst,
+      total: baseTotal,
+      status,
+      notes: notes.trim() || null,
+      invoice_date: invoiceDate,
+      due_date: dueDate,
+      invoice_currency: invoiceCurrency,
+      exchange_rate: isForeignCurrency ? exchangeRate : 1,
+      base_total: baseTotal,
+      business_country: profile?.country ?? "India",
+      business_state: businessState,
+      business_currency: baseCurrency,
+      client_country: clientCountry,
+      base_currency: baseCurrency,
+      exchange_rate_date: todayISO(),
+      tax_type: taxDecision.taxType,
+      tax_label: taxDecision.taxLabel,
+      tax_note: taxDecision.taxNote,
+      base_subtotal: baseSubtotal,
+      invoice_subtotal: calc.subtotal,
+      invoice_total: calc.total,
+    };
+
     setSaving(true);
-    const { data, error: insertErr } = await supabase
-      .from("invoices")
-      .insert({
-        user_id: user.id,
-        invoice_number: invoiceNumber,
-        client_name: clientName.trim(),
-        client_phone: clientPhone.trim()
-          ? `${clientCountryCode} ${clientPhone.trim()}`
-          : null,
-        client_email: clientEmail.trim() || null,
-        client_address: clientAddress.trim() || null,
-        client_state: clientState || null,
-        client_gstin: clientGstin.trim().toUpperCase() || null,
-        items,
-        // Legacy/reporting total columns are stored in business base currency.
-        // The invoice-currency snapshot is stored separately below.
-        subtotal: baseSubtotal,
-        cgst: baseCgst,
-        sgst: baseSgst,
-        igst: baseIgst,
-        total: baseTotal,
-        status,
-        notes: notes.trim() || null,
-        invoice_date: invoiceDate,
-        due_date: dueDate,
-        // ── Currency fields (locked at save time) ──
-        invoice_currency: invoiceCurrency,
-        exchange_rate: isForeignCurrency ? exchangeRate : 1,
-        base_total: baseTotal,
+    const query = isEditMode && editId
+      ? supabase
+          .from("invoices")
+          .update(payload)
+          .eq("id", editId)
+          .eq("user_id", user.id)
+      : supabase.from("invoices").insert(payload);
 
-        // ── Self-contained snapshot fields ──────────────────────────
-        // Everything an invoice needs so Preview/PDF/Reports never have to
-        // look back at Clients or Profile again. Business side is hardcoded
-        // "India" to stay consistent with the decideTax() call above — this
-        // is not a new decision, just persisting what was already computed.
-        business_country: profile?.country ?? "India",
-        business_state: businessState,
-        business_currency: baseCurrency,
-
-        client_country: clientCountry,
-
-        base_currency: baseCurrency,
-        exchange_rate_date: todayISO(),
-
-        tax_type: taxDecision.taxType,
-        tax_label: taxDecision.taxLabel,
-        tax_note: taxDecision.taxNote,
-
-        base_subtotal: baseSubtotal,
-        invoice_subtotal: calc.subtotal,
-        invoice_total: calc.total,
-      })
-      .select("*")
-      .single();
-
+    const { data, error: saveError } = await query.select("*").single();
     setSaving(false);
-    if (insertErr) {
-      setError(insertErr.message);
+
+    if (saveError) {
+      setError(saveError.message);
       return;
     }
 
-    // Auto-create client if not already saved
-    const { data: existingClient } = await supabase
-      .from("clients")
-      .select("id")
-      .eq("user_id", user.id)
-      .ilike("name", clientName.trim())
-      .maybeSingle();
+    if (!isEditMode) {
+      const { data: existingClient } = await supabase
+        .from("clients")
+        .select("id")
+        .eq("user_id", user.id)
+        .ilike("name", clientName.trim())
+        .maybeSingle();
 
-    if (!existingClient) {
-      await supabase.from("clients").insert({
-        user_id: user.id,
-        name: clientName.trim(),
-        phone: clientPhone.trim() || null,
-        email: clientEmail.trim() || null,
-        address: clientAddress.trim() || null,
-        state: clientState || null,
-        gstin: clientGstin.trim().toUpperCase() || null,
-        country: clientCountry,
-        country_code: clientCountryCode,
-      });
+      if (!existingClient) {
+        await supabase.from("clients").insert({
+          user_id: user.id,
+          name: clientName.trim(),
+          phone: clientPhone.trim() || null,
+          email: clientEmail.trim() || null,
+          address: clientAddress.trim() || null,
+          state: clientState || null,
+          gstin: clientGstin.trim().toUpperCase() || null,
+          country: clientCountry,
+          country_code: clientCountryCode,
+        });
+      }
     }
 
-    if (data) {
-      navigate(`/invoice/${data.id}`);
-    }
+    if (data) navigate(`/invoice/${data.id}`);
+  }
+
+  if (sourceLoading) {
+    return <div className="card p-8 text-center text-sm text-slate-500">Loading invoice...</div>;
   }
 
   return (
     <div className="max-w-7xl mx-auto space-y-6 animate-fade-in">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">New Invoice</h1>
+          <h1 className="text-2xl font-bold text-slate-900">
+            {isEditMode ? "Edit Invoice" : isDuplicateMode ? "Duplicate Invoice" : "New Invoice"}
+          </h1>
           <p className="text-sm text-slate-500 mt-0.5">
-            Fill in the details below to create a professional invoice
+            {isEditMode
+              ? "Update the invoice details below"
+              : isDuplicateMode
+                ? "Review the copied details and save as a new invoice"
+                : "Fill in the details below to create a professional invoice"}
           </p>
         </div>
       </div>
@@ -885,7 +949,7 @@ export default function NewInvoice() {
               disabled={saving}
               className="btn-primary w-full mt-5"
             >
-              {saving ? "Saving..." : "Save Invoice"}
+              {saving ? "Saving..." : isEditMode ? "Update Invoice" : isDuplicateMode ? "Save Duplicate" : "Save Invoice"}
             </button>
           </div>
         </div>

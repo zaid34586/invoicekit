@@ -190,12 +190,26 @@ export default function Invoices() {
                       <StatusBadge status={inv.status} />
                     </td>
                     <td className="px-5 py-3.5 text-right">
-                      <Link
-                        to={`/invoice/${inv.id}`}
-                        className="text-sm text-primary-600 font-medium hover:underline"
-                      >
-                        View
-                      </Link>
+                      <div className="flex items-center justify-end gap-3 whitespace-nowrap">
+                        <Link
+                          to={`/invoice/${inv.id}`}
+                          className="text-sm text-primary-600 font-medium hover:underline"
+                        >
+                          View
+                        </Link>
+                        <Link
+                          to={`/new?edit=${inv.id}`}
+                          className="text-sm text-slate-600 font-medium hover:underline"
+                        >
+                          Edit
+                        </Link>
+                        <Link
+                          to={`/new?duplicate=${inv.id}`}
+                          className="text-sm text-violet-600 font-medium hover:underline"
+                        >
+                          Duplicate
+                        </Link>
+                      </div>
                     </td>
                   </tr>
                 ))}
