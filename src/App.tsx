@@ -21,6 +21,7 @@ import Reports from "./pages/Reports";
 import Settings from "./pages/Settings";
 import TeamMembers from "./pages/TeamMembers";
 import AcceptInvitation from "./pages/AcceptInvitation";
+import ChangeTemporaryPassword from "./pages/ChangeTemporaryPassword";
 import Admin from "./pages/Admin";
 import AdminLogin from "./pages/AdminLogin";
 import StaffLogin from "./pages/StaffLogin";
@@ -138,9 +139,18 @@ function ProtectedRoute({ children }: { children: ReactNode }) {
   const { user, profile, loading } = useAuth();
   if (loading) return <LoadingScreen />;
   if (!user) return <Navigate to="/login" replace />;
+  if (user.user_metadata?.force_password_change === true) return <Navigate to="/change-temporary-password" replace />;
   if (!user.email_confirmed_at) return <Navigate to="/check-email" replace />;
+  if (profile?.workspace_role && profile.workspace_role !== "owner" && profile.workspace_member_status === "active") return <>{children}</>;
   if (!profile?.country) return <Navigate to="/business-setup" replace />;
   if (!profile?.phone_verified) return <Navigate to="/verify-phone" replace />;
+  return <>{children}</>;
+}
+
+function SignedInRoute({ children }: { children: ReactNode }) {
+  const { user, loading } = useAuth();
+  if (loading) return <LoadingScreen />;
+  if (!user) return <Navigate to="/login" replace />;
   return <>{children}</>;
 }
 
@@ -244,6 +254,7 @@ export default function App() {
       <Route path="/business-setup" element={<BusinessSetupRoute />} />
       <Route path="/verify-phone" element={<PhoneRoute />} />
       <Route path="/accept-invitation" element={<AcceptInvitation />} />
+      <Route path="/change-temporary-password" element={<SignedInRoute><ChangeTemporaryPassword /></SignedInRoute>} />
 
       <Route
         path="/dashboard"

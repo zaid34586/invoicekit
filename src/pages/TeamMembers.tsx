@@ -15,10 +15,10 @@ async function invoke(body:Record<string,unknown>){
 }
 export default function TeamMembers(){
  const [data,setData]=useState<TeamData|null>(null); const [loading,setLoading]=useState(true); const [saving,setSaving]=useState(false); const [error,setError]=useState(""); const [success,setSuccess]=useState("");
- const [form,setForm]=useState({name:"",email:"",role:"manager" as Exclude<Role,"owner">});
+ const [form,setForm]=useState({name:"",email:"",password:"",role:"manager" as Exclude<Role,"owner">});
  const load=useCallback(async()=>{setLoading(true);setError("");try{setData(await invoke({action:"list"}));}catch(e){setError(e instanceof Error?e.message:"Unable to load team");}finally{setLoading(false);}},[]);
  useEffect(()=>{void load();},[load]);
- async function invite(e:React.FormEvent){e.preventDefault();setSaving(true);setError("");setSuccess("");try{await invoke({action:"invite",...form});setForm({name:"",email:"",role:"manager"});setSuccess("Invitation sent successfully.");await load();}catch(e){setError(e instanceof Error?e.message:"Invite failed");}finally{setSaving(false);}}
+ async function invite(e:React.FormEvent){e.preventDefault();setSaving(true);setError("");setSuccess("");try{const result=await invoke({action:"invite",...form});setForm({name:"",email:"",password:"",role:"manager"});setSuccess(result.emailSent?"Member login created and credentials emailed successfully.":"Member login created. Email could not be sent; securely share the temporary password.");await load();}catch(e){setError(e instanceof Error?e.message:"Invite failed");}finally{setSaving(false);}}
  async function action(body:Record<string,unknown>,message:string){setError("");setSuccess("");try{await invoke(body);setSuccess(message);await load();}catch(e){setError(e instanceof Error?e.message:"Action failed");}}
  const limit=data?.seatLimit; const full=typeof limit==="number" && (data?.seatsUsed||0)+(data?.invites.length||0)>=limit;
  return <div className="max-w-7xl mx-auto space-y-6 animate-fade-in">
@@ -31,6 +31,7 @@ export default function TeamMembers(){
    <form onSubmit={invite} className="card h-fit p-6 space-y-5"><div><h2 className="text-xl font-bold text-slate-900">Invite a member</h2><p className="mt-1 text-sm text-slate-500">Invitations expire after 7 days. Duplicate pending invites are blocked.</p></div>
     <label className="block"><span className="mb-2 block text-sm font-semibold">Name (optional)</span><input className="input" value={form.name} onChange={e=>setForm({...form,name:e.target.value})}/></label>
     <label className="block"><span className="mb-2 block text-sm font-semibold">Email</span><input required type="email" className="input" value={form.email} onChange={e=>setForm({...form,email:e.target.value})}/></label>
+    <label className="block"><span className="mb-2 block text-sm font-semibold">Temporary password</span><input required minLength={8} type="password" autoComplete="new-password" className="input" value={form.password} onChange={e=>setForm({...form,password:e.target.value})} placeholder="Minimum 8 characters"/><span className="mt-2 block text-xs text-slate-500">The member must change this password on first login.</span></label>
     <label className="block"><span className="mb-2 block text-sm font-semibold">Role</span><select className="input" value={form.role} onChange={e=>setForm({...form,role:e.target.value as Exclude<Role,"owner">})}><option value="manager">Manager</option><option value="accountant">Accountant</option><option value="staff">Staff</option></select></label>
     <div className="rounded-xl bg-slate-50 p-3 text-sm text-slate-600"><b className="capitalize">{form.role}:</b> {roleHelp[form.role]}</div>
     <button disabled={saving||full} className="btn-primary w-full disabled:cursor-not-allowed disabled:opacity-50">{saving?"Sending...":full?"Seat limit reached":"Send invitation"}</button>

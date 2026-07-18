@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
+import { supabase } from "../lib/supabase";
 
 type Stage = "form" | "loading";
 
@@ -12,7 +13,7 @@ export default function Login() {
   const emailConfirmed =
     new URLSearchParams(location.search).get("confirmed") === "1";
 
-  const [email, setEmail] = useState("");
+  const [email, setEmail] = useState(() => new URLSearchParams(location.search).get("email") || "");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [stage, setStage] = useState<Stage>("form");
@@ -29,6 +30,12 @@ export default function Login() {
     if (error) {
       setStage("form");
       setError(error);
+      return;
+    }
+
+    const { data: currentUser } = await supabase.auth.getUser();
+    if (currentUser.user?.user_metadata?.force_password_change === true) {
+      navigate("/change-temporary-password", { replace: true });
       return;
     }
 
