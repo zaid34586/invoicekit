@@ -10,7 +10,7 @@ import StatusBadge from "../components/StatusBadge";
 type Filter = "all" | InvoiceStatus;
 
 export default function Invoices() {
-  const { user } = useAuth();
+  const { user, workspaceOwnerId, workspaceRole } = useAuth();
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<Filter>("all");
@@ -22,6 +22,7 @@ export default function Invoices() {
       const { data, error } = await supabase
         .from("invoices")
         .select("*")
+        .eq("user_id", workspaceOwnerId || user.id)
         .order("created_at", { ascending: false });
       if (!error && data) {
         setInvoices(data as Invoice[]);
@@ -29,7 +30,7 @@ export default function Invoices() {
       setLoading(false);
     }
     load();
-  }, [user]);
+  }, [user, workspaceOwnerId]);
 
   const filtered = invoices.filter((inv) => {
     if (filter !== "all" && inv.status !== filter) return false;
@@ -68,12 +69,12 @@ export default function Invoices() {
             {invoices.length} invoice{invoices.length !== 1 ? "s" : ""} total
           </p>
         </div>
-        <Link to="/new" className="btn-primary">
+        {workspaceRole !== "accountant" && <Link to="/new" className="btn-primary">
           <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
           </svg>
           New Invoice
-        </Link>
+        </Link>}
       </div>
 
       <div className="flex flex-col sm:flex-row gap-3">
@@ -132,7 +133,7 @@ export default function Invoices() {
                 ? "Create your first invoice to get started"
                 : "Try a different filter or search"}
             </p>
-            {invoices.length === 0 && (
+            {invoices.length === 0 && workspaceRole !== "accountant" && (
               <Link to="/new" className="btn-primary">
                 Create your first invoice
               </Link>

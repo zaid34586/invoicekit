@@ -15,10 +15,15 @@ interface AuthContextValue {
   user: User | null;
   profile: Profile | null;
   loading: boolean;
+  workspaceOwnerId: string | null;
+  workspaceRole: "owner" | "manager" | "accountant" | "staff" | null;
+  workspaceStatus: "active" | "disabled" | "removed" | null;
+  workspaceName: string | null;
   signUp: (email: string, password: string) => Promise<{ error: string | null }>;
   signIn: (email: string, password: string, options?: { skipProfile?: boolean }) => Promise<{ error: string | null }>;
   signOut: () => Promise<void>;
   refreshProfile: (options?: { skipProfile?: boolean }) => Promise<Profile | null>;
+  refreshWorkspace: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
@@ -108,6 +113,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
+  const [workspaceOwnerId, setWorkspaceOwnerId] = useState<string | null>(null);
+  const [workspaceRole, setWorkspaceRole] = useState<AuthContextValue["workspaceRole"]>(null);
+  const [workspaceStatus, setWorkspaceStatus] = useState<AuthContextValue["workspaceStatus"]>(null);
+  const [workspaceName, setWorkspaceName] = useState<string | null>(null);
+
+  async function loadWorkspaceContext(): Promise<Profile | null> {
+    const { data, error } = await supabase.rpc("get_my_workspace_context");
+    if (error || !data) return null;
+    setWorkspaceOwnerId(data.owner_user_id ?? null);
+    setWorkspaceRole(data.role ?? null);
+    setWorkspaceStatus(data.status ?? null);
+    setWorkspaceName(data.workspace_name ?? null);
+    if (data.owner_profile && data.role !== "owner" && data.status === "active") {
+      const merged = { ...data.owner_profile, workspace_owner_id: data.owner_user_id, workspace_role: data.role, workspace_member_status: data.status } as Profile;
+      setProfile(merged);
+      return merged;
+    }
+    return null;
+  }
+
+  async function refreshWorkspace() { await loadWorkspaceContext(); }
 
   async function fetchOrCreateProfile(
     userId: string,
@@ -168,7 +194,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
 
       setProfile(existing as Profile);
-      return existing as Profile;
+      const workspaceProfile = await loadWorkspaceContext();
+      return workspaceProfile || existing as Profile;
     }
 
     // Use upsert (not insert) here. Right after email confirmation,
@@ -193,7 +220,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
 
     setProfile(created as Profile);
-    return created as Profile;
+    const workspaceProfile = await loadWorkspaceContext();
+    return workspaceProfile || created as Profile;
   }
 
   async function syncSession(nextSession: Session | null, options?: { skipProfile?: boolean }) {
@@ -364,6 +392,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     clearSupabaseStorage();
     setSession(null);
     setProfile(null);
+    setWorkspaceOwnerId(null);
+    setWorkspaceRole(null);
+    setWorkspaceStatus(null);
+    setWorkspaceName(null);
   };
 
   const refreshProfile = async (options?: { skipProfile?: boolean }) => {
@@ -372,6 +404,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (!data.session?.user) {
       setSession(null);
       setProfile(null);
+      setWorkspaceOwnerId(null);
+      setWorkspaceRole(null);
+      setWorkspaceStatus(null);
+      setWorkspaceName(null);
       return null;
     }
 
@@ -396,10 +432,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         user: session?.user ?? null,
         profile,
         loading,
+        workspaceOwnerId,
+        workspaceRole,
+        workspaceStatus,
+        workspaceName,
         signUp,
         signIn,
         signOut,
         refreshProfile,
+        refreshWorkspace,
       }}
     >
       {children}

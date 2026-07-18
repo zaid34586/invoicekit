@@ -136,12 +136,13 @@ return <Navigate to="/dashboard" replace />;
 
 // Full auth: email confirmed + business country set + phone verified
 function ProtectedRoute({ children }: { children: ReactNode }) {
-  const { user, profile, loading } = useAuth();
+  const { user, profile, loading, workspaceRole, workspaceStatus } = useAuth();
   if (loading) return <LoadingScreen />;
   if (!user) return <Navigate to="/login" replace />;
   if (user.user_metadata?.force_password_change === true) return <Navigate to="/change-temporary-password" replace />;
   if (!user.email_confirmed_at) return <Navigate to="/check-email" replace />;
-  if (profile?.workspace_role && profile.workspace_role !== "owner" && profile.workspace_member_status === "active") return <>{children}</>;
+  if (workspaceStatus === "disabled" || workspaceStatus === "removed") return <>{children}</>;
+  if (workspaceRole && workspaceRole !== "owner" && workspaceStatus === "active") return <>{children}</>;
   if (!profile?.country) return <Navigate to="/business-setup" replace />;
   if (!profile?.phone_verified) return <Navigate to="/verify-phone" replace />;
   return <>{children}</>;
@@ -151,6 +152,16 @@ function SignedInRoute({ children }: { children: ReactNode }) {
   const { user, loading } = useAuth();
   if (loading) return <LoadingScreen />;
   if (!user) return <Navigate to="/login" replace />;
+  return <>{children}</>;
+}
+
+type WorkspaceRole = "owner" | "manager" | "accountant" | "staff";
+function WorkspaceRoute({ children, allow }: { children: ReactNode; allow: WorkspaceRole[] }) {
+  const { workspaceRole, workspaceStatus, signOut } = useAuth();
+  if (workspaceStatus === "disabled" || workspaceStatus === "removed") {
+    return <div className="min-h-screen grid place-items-center bg-slate-100 px-4"><div className="card max-w-md p-8 text-center"><h1 className="text-2xl font-black text-slate-900">Workspace access unavailable</h1><p className="mt-3 text-slate-600">Your access was {workspaceStatus}. Contact the workspace owner if this was unexpected.</p><button className="btn-primary mt-6" onClick={() => void signOut()}>Sign out</button></div></div>;
+  }
+  if (workspaceRole && !allow.includes(workspaceRole)) return <Navigate to={workspaceRole === "accountant" || workspaceRole === "staff" ? "/clients" : "/dashboard"} replace />;
   return <>{children}</>;
 }
 
@@ -260,7 +271,7 @@ export default function App() {
         path="/dashboard"
         element={
           <ProtectedRoute>
-            <AppLayout><Dashboard /></AppLayout>
+            <WorkspaceRoute allow={["owner","manager"]}><AppLayout><Dashboard /></AppLayout></WorkspaceRoute>
           </ProtectedRoute>
         }
       />
@@ -268,7 +279,7 @@ export default function App() {
         path="/new"
         element={
           <ProtectedRoute>
-            <AppLayout><NewInvoice /></AppLayout>
+            <WorkspaceRoute allow={["owner","manager","staff"]}><AppLayout><NewInvoice /></AppLayout></WorkspaceRoute>
           </ProtectedRoute>
         }
       />
@@ -276,7 +287,7 @@ export default function App() {
         path="/invoice/:id"
         element={
           <ProtectedRoute>
-            <AppLayout><InvoicePreview /></AppLayout>
+            <WorkspaceRoute allow={["owner","manager","accountant","staff"]}><AppLayout><InvoicePreview /></AppLayout></WorkspaceRoute>
           </ProtectedRoute>
         }
       />
@@ -284,7 +295,7 @@ export default function App() {
         path="/invoices"
         element={
           <ProtectedRoute>
-            <AppLayout><Invoices /></AppLayout>
+            <WorkspaceRoute allow={["owner","manager","accountant","staff"]}><AppLayout><Invoices /></AppLayout></WorkspaceRoute>
           </ProtectedRoute>
         }
       />
@@ -292,7 +303,7 @@ export default function App() {
         path="/clients"
         element={
           <ProtectedRoute>
-            <AppLayout><Clients /></AppLayout>
+            <WorkspaceRoute allow={["owner","manager","accountant","staff"]}><AppLayout><Clients /></AppLayout></WorkspaceRoute>
           </ProtectedRoute>
         }
       />
@@ -300,7 +311,7 @@ export default function App() {
         path="/account"
         element={
           <ProtectedRoute>
-            <AppLayout><Account /></AppLayout>
+            <WorkspaceRoute allow={["owner"]}><AppLayout><Account /></AppLayout></WorkspaceRoute>
           </ProtectedRoute>
         }
       />
@@ -308,7 +319,7 @@ export default function App() {
         path="/billing"
         element={
           <ProtectedRoute>
-            <AppLayout><Billing /></AppLayout>
+            <WorkspaceRoute allow={["owner"]}><AppLayout><Billing /></AppLayout></WorkspaceRoute>
           </ProtectedRoute>
         }
       />
@@ -316,7 +327,7 @@ export default function App() {
         path="/team-members"
         element={
           <ProtectedRoute>
-            <AppLayout><TeamMembers /></AppLayout>
+            <WorkspaceRoute allow={["owner"]}><AppLayout><TeamMembers /></AppLayout></WorkspaceRoute>
           </ProtectedRoute>
         }
       />
@@ -324,7 +335,7 @@ export default function App() {
         path="/reports"
         element={
           <ProtectedRoute>
-            <AppLayout><Reports /></AppLayout>
+            <WorkspaceRoute allow={["owner","manager","accountant"]}><AppLayout><Reports /></AppLayout></WorkspaceRoute>
           </ProtectedRoute>
         }
       />
@@ -332,7 +343,7 @@ export default function App() {
         path="/settings"
         element={
           <ProtectedRoute>
-            <AppLayout><Settings /></AppLayout>
+            <WorkspaceRoute allow={["owner"]}><AppLayout><Settings /></AppLayout></WorkspaceRoute>
           </ProtectedRoute>
         }
       />

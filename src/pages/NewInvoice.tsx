@@ -61,7 +61,7 @@ function getTaxPlaceholder(country: string): string {
 }
 
 export default function NewInvoice() {
-  const { user, profile } = useAuth();
+  const { user, profile, workspaceOwnerId } = useAuth();
   const { openUpgrade } = useUpgrade();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -183,7 +183,7 @@ export default function NewInvoice() {
       const { count } = await supabase
         .from("invoices")
         .select("*", { count: "exact", head: true })
-        .eq("user_id", user.id);
+        .eq("user_id", workspaceOwnerId || user.id);
       const next = (count ?? 0) + 1;
       setInvoiceNumber(`INV-${String(next).padStart(3, "0")}`);
     }
@@ -202,7 +202,7 @@ export default function NewInvoice() {
         .from("invoices")
         .select("*")
         .eq("id", sourceInvoiceId)
-        .eq("user_id", user.id)
+        .eq("user_id", workspaceOwnerId || user.id)
         .single();
 
       if (loadError || !data) {
@@ -370,7 +370,7 @@ export default function NewInvoice() {
       const { count } = await supabase
         .from("invoices")
         .select("*", { count: "exact", head: true })
-        .eq("user_id", user.id);
+        .eq("user_id", workspaceOwnerId || user.id);
       if ((count ?? 0) >= FREE_PLAN_LIMIT) {
         openUpgrade();
         return;
@@ -378,7 +378,7 @@ export default function NewInvoice() {
     }
 
     const payload = {
-      user_id: user.id,
+      user_id: workspaceOwnerId || user.id,
       invoice_number: invoiceNumber,
       client_name: clientName.trim(),
       client_phone: clientPhone.trim()
@@ -421,7 +421,7 @@ export default function NewInvoice() {
           .from("invoices")
           .update(payload)
           .eq("id", editId)
-          .eq("user_id", user.id)
+          .eq("user_id", workspaceOwnerId || user.id)
       : supabase.from("invoices").insert(payload);
 
     const { data, error: saveError } = await query.select("*").single();
@@ -436,13 +436,13 @@ export default function NewInvoice() {
       const { data: existingClient } = await supabase
         .from("clients")
         .select("id")
-        .eq("user_id", user.id)
+        .eq("user_id", workspaceOwnerId || user.id)
         .ilike("name", clientName.trim())
         .maybeSingle();
 
       if (!existingClient) {
         await supabase.from("clients").insert({
-          user_id: user.id,
+          user_id: workspaceOwnerId || user.id,
           name: clientName.trim(),
           phone: clientPhone.trim() || null,
           email: clientEmail.trim() || null,

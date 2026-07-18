@@ -164,7 +164,7 @@ function getEmptyForm(defaultCountry?: string | null, defaultCountryCode?: strin
 }
 
 export default function Clients() {
-  const { user, profile } = useAuth();
+  const { user, profile, workspaceOwnerId, workspaceRole } = useAuth();
   const [clients, setClients] = useState<Client[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
@@ -261,7 +261,7 @@ export default function Clients() {
     const { data: existingClients, error: duplicateError } = await supabase
       .from("clients")
       .select("id, name, email, phone, country_code")
-      .eq("user_id", user.id);
+      .eq("user_id", workspaceOwnerId || user.id);
 
     if (duplicateError) {
       setSaving(false);
@@ -300,7 +300,7 @@ export default function Clients() {
     }
 
     const payload = {
-      user_id: user.id,
+      user_id: workspaceOwnerId || user.id,
       name: normalizedName,
       company_name: form.company_name.trim() || null,
       country: form.country,
@@ -368,7 +368,7 @@ export default function Clients() {
       let invoiceDeleteQuery = supabase
         .from("invoices")
         .delete()
-        .eq("user_id", user.id);
+        .eq("user_id", workspaceOwnerId || user.id);
 
       invoiceDeleteQuery = deleteTarget.email
         ? invoiceDeleteQuery.ilike("client_email", deleteTarget.email)
@@ -386,7 +386,7 @@ export default function Clients() {
       .from("clients")
       .delete()
       .eq("id", deleteTarget.id)
-      .eq("user_id", user.id);
+      .eq("user_id", workspaceOwnerId || user.id);
 
     setDeleting(false);
     if (clientDeleteError) {
@@ -708,12 +708,12 @@ export default function Clients() {
                 )}
               </div>
               <div className="flex gap-2 pt-2 border-t border-slate-100">
-                <button
+                {workspaceRole !== "staff" && <button
                   onClick={() => showHistory(client)}
                   className="text-sm text-primary-600 font-medium hover:underline"
                 >
                   Invoice history
-                </button>
+                </button>}
                 <button
                   onClick={() => openEdit(client)}
                   className="text-sm text-slate-600 font-medium hover:underline ml-auto"

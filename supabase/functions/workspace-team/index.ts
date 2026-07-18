@@ -66,6 +66,12 @@ Deno.serve(async (req) => {
       .eq("user_id", user.id)
       .maybeSingle();
 
+    const { data: callerMembership } = await admin.from("workspace_members")
+      .select("id").or(`user_id.eq.${user.id},auth_user_id.eq.${user.id}`).maybeSingle();
+    if (callerMembership || user.user_metadata?.workspace_invitation_id) {
+      return json({ error: "Only the workspace owner can manage team members." }, 403);
+    }
+
     const { data: workspaceId, error: workspaceError } = await admin.rpc(
       "ensure_workspace_for_owner",
       { p_owner: user.id },
@@ -225,6 +231,8 @@ Deno.serve(async (req) => {
 
     if (action === "update") {
       const id = String(body.memberId || "");
+      const { data: targetMember } = await admin.from("workspace_members")
+        .select("user_id,auth_user_id").eq("id", id).eq("workspace_id", workspaceId).neq("role", "owner").maybeSingle();
       const patch: Record<string, unknown> = { updated_at: new Date().toISOString() };
       if (body.role && ["manager", "accountant", "staff"].includes(body.role)) patch.role = body.role;
       if (body.status && ["active", "disabled"].includes(body.status)) patch.status = body.status;
@@ -235,10 +243,19 @@ Deno.serve(async (req) => {
         .eq("workspace_id", workspaceId)
         .neq("role", "owner");
       if (error) throw error;
+      const targetUserId = targetMember?.user_id || targetMember?.auth_user_id;
+      if (targetUserId) {
+        const profilePatch: Record<string, unknown> = {};
+        if (patch.role) profilePatch.workspace_role = patch.role;
+        if (patch.status) profilePatch.workspace_member_status = patch.status;
+        if (Object.keys(profilePatch).length) await admin.from("profiles").update(profilePatch).eq("user_id", targetUserId);
+      }
       return json({ success: true });
     }
 
     if (action === "remove") {
+      const { data: targetMember } = await admin.from("workspace_members")
+        .select("user_id,auth_user_id").eq("id", body.memberId).eq("workspace_id", workspaceId).neq("role", "owner").maybeSingle();
       const { error } = await admin
         .from("workspace_members")
         .delete()
@@ -246,6 +263,12 @@ Deno.serve(async (req) => {
         .eq("workspace_id", workspaceId)
         .neq("role", "owner");
       if (error) throw error;
+      const targetUserId = targetMember?.user_id || targetMember?.auth_user_id;
+      if (targetUserId) {
+        await admin.from("profiles").delete().eq("user_id", targetUserId);
+        const { error: deleteAuthError } = await admin.auth.admin.deleteUser(targetUserId);
+        if (deleteAuthError) throw deleteAuthError;
+      }
       return json({ success: true });
     }
 

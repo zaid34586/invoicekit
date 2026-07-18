@@ -306,7 +306,7 @@ function TopClientRow({
 }
 
 export default function Reports() {
-  const { user, profile } = useAuth();
+  const { user, profile, workspaceOwnerId } = useAuth();
   const [loading, setLoading] = useState(true);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
@@ -324,13 +324,13 @@ const currency = profile?.currency ?? "USD";
         supabase
   .from("invoices")
   .select("*")
-  .eq("user_id", user?.id)
+  .eq("user_id", workspaceOwnerId || user?.id)
   .order("created_at", { ascending: false }),
 
 supabase
   .from("clients")
   .select("*")
-  .eq("user_id", user?.id)
+  .eq("user_id", workspaceOwnerId || user?.id)
   .order("created_at", { ascending: false }),
       ]);
 
@@ -339,7 +339,7 @@ supabase
       setLoading(false);
     }
     loadData();
-  }, [user]);
+  }, [user, workspaceOwnerId]);
 
   const now = new Date();
   const getDateRange = (): { start: Date; end: Date } => {

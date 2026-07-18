@@ -318,7 +318,7 @@ function RevenueChart({
 }
 
 export default function Dashboard() {
-  const { user, profile } = useAuth();
+  const { user, profile, workspaceOwnerId, workspaceRole, workspaceName } = useAuth();
   const navigate = useNavigate();
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
@@ -333,13 +333,13 @@ export default function Dashboard() {
       supabase
         .from("invoices")
         .select("*")
-        .eq("user_id", user.id)
+        .eq("user_id", workspaceOwnerId || user.id)
         .order("created_at", { ascending: false }),
 
       supabase
         .from("clients")
         .select("*")
-        .eq("user_id", user.id)
+        .eq("user_id", workspaceOwnerId || user.id)
         .order("created_at", { ascending: false }),
     ]);
 
@@ -350,7 +350,7 @@ export default function Dashboard() {
   }
 
   load();
-}, [user]);
+}, [user, workspaceOwnerId]);
 
   // Calculate statistics
   const now = new Date();
@@ -412,14 +412,14 @@ export default function Dashboard() {
           <div>
             <div className="flex items-center gap-3 mb-1">
               <h1 className="text-3xl font-black tracking-tight text-white sm:text-4xl">
-                Welcome back{profile?.business_name ? `, ${profile.business_name}` : ""}
+                {workspaceRole === "owner" ? `Welcome back${profile?.business_name ? `, ${profile.business_name}` : ""}` : workspaceName || profile?.business_name || "Workspace"}
               </h1>
-              <Link
+              {workspaceRole === "owner" ? <Link
   to="/billing"
   className={`px-3 py-1 rounded-full text-xs font-semibold hover:scale-105 transition ${planBadgeColor}`}
 >
   {planName}
-</Link>
+</Link> : <span className={`px-3 py-1 rounded-full text-xs font-semibold ${planBadgeColor}`}>{planName}</span>}
             </div>
             <p className="mt-2 max-w-xl text-sm text-indigo-100 sm:text-base">
               A live view of revenue, invoices, clients and the work that needs your attention.
@@ -464,7 +464,7 @@ export default function Dashboard() {
             </svg>
             Add Client
           </Link>
-         <Link
+         {workspaceRole === "owner" && <Link
   to="/billing"
   className="inline-flex items-center gap-2 rounded-xl border border-white/20 bg-white/10 px-5 py-3 font-semibold text-white backdrop-blur transition hover:bg-white/20"
 >
@@ -483,7 +483,7 @@ export default function Dashboard() {
   </svg>
 
   Billing
-</Link>
+</Link>}
         </div>
       </div>
       </section>
