@@ -11,6 +11,17 @@ const json = (body: unknown, status = 200) =>
     headers: { ...cors, "Content-Type": "application/json" },
   });
 
+async function findAuthUserByEmail(admin: ReturnType<typeof createClient>, email: string) {
+  for (let page = 1; page <= 10; page += 1) {
+    const { data, error } = await admin.auth.admin.listUsers({ page, perPage: 1000 });
+    if (error) throw error;
+    const match = data.users.find((candidate) => candidate.email?.toLowerCase() === email);
+    if (match) return match;
+    if (data.users.length < 1000) break;
+  }
+  return null;
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
 
@@ -127,6 +138,34 @@ Deno.serve(async (req) => {
         .maybeSingle();
       if (existing) return json({ error: "This person is already a workspace member." }, 409);
 
+      // Supabase creates an Auth user as soon as inviteUserByEmail is called.
+      // Revoking an app invitation does not remove that Auth record, so a retry
+      // otherwise fails with "email address has already been registered". Only
+      // remove records created by our earlier workspace invite when they never
+      // joined a workspace and never created a customer profile.
+      const existingAuthUser = await findAuthUserByEmail(admin, email);
+      if (existingAuthUser) {
+        const [{ count: memberships }, { count: profiles }] = await Promise.all([
+          admin
+            .from("workspace_members")
+            .select("id", { count: "exact", head: true })
+            .or(`user_id.eq.${existingAuthUser.id},auth_user_id.eq.${existingAuthUser.id}`),
+          admin
+            .from("profiles")
+            .select("id", { count: "exact", head: true })
+            .or(`user_id.eq.${existingAuthUser.id},id.eq.${existingAuthUser.id}`),
+        ]);
+        const wasWorkspaceInvite = Boolean(existingAuthUser.user_metadata?.workspace_invitation_id);
+        if (wasWorkspaceInvite && !memberships && !profiles) {
+          const { error: deleteError } = await admin.auth.admin.deleteUser(existingAuthUser.id);
+          if (deleteError) return json({ error: `Unable to reset the previous invitation: ${deleteError.message}` }, 409);
+        } else {
+          return json({
+            error: "An account with this email already exists. Ask this user to sign in, or use a different email address.",
+          }, 409);
+        }
+      }
+
       const expires = new Date(Date.now() + 7 * 86400000).toISOString();
       const { data: invite, error: inviteError } = await admin
         .from("workspace_invitations")
@@ -182,12 +221,31 @@ Deno.serve(async (req) => {
     }
 
     if (action === "revoke") {
+      const { data: invitation } = await admin
+        .from("workspace_invitations")
+        .select("email")
+        .eq("id", body.inviteId)
+        .eq("workspace_id", workspaceId)
+        .eq("status", "pending")
+        .maybeSingle();
       const { error } = await admin
         .from("workspace_invitations")
         .update({ status: "revoked", updated_at: new Date().toISOString() })
         .eq("id", body.inviteId)
         .eq("workspace_id", workspaceId);
       if (error) throw error;
+      if (invitation?.email) {
+        const invitedAuthUser = await findAuthUserByEmail(admin, invitation.email.toLowerCase());
+        if (invitedAuthUser?.user_metadata?.workspace_invitation_id === body.inviteId) {
+          const [{ count: memberships }, { count: profiles }] = await Promise.all([
+            admin.from("workspace_members").select("id", { count: "exact", head: true })
+              .or(`user_id.eq.${invitedAuthUser.id},auth_user_id.eq.${invitedAuthUser.id}`),
+            admin.from("profiles").select("id", { count: "exact", head: true })
+              .or(`user_id.eq.${invitedAuthUser.id},id.eq.${invitedAuthUser.id}`),
+          ]);
+          if (!memberships && !profiles) await admin.auth.admin.deleteUser(invitedAuthUser.id);
+        }
+      }
       return json({ success: true });
     }
 
