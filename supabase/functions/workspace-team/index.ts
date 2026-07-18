@@ -93,7 +93,7 @@ Deno.serve(async (req) => {
         await Promise.all([
           admin
             .from("workspace_members")
-            .select("id,user_id,email,name,role,status,joined_at")
+            .select("id,user_id,email,name,role,status,joined_at,permissions,custom_role_name")
             .eq("workspace_id", workspaceId)
             .order("created_at"),
           admin
@@ -226,16 +226,27 @@ Deno.serve(async (req) => {
         return json({ error: createError.message }, 400);
       }
       const emailResult = await sendMemberCredentials({ email, name, password, role, workspace: profile?.business_name || "Rivox Workspace", loginUrl });
+      await admin.from("workspace_audit_logs").insert({ workspace_id: workspaceId, actor_user_id: user.id, actor_email: user.email, action: "member.invited", entity_type: "workspace_invitation", entity_id: invite.id, metadata: { email, role } });
       return json({ success: true, invite, emailSent: emailResult.sent, emailError: emailResult.error || null });
     }
 
     if (action === "update") {
       const id = String(body.memberId || "");
       const { data: targetMember } = await admin.from("workspace_members")
-        .select("user_id,auth_user_id").eq("id", id).eq("workspace_id", workspaceId).neq("role", "owner").maybeSingle();
+        .select("user_id,auth_user_id,email,role,status").eq("id", id).eq("workspace_id", workspaceId).neq("role", "owner").maybeSingle();
       const patch: Record<string, unknown> = { updated_at: new Date().toISOString() };
       if (body.role && ["manager", "accountant", "staff"].includes(body.role)) patch.role = body.role;
       if (body.status && ["active", "disabled"].includes(body.status)) patch.status = body.status;
+      if (body.permissions !== undefined || body.customRoleName !== undefined) {
+        const plan = (profile?.plan || (profile?.is_pro ? "pro" : "free")) as string;
+        if (plan !== "business") return json({ error: "Custom permissions require the Business plan." }, 403);
+        if (body.permissions !== undefined) {
+          const allowed = ["dashboard.view","clients.view","clients.manage","invoices.view","invoices.create","invoices.edit","invoices.delete","reports.view","support.view"];
+          if (!Array.isArray(body.permissions) || body.permissions.some((p: unknown) => typeof p !== "string" || !allowed.includes(p))) return json({ error: "Invalid permissions." }, 400);
+          patch.permissions = body.permissions;
+        }
+        if (body.customRoleName !== undefined) patch.custom_role_name = String(body.customRoleName || "").trim().slice(0, 40) || null;
+      }
       const { error } = await admin
         .from("workspace_members")
         .update(patch)
@@ -250,12 +261,13 @@ Deno.serve(async (req) => {
         if (patch.status) profilePatch.workspace_member_status = patch.status;
         if (Object.keys(profilePatch).length) await admin.from("profiles").update(profilePatch).eq("user_id", targetUserId);
       }
+      await admin.from("workspace_audit_logs").insert({ workspace_id: workspaceId, actor_user_id: user.id, actor_email: user.email, action: patch.status ? "member.status_changed" : "member.role_changed", entity_type: "workspace_member", entity_id: id, metadata: patch });
       return json({ success: true });
     }
 
     if (action === "remove") {
       const { data: targetMember } = await admin.from("workspace_members")
-        .select("user_id,auth_user_id").eq("id", body.memberId).eq("workspace_id", workspaceId).neq("role", "owner").maybeSingle();
+        .select("user_id,auth_user_id,email").eq("id", body.memberId).eq("workspace_id", workspaceId).neq("role", "owner").maybeSingle();
       const { error } = await admin
         .from("workspace_members")
         .delete()
@@ -269,6 +281,7 @@ Deno.serve(async (req) => {
         const { error: deleteAuthError } = await admin.auth.admin.deleteUser(targetUserId);
         if (deleteAuthError) throw deleteAuthError;
       }
+      await admin.from("workspace_audit_logs").insert({ workspace_id: workspaceId, actor_user_id: user.id, actor_email: user.email, action: "member.removed", entity_type: "workspace_member", entity_id: String(body.memberId), metadata: { email: targetMember?.email } });
       return json({ success: true });
     }
 

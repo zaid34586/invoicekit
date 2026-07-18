@@ -19,6 +19,8 @@ interface AuthContextValue {
   workspaceRole: "owner" | "manager" | "accountant" | "staff" | null;
   workspaceStatus: "active" | "disabled" | "removed" | null;
   workspaceName: string | null;
+  workspacePermissions: string[];
+  workspaceCustomRole: string | null;
   signUp: (email: string, password: string) => Promise<{ error: string | null }>;
   signIn: (email: string, password: string, options?: { skipProfile?: boolean }) => Promise<{ error: string | null }>;
   signOut: () => Promise<void>;
@@ -117,6 +119,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [workspaceRole, setWorkspaceRole] = useState<AuthContextValue["workspaceRole"]>(null);
   const [workspaceStatus, setWorkspaceStatus] = useState<AuthContextValue["workspaceStatus"]>(null);
   const [workspaceName, setWorkspaceName] = useState<string | null>(null);
+  const [workspacePermissions, setWorkspacePermissions] = useState<string[]>([]);
+  const [workspaceCustomRole, setWorkspaceCustomRole] = useState<string | null>(null);
 
   async function loadWorkspaceContext(): Promise<Profile | null> {
     const { data, error } = await supabase.rpc("get_my_workspace_context");
@@ -125,6 +129,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setWorkspaceRole(data.role ?? null);
     setWorkspaceStatus(data.status ?? null);
     setWorkspaceName(data.workspace_name ?? null);
+    setWorkspacePermissions(Array.isArray(data.permissions) ? data.permissions : []);
+    setWorkspaceCustomRole(data.custom_role_name ?? null);
     if (data.owner_profile && data.role !== "owner" && data.status === "active") {
       const merged = { ...data.owner_profile, workspace_owner_id: data.owner_user_id, workspace_role: data.role, workspace_member_status: data.status } as Profile;
       setProfile(merged);
@@ -242,6 +248,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
 
     setSession(nextSession);
+    const auditKey = `rivox_login_audit_${nextSession.access_token.slice(-12)}`;
+    if (!sessionStorage.getItem(auditKey)) {
+      sessionStorage.setItem(auditKey, "1");
+      void supabase.rpc("log_workspace_event", { p_action: "login", p_metadata: { source: "web" } });
+    }
 
     if (!data.user.email_confirmed_at) {
       setProfile(null);
@@ -396,6 +407,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setWorkspaceRole(null);
     setWorkspaceStatus(null);
     setWorkspaceName(null);
+    setWorkspacePermissions([]);
+    setWorkspaceCustomRole(null);
   };
 
   const refreshProfile = async (options?: { skipProfile?: boolean }) => {
@@ -408,6 +421,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setWorkspaceRole(null);
       setWorkspaceStatus(null);
       setWorkspaceName(null);
+      setWorkspacePermissions([]);
+      setWorkspaceCustomRole(null);
       return null;
     }
 
@@ -436,6 +451,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         workspaceRole,
         workspaceStatus,
         workspaceName,
+        workspacePermissions,
+        workspaceCustomRole,
         signUp,
         signIn,
         signOut,

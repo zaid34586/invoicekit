@@ -92,3 +92,15 @@ enabled = true
 verify_jwt = false
 import_map = "./functions/stripe-invoice-payments/deno.json"
 entrypoint = "./functions/stripe-invoice-payments/index.ts"
+
+[functions.business-api]
+enabled = true
+verify_jwt = false
+import_map = "./functions/business-api/deno.json"
+entrypoint = "./functions/business-api/index.ts"
+
+[functions.business-webhooks]
+enabled = true
+verify_jwt = true
+import_map = "./functions/business-webhooks/deno.json"
+entrypoint = "./functions/business-webhooks/index.ts"

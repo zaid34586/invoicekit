@@ -21,6 +21,7 @@ import Reports from "./pages/Reports";
 import Settings from "./pages/Settings";
 import TeamMembers from "./pages/TeamMembers";
 import Support from "./pages/Support";
+import Business from "./pages/Business";
 import AcceptInvitation from "./pages/AcceptInvitation";
 import ChangeTemporaryPassword from "./pages/ChangeTemporaryPassword";
 import Admin from "./pages/Admin";
@@ -157,12 +158,13 @@ function SignedInRoute({ children }: { children: ReactNode }) {
 }
 
 type WorkspaceRole = "owner" | "manager" | "accountant" | "staff";
-function WorkspaceRoute({ children, allow }: { children: ReactNode; allow: WorkspaceRole[] }) {
-  const { workspaceRole, workspaceStatus, signOut } = useAuth();
+function WorkspaceRoute({ children, allow, permission }: { children: ReactNode; allow: WorkspaceRole[]; permission?: string }) {
+  const { workspaceRole, workspaceStatus, workspacePermissions, signOut } = useAuth();
   if (workspaceStatus === "disabled" || workspaceStatus === "removed") {
     return <div className="min-h-screen grid place-items-center bg-slate-100 px-4"><div className="card max-w-md p-8 text-center"><h1 className="text-2xl font-black text-slate-900">Workspace access unavailable</h1><p className="mt-3 text-slate-600">Your access was {workspaceStatus}. Contact the workspace owner if this was unexpected.</p><button className="btn-primary mt-6" onClick={() => void signOut()}>Sign out</button></div></div>;
   }
   if (workspaceRole && !allow.includes(workspaceRole)) return <Navigate to={workspaceRole === "accountant" || workspaceRole === "staff" ? "/clients" : "/dashboard"} replace />;
+  if (workspaceRole && workspaceRole !== "owner" && permission && !workspacePermissions.includes("*") && !workspacePermissions.includes(permission)) return <Navigate to="/support" replace />;
   return <>{children}</>;
 }
 
@@ -272,7 +274,7 @@ export default function App() {
         path="/dashboard"
         element={
           <ProtectedRoute>
-            <WorkspaceRoute allow={["owner","manager"]}><AppLayout><Dashboard /></AppLayout></WorkspaceRoute>
+            <WorkspaceRoute allow={["owner","manager","accountant","staff"]} permission="dashboard.view"><AppLayout><Dashboard /></AppLayout></WorkspaceRoute>
           </ProtectedRoute>
         }
       />
@@ -280,7 +282,7 @@ export default function App() {
         path="/new"
         element={
           <ProtectedRoute>
-            <WorkspaceRoute allow={["owner","manager","staff"]}><AppLayout><NewInvoice /></AppLayout></WorkspaceRoute>
+            <WorkspaceRoute allow={["owner","manager","accountant","staff"]} permission="invoices.create"><AppLayout><NewInvoice /></AppLayout></WorkspaceRoute>
           </ProtectedRoute>
         }
       />
@@ -288,7 +290,7 @@ export default function App() {
         path="/invoice/:id"
         element={
           <ProtectedRoute>
-            <WorkspaceRoute allow={["owner","manager","accountant","staff"]}><AppLayout><InvoicePreview /></AppLayout></WorkspaceRoute>
+            <WorkspaceRoute allow={["owner","manager","accountant","staff"]} permission="invoices.view"><AppLayout><InvoicePreview /></AppLayout></WorkspaceRoute>
           </ProtectedRoute>
         }
       />
@@ -296,7 +298,7 @@ export default function App() {
         path="/invoices"
         element={
           <ProtectedRoute>
-            <WorkspaceRoute allow={["owner","manager","accountant","staff"]}><AppLayout><Invoices /></AppLayout></WorkspaceRoute>
+            <WorkspaceRoute allow={["owner","manager","accountant","staff"]} permission="invoices.view"><AppLayout><Invoices /></AppLayout></WorkspaceRoute>
           </ProtectedRoute>
         }
       />
@@ -304,7 +306,7 @@ export default function App() {
         path="/clients"
         element={
           <ProtectedRoute>
-            <WorkspaceRoute allow={["owner","manager","accountant","staff"]}><AppLayout><Clients /></AppLayout></WorkspaceRoute>
+            <WorkspaceRoute allow={["owner","manager","accountant","staff"]} permission="clients.view"><AppLayout><Clients /></AppLayout></WorkspaceRoute>
           </ProtectedRoute>
         }
       />
@@ -336,7 +338,7 @@ export default function App() {
         path="/reports"
         element={
           <ProtectedRoute>
-            <WorkspaceRoute allow={["owner","manager","accountant"]}><AppLayout><Reports /></AppLayout></WorkspaceRoute>
+            <WorkspaceRoute allow={["owner","manager","accountant","staff"]} permission="reports.view"><AppLayout><Reports /></AppLayout></WorkspaceRoute>
           </ProtectedRoute>
         }
       />
@@ -349,6 +351,7 @@ export default function App() {
         }
       />
       <Route path="/support" element={<ProtectedRoute><WorkspaceRoute allow={["owner","manager","accountant","staff"]}><AppLayout><Support /></AppLayout></WorkspaceRoute></ProtectedRoute>} />
+      <Route path="/business" element={<ProtectedRoute><WorkspaceRoute allow={["owner"]}><AppLayout><Business /></AppLayout></WorkspaceRoute></ProtectedRoute>} />
       <Route
         path="/admin"
         element={
