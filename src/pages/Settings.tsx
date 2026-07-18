@@ -2,6 +2,7 @@ import { useEffect, useState, useRef, type FormEvent } from "react";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../context/AuthContext";
 import { COUNTRIES, getCountrySetting } from "../lib/constants";
+import PaymentGatewaySettings from "../components/PaymentGatewaySettings";
 
 // ── Per-country auto-derived settings ────────────────────────────────────────
 // When businessCountry changes, these values update automatically.
@@ -282,6 +283,7 @@ export default function Settings() {
           <div className="sticky bottom-0 flex justify-end gap-3 border-t border-slate-100 bg-white/95 px-6 py-4 backdrop-blur sm:px-8"><button type="submit" disabled={saving} className="btn-primary min-w-36 justify-center">{saving ? "Saving..." : profileComplete ? "Save changes" : "Complete setup"}</button></div>
         </form>
       )}
+      <PaymentGatewaySettings profile={profile} />
     </div>
   );
 }

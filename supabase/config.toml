@@ -74,3 +74,15 @@ enabled = true
 verify_jwt = true
 import_map = "./functions/workspace-team/deno.json"
 entrypoint = "./functions/workspace-team/index.ts"
+
+[functions.payment-gateway]
+enabled = true
+verify_jwt = true
+import_map = "./functions/payment-gateway/deno.json"
+entrypoint = "./functions/payment-gateway/index.ts"
+
+[functions.paypal-invoice-payments]
+enabled = true
+verify_jwt = false
+import_map = "./functions/paypal-invoice-payments/deno.json"
+entrypoint = "./functions/paypal-invoice-payments/index.ts"

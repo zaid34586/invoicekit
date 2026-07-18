@@ -145,7 +145,7 @@ function PlanCard({
       </div>
 
       <ul className="mt-5 flex-1 space-y-2">
-        {plan.features.slice(0, 6).map((feature) => (
+        {plan.features.map((feature) => (
           <li key={feature} className="flex gap-2 text-sm text-slate-700">
             <span className="text-emerald-600">✓</span>
             <span>{feature}</span>

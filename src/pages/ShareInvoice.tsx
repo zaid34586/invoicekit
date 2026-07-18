@@ -13,6 +13,24 @@ export default function ShareInvoice() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showPayModal, setShowPayModal] = useState(false);
+  const [paymentAvailable, setPaymentAvailable] = useState(false);
+  const [paymentEnvironment, setPaymentEnvironment] = useState<"sandbox" | "live" | null>(null);
+  const [paymentLoading, setPaymentLoading] = useState(false);
+  const [paymentMessage, setPaymentMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
+
+  async function callPayment(body: Record<string, unknown>) {
+    const { data, error: functionError } = await supabase.functions.invoke("paypal-invoice-payments", { body });
+    if (functionError) {
+      let detail = functionError.message;
+      try {
+        const response = (functionError as { context?: Response }).context;
+        if (response) detail = (await response.clone().json())?.error || detail;
+      } catch { /* keep the function error */ }
+      throw new Error(detail);
+    }
+    if (data?.error) throw new Error(data.error);
+    return data;
+  }
 
   useEffect(() => {
     async function load() {
@@ -46,10 +64,53 @@ export default function ShareInvoice() {
       if (profData) {
         setProfile(profData as Profile);
       }
+
+      try {
+        const availability = await callPayment({ action: "availability", shareToken: token });
+        setPaymentAvailable(Boolean(availability.available));
+        setPaymentEnvironment(availability.environment || null);
+      } catch {
+        setPaymentAvailable(false);
+      }
+
+      const query = new URLSearchParams(window.location.search);
+      if (query.get("payment") === "paypal-return") {
+        if (query.get("cancelled") === "1") {
+          setPaymentMessage({ type: "error", text: "PayPal checkout was cancelled. No payment was taken." });
+        } else if (query.get("token")) {
+          setPaymentLoading(true);
+          try {
+            const result = await callPayment({ action: "capture_order", shareToken: token, orderId: query.get("token") });
+            if (result.paid) {
+              setInvoice({ ...inv, status: "paid" });
+              setPaymentMessage({ type: "success", text: `Payment successful. Receipt reference: ${result.captureId}` });
+            }
+          } catch (captureError) {
+            setPaymentMessage({ type: "error", text: captureError instanceof Error ? captureError.message : "Payment verification failed" });
+          } finally {
+            setPaymentLoading(false);
+            window.history.replaceState({}, "", window.location.pathname);
+          }
+        }
+      }
       setLoading(false);
     }
     load();
   }, [token]);
+
+  async function startPayment() {
+    if (!token || !paymentAvailable) return;
+    setPaymentLoading(true);
+    setPaymentMessage(null);
+    try {
+      const result = await callPayment({ action: "create_order", shareToken: token });
+      if (!result.approvalUrl) throw new Error("PayPal checkout link was not returned");
+      window.location.assign(result.approvalUrl);
+    } catch (paymentError) {
+      setPaymentMessage({ type: "error", text: paymentError instanceof Error ? paymentError.message : "Could not open PayPal" });
+      setPaymentLoading(false);
+    }
+  }
 
   if (loading) {
     return (
@@ -113,6 +174,11 @@ export default function ShareInvoice() {
   return (
     <div className="min-h-screen bg-slate-50 py-6 px-4">
       <div className="max-w-4xl mx-auto space-y-4">
+        {paymentMessage && (
+          <div className={`rounded-xl border px-4 py-3 text-sm font-medium ${paymentMessage.type === "success" ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-red-200 bg-red-50 text-red-700"}`}>
+            {paymentMessage.text}
+          </div>
+        )}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <div className="w-8 h-8 bg-primary-600 rounded-lg flex items-center justify-center">
@@ -384,15 +450,26 @@ export default function ShareInvoice() {
             <p className="text-sm text-slate-500 mb-1">
               Amount due: {formatMoney(displayTotal, invoiceCurrency)}
             </p>
-            <p className="text-sm text-amber-600 font-medium mt-4">
-              Payment gateway coming soon
-            </p>
-            <button
-              onClick={() => setShowPayModal(false)}
-              className="btn-secondary w-full mt-6"
-            >
-              Close
-            </button>
+            {paymentAvailable ? (
+              <>
+                <div className="mt-5 rounded-xl border border-blue-100 bg-blue-50 p-4 text-left">
+                  <p className="text-sm font-bold text-blue-900">Pay securely with PayPal</p>
+                  <p className="mt-1 text-xs leading-5 text-blue-700">Payment goes directly to {profile?.business_name || "this business"}. Rivox does not store your card details.</p>
+                  {paymentEnvironment === "sandbox" && <p className="mt-2 text-xs font-bold text-amber-700">Test mode — no real money will be charged.</p>}
+                </div>
+                <button onClick={startPayment} disabled={paymentLoading} className="mt-5 w-full rounded-xl bg-[#0070ba] px-5 py-3 font-bold text-white hover:bg-[#005ea6] disabled:opacity-60">
+                  {paymentLoading ? "Opening PayPal…" : "Continue to PayPal"}
+                </button>
+              </>
+            ) : (
+              <>
+                <div className="mt-5 rounded-xl border border-amber-200 bg-amber-50 p-4 text-left">
+                  <p className="text-sm font-bold text-amber-900">Online payment is not configured</p>
+                  <p className="mt-1 text-xs leading-5 text-amber-700">Please contact {profile?.business_name || "the business"} directly to arrange payment.</p>
+                </div>
+                <button onClick={() => setShowPayModal(false)} className="btn-secondary w-full mt-5">Close</button>
+              </>
+            )}
           </div>
         </div>
       )}
