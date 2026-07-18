@@ -20,6 +20,17 @@ type SupportTicket = {
   last_reply_at?: string | null;
 };
 
+type TicketAttachment = {
+  id: string;
+  ticket_id: string;
+  file_name: string;
+  storage_path: string;
+  mime_type: string;
+  size_bytes: number;
+  created_at: string;
+  signed_url?: string;
+};
+
 type TicketMessage = {
   id: string;
   ticket_id: string;
@@ -52,9 +63,11 @@ function formatDate(value: string) {
 }
 
 export default function Support() {
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const [tickets, setTickets] = useState<SupportTicket[]>([]);
   const [messages, setMessages] = useState<TicketMessage[]>([]);
+  const [attachments, setAttachments] = useState<TicketAttachment[]>([]);
+  const [attachmentFile, setAttachmentFile] = useState<File | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -67,9 +80,12 @@ export default function Support() {
   const [form, setForm] = useState({
     subject: "",
     category: "billing",
-    priority: "medium" as TicketPriority,
     message: "",
   });
+
+  const planName = (profile?.plan || "free").toLowerCase();
+  const automaticPriority: TicketPriority = planName === "business" ? "urgent" : planName === "pro" ? "high" : "medium";
+  const priorityLabel = planName === "business" ? "Highest" : planName === "pro" ? "High" : "Normal";
 
   async function loadTickets(selectFirst = false) {
     if (!user) return;
@@ -110,13 +126,55 @@ export default function Support() {
     setMessages((data ?? []) as TicketMessage[]);
   }
 
+  async function loadAttachments(ticketId: string) {
+    const { data, error: attachmentError } = await supabase
+      .from("support_ticket_attachments")
+      .select("*")
+      .eq("ticket_id", ticketId)
+      .order("created_at", { ascending: true });
+    if (attachmentError) {
+      setAttachments([]);
+      return;
+    }
+    const rows = (data ?? []) as TicketAttachment[];
+    const signed = await Promise.all(rows.map(async (item) => {
+      const { data: urlData } = await supabase.storage.from("support-attachments").createSignedUrl(item.storage_path, 3600);
+      return { ...item, signed_url: urlData?.signedUrl };
+    }));
+    setAttachments(signed);
+  }
+
+  function validateAttachment(file: File) {
+    const allowed = ["image/png", "image/jpeg", "image/webp"];
+    if (!allowed.includes(file.type)) return "Only PNG, JPG or WEBP screenshots are allowed.";
+    if (file.size > 5 * 1024 * 1024) return "Screenshot must be 5 MB or smaller.";
+    return "";
+  }
+
+  async function uploadAttachment(ticketId: string, file: File) {
+    if (!user) throw new Error("You must be signed in.");
+    const validation = validateAttachment(file);
+    if (validation) throw new Error(validation);
+    const extension = file.name.split(".").pop()?.toLowerCase() || "png";
+    const storagePath = `${user.id}/${ticketId}/${crypto.randomUUID()}.${extension}`;
+    const { error: uploadError } = await supabase.storage.from("support-attachments").upload(storagePath, file, { upsert: false, contentType: file.type });
+    if (uploadError) throw uploadError;
+    const { error: rowError } = await supabase.from("support_ticket_attachments").insert({
+      ticket_id: ticketId, uploaded_by: user.id, file_name: file.name, storage_path: storagePath, mime_type: file.type, size_bytes: file.size,
+    });
+    if (rowError) {
+      await supabase.storage.from("support-attachments").remove([storagePath]);
+      throw rowError;
+    }
+  }
+
   useEffect(() => {
     void loadTickets(true);
   }, [user?.id]);
 
   useEffect(() => {
-    if (selectedId) void loadMessages(selectedId);
-    else setMessages([]);
+    if (selectedId) void Promise.all([loadMessages(selectedId), loadAttachments(selectedId)]);
+    else { setMessages([]); setAttachments([]); }
   }, [selectedId]);
 
   const filteredTickets = useMemo(() => {
@@ -148,7 +206,7 @@ export default function Support() {
         subject: form.subject.trim(),
         message: form.message.trim(),
         category: form.category,
-        priority: form.priority,
+        priority: automaticPriority,
         status: "open",
         last_reply_at: new Date().toISOString(),
       })
@@ -176,7 +234,12 @@ export default function Support() {
       return;
     }
 
-    setForm({ subject: "", category: "billing", priority: "medium", message: "" });
+    if (attachmentFile) {
+      try { await uploadAttachment(ticket.id, attachmentFile); }
+      catch (uploadError) { setError(uploadError instanceof Error ? uploadError.message : "Ticket created, but screenshot upload failed."); }
+    }
+    setAttachmentFile(null);
+    setForm({ subject: "", category: "billing", message: "" });
     setShowCreate(false);
     setNotice("Support ticket created. Our team will reply here.");
     await loadTickets();
@@ -286,6 +349,8 @@ export default function Support() {
                 })}
               </div>
 
+              {attachments.length > 0 && <div className="border-t border-slate-200 p-4 sm:p-5"><p className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-500">Screenshots</p><div className="grid grid-cols-2 sm:grid-cols-3 gap-3">{attachments.map((item) => <a key={item.id} href={item.signed_url} target="_blank" rel="noreferrer" className="group overflow-hidden rounded-xl border border-slate-200 bg-white"><img src={item.signed_url} alt={item.file_name} className="h-28 w-full object-cover group-hover:scale-105 transition"/><p className="truncate p-2 text-xs text-slate-600">{item.file_name}</p></a>)}</div></div>}
+
               <form onSubmit={sendReply} className="border-t border-slate-200 p-4 sm:p-5">
                 {selectedTicket.status === "closed" ? <p className="rounded-xl bg-slate-100 p-3 text-center text-sm text-slate-600">This ticket is closed. Create a new ticket if you need more help.</p> : <div className="flex flex-col sm:flex-row gap-3"><textarea className="input min-h-24 flex-1" placeholder="Write a reply..." value={reply} onChange={(e) => setReply(e.target.value)} /><button disabled={saving || !reply.trim()} className="btn-primary self-end disabled:opacity-50">{saving ? "Sending..." : "Send reply"}</button></div>}
               </form>
@@ -301,7 +366,8 @@ export default function Support() {
             <div className="flex items-start justify-between gap-4"><div><p className="text-xs font-semibold uppercase tracking-wider text-primary-600">New support request</p><h2 className="mt-1 text-2xl font-bold text-slate-900">Tell us what happened</h2></div><button type="button" onClick={() => setShowCreate(false)} className="rounded-lg p-2 text-slate-400 hover:bg-slate-100">✕</button></div>
             <div className="mt-6 space-y-4">
               <div><label className="label">Subject</label><input required className="input mt-1" placeholder="Example: Invoice balance is not updating" value={form.subject} onChange={(e) => setForm({ ...form, subject: e.target.value })} /></div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4"><div><label className="label">Category</label><select className="input mt-1" value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })}><option value="billing">Billing & plans</option><option value="invoice">Invoice issue</option><option value="account">Account & login</option><option value="payment">Payment</option><option value="technical">Technical issue</option><option value="other">Other</option></select></div><div><label className="label">Priority</label><select className="input mt-1" value={form.priority} onChange={(e) => setForm({ ...form, priority: e.target.value as TicketPriority })}><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option><option value="urgent">Urgent</option></select></div></div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4"><div><label className="label">Category</label><select className="input mt-1" value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })}><option value="billing">Billing & plans</option><option value="invoice">Invoice issue</option><option value="account">Account & login</option><option value="bug">Bug report</option><option value="feature">Feature request</option><option value="technical">Technical issue</option><option value="other">Other</option></select></div><div><label className="label">Plan priority</label><div className="input mt-1 flex items-center justify-between bg-slate-50"><span>{priorityLabel}</span><span className="text-xs font-semibold uppercase text-primary-600">{planName}</span></div></div></div>
+              <div><label className="label">Screenshot (optional)</label><input type="file" accept="image/png,image/jpeg,image/webp" className="input mt-1" onChange={(e) => { const file=e.target.files?.[0] || null; if (file) { const issue=validateAttachment(file); if (issue) { setError(issue); e.currentTarget.value=""; setAttachmentFile(null); } else { setError(""); setAttachmentFile(file); } } else setAttachmentFile(null); }} /><p className="mt-1 text-xs text-slate-500">PNG, JPG or WEBP. Maximum 5 MB.</p></div>
               <div><label className="label">Describe the issue</label><textarea required className="input mt-1 min-h-36" placeholder="Include the steps you took, what you expected and what happened instead." value={form.message} onChange={(e) => setForm({ ...form, message: e.target.value })} /></div>
             </div>
             <div className="mt-6 flex justify-end gap-3"><button type="button" className="btn-secondary" onClick={() => setShowCreate(false)}>Cancel</button><button disabled={saving} className="btn-primary disabled:opacity-50">{saving ? "Creating..." : "Create ticket"}</button></div>

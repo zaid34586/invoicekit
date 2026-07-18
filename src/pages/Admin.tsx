@@ -102,6 +102,15 @@ type AdminSupportTicket = {
   created_at: string;
 };
 
+type AdminSupportMessage = {
+  id: string;
+  ticket_id: string;
+  author_type: "customer" | "staff" | "admin";
+  message: string;
+  is_internal: boolean;
+  created_at: string;
+};
+
 type InvoiceBalanceModalState = {
   profile: Profile;
   amount: string;
@@ -294,6 +303,9 @@ export default function Admin() {
   const [supportSearch, setSupportSearch] = useState("");
   const [supportStatusFilter, setSupportStatusFilter] = useState<"all" | AdminSupportTicket["status"]>("all");
   const [selectedTicketId, setSelectedTicketId] = useState<string | null>(null);
+  const [supportMessages, setSupportMessages] = useState<AdminSupportMessage[]>([]);
+  const [supportReply, setSupportReply] = useState("");
+  const [supportInternal, setSupportInternal] = useState(false);
   const [auditSearch, setAuditSearch] = useState("");
   const [systemSettings, setSystemSettings] = useState<AdminSystemSettings>(DEFAULT_SYSTEM_SETTINGS);
   const [savingSystem, setSavingSystem] = useState(false);
@@ -1060,6 +1072,34 @@ export default function Admin() {
     await load();
   }
 
+  async function loadSupportMessages(ticketId: string) {
+    const { data, error: messageError } = await supabase.from("support_ticket_messages").select("*").eq("ticket_id", ticketId).order("created_at", { ascending: true });
+    if (messageError) return setError(messageError.message);
+    setSupportMessages((data ?? []) as AdminSupportMessage[]);
+  }
+
+  async function sendAdminSupportReply(e: React.FormEvent) {
+    e.preventDefault();
+    if (!selectedTicket || !user || !supportReply.trim()) return;
+    const now = new Date().toISOString();
+    const { error: insertError } = await supabase.from("support_ticket_messages").insert({
+      ticket_id: selectedTicket.id, author_user_id: user.id, author_type: "admin", message: supportReply.trim(), is_internal: supportInternal,
+    });
+    if (insertError) return setError(insertError.message);
+    const nextStatus = supportInternal ? selectedTicket.status : "pending";
+    await supabase.from("admin_support_tickets").update({ status: nextStatus, updated_at: now, last_reply_at: now }).eq("id", selectedTicket.id);
+    await logAction("reply_support_ticket", "admin_support_tickets", selectedTicket.id, { internal: supportInternal });
+    setSupportReply(""); setSupportInternal(false); setNotice(supportInternal ? "Internal note added." : "Reply sent to customer.");
+    await Promise.all([loadSupportMessages(selectedTicket.id), load()]);
+  }
+
+  async function updateTicketPriority(ticket: AdminSupportTicket, priority: AdminSupportTicket["priority"]) {
+    const { error: updateError } = await supabase.from("admin_support_tickets").update({ priority }).eq("id", ticket.id);
+    if (updateError) return setError(updateError.message);
+    await logAction("update_ticket_priority", "admin_support_tickets", ticket.id, { priority });
+    await load();
+  }
+
   async function deleteTicket(ticket: AdminSupportTicket) {
     if (!window.confirm(`Delete ticket: ${ticket.subject}?`)) return;
     const { error: deleteError } = await supabase.from("admin_support_tickets").delete().eq("id", ticket.id);
@@ -1140,6 +1180,11 @@ export default function Admin() {
     });
   }, [supportTickets, supportSearch, supportStatusFilter]);
   const selectedTicket = supportTickets.find((ticket) => ticket.id === selectedTicketId) ?? filteredSupportTickets[0] ?? null;
+
+  useEffect(() => {
+    if (selectedTicket?.id) void loadSupportMessages(selectedTicket.id);
+    else setSupportMessages([]);
+  }, [selectedTicket?.id]);
   const selectedAdminTask = selectedAdminTaskId ? tasks.find((task) => task.id === selectedAdminTaskId) ?? null : null;
   const filteredAuditLogs = useMemo(() => {
     const q = auditSearch.trim().toLowerCase();
@@ -2169,9 +2214,15 @@ export default function Admin() {
                     <div className="space-y-4">
                       <div className="flex items-start justify-between gap-3"><div><p className="text-xl font-bold text-slate-900">{selectedTicket.subject}</p><p className="text-sm text-slate-500">{selectedTicket.message || "No message"}</p></div><Pill className={statusClass(selectedTicket.status)}>{selectedTicket.status}</Pill></div>
                       <div className="grid md:grid-cols-3 gap-3"><Info label="Priority" value={selectedTicket.priority} /><Info label="Created" value={formatDate(selectedTicket.created_at)} /><Info label="Assigned" value={team.find((m) => m.id === selectedTicket.assigned_to)?.name || team.find((m) => m.id === selectedTicket.assigned_to)?.email || "Unassigned"} /></div>
-                      <div className="grid md:grid-cols-2 gap-2">
+                      <div className="grid md:grid-cols-3 gap-2">
                         <select className="input" value={selectedTicket.status} onChange={(e) => updateTicketStatus(selectedTicket, e.target.value as AdminSupportTicket["status"])}><option value="open">Open</option><option value="pending">Pending</option><option value="resolved">Resolved</option><option value="closed">Closed</option></select>
+                        <select className="input" value={selectedTicket.priority} onChange={(e) => updateTicketPriority(selectedTicket, e.target.value as AdminSupportTicket["priority"])}><option value="low">Low</option><option value="medium">Normal</option><option value="high">High</option><option value="urgent">Highest</option></select>
                         <select className="input" value={selectedTicket.assigned_to || ""} onChange={(e) => updateTicketAssignment(selectedTicket, e.target.value)}><option value="">Unassigned</option>{supportAgents.map((m) => <option key={m.id} value={m.id}>{m.name || m.email}</option>)}</select>
+                      </div>
+                      <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 space-y-3">
+                        <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Conversation</p>
+                        <div className="max-h-72 overflow-y-auto space-y-2">{supportMessages.length === 0 ? <p className="text-sm text-slate-500">No messages yet.</p> : supportMessages.map((m) => <div key={m.id} className={cx("rounded-xl p-3 text-sm", m.is_internal ? "bg-amber-50 border border-amber-200" : m.author_type === "customer" ? "bg-white border border-slate-200" : "bg-primary-50 border border-primary-100")}><div className="mb-1 flex justify-between gap-3 text-xs text-slate-500"><span className="font-semibold">{m.is_internal ? "Internal note" : m.author_type === "customer" ? "Customer" : "Rivox Admin"}</span><span>{formatDate(m.created_at)}</span></div><p className="whitespace-pre-wrap text-slate-700">{m.message}</p></div>)}</div>
+                        <form onSubmit={sendAdminSupportReply} className="space-y-2"><textarea className="input min-h-24" placeholder="Write a reply..." value={supportReply} onChange={(e) => setSupportReply(e.target.value)} /><label className="flex items-center gap-2 text-sm text-slate-600"><input type="checkbox" checked={supportInternal} onChange={(e) => setSupportInternal(e.target.checked)} /> Internal note (hidden from customer)</label><button className="btn-primary" disabled={!supportReply.trim()}>{supportInternal ? "Add internal note" : "Send reply"}</button></form>
                       </div>
                       {selectedTicket.internal_notes && <div className="rounded-xl bg-slate-50 border border-slate-100 p-4"><p className="text-xs text-slate-500 mb-1">Internal Notes</p><p className="text-sm text-slate-700 whitespace-pre-wrap">{selectedTicket.internal_notes}</p></div>}
                       <button className="btn-danger" onClick={() => deleteTicket(selectedTicket)}>Delete Ticket</button>
