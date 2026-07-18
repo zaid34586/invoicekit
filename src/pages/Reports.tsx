@@ -5,7 +5,7 @@ import { formatMoney } from "../lib/currency";
 import type { Invoice, Client } from "../lib/types";
 import * as XLSX from "xlsx";
 import jsPDF from "jspdf";
-import { invoiceBaseAmount, invoiceDisplayAmount, invoiceDate, startOfDay, endOfDay, isWithin } from "../lib/invoiceAnalytics";
+import { invoiceBaseAmount, invoicePaidBaseAmount, invoiceDisplayAmount, invoiceDate, startOfDay, endOfDay, isWithin } from "../lib/invoiceAnalytics";
 
 // Type definitions
 type DateFilter = "today" | "week" | "month" | "year" | "custom";
@@ -405,7 +405,7 @@ function exportCSV() {
 
 async function exportPDF() {
   const doc = new jsPDF();
-  const paidTotal = filteredInvoices.filter((invoice) => invoice.status === "paid").reduce((sum, invoice) => sum + invoiceBaseAmount(invoice), 0);
+  const paidTotal = filteredInvoices.filter((invoice) => invoice.status === "paid").reduce((sum, invoice) => sum + invoicePaidBaseAmount(invoice), 0);
   const pendingTotal = filteredInvoices.filter((invoice) => invoice.status === "sent").reduce((sum, invoice) => sum + invoiceBaseAmount(invoice), 0);
   const overdueTotal = filteredInvoices.filter((invoice) => invoice.status === "overdue").reduce((sum, invoice) => sum + invoiceBaseAmount(invoice), 0);
   const pageWidth = doc.internal.pageSize.getWidth();
@@ -522,7 +522,7 @@ function exportExcel() {
     [`Base Total (${currency})`]: invoiceBaseAmount(invoice),
   }));
 
-  const paidTotal = filteredInvoices.filter((i) => i.status === "paid").reduce((s, i) => s + invoiceBaseAmount(i), 0);
+  const paidTotal = filteredInvoices.filter((i) => i.status === "paid").reduce((s, i) => s + invoicePaidBaseAmount(i), 0);
   const pendingTotal = filteredInvoices.filter((i) => i.status === "sent").reduce((s, i) => s + invoiceBaseAmount(i), 0);
   const overdueTotal = filteredInvoices.filter((i) => i.status === "overdue").reduce((s, i) => s + invoiceBaseAmount(i), 0);
   const summary = XLSX.utils.aoa_to_sheet([
@@ -548,7 +548,7 @@ function exportExcel() {
     const value = invoiceBaseAmount(invoice);
     current.count += 1;
     current.total += value;
-    if (invoice.status === "paid") current.paid += value;
+    if (invoice.status === "paid") current.paid += invoicePaidBaseAmount(invoice);
     if (invoice.status === "sent" || invoice.status === "overdue") current.pending += value;
     clientMap.set(invoice.client_name, current);
   });
@@ -599,13 +599,13 @@ function businessNameForExport(): string {
   const totalRevenue = filteredInvoices.reduce((sum, inv) => sum + invoiceBaseAmount(inv), 0);
   const revenueThisMonth = invoices
     .filter((inv) => new Date(inv.created_at) >= monthStart && inv.status === "paid")
-    .reduce((sum, inv) => sum + invoiceBaseAmount(inv), 0);
+    .reduce((sum, inv) => sum + invoicePaidBaseAmount(inv), 0);
   const revenueLastMonth = invoices
     .filter((inv) => {
       const date = new Date(inv.created_at);
       return date >= lastMonthStart && date <= lastMonthEnd && inv.status === "paid";
     })
-    .reduce((sum, inv) => sum + invoiceBaseAmount(inv), 0);
+    .reduce((sum, inv) => sum + invoicePaidBaseAmount(inv), 0);
 
   const revenueGrowth = revenueLastMonth > 0
     ? Math.round(((revenueThisMonth - revenueLastMonth) / revenueLastMonth) * 100)
@@ -628,7 +628,7 @@ function businessNameForExport(): string {
     if (inv.status === "paid") {
       const current = clientRevenue.get(inv.client_name) || { revenue: 0, invoices: 0 };
       clientRevenue.set(inv.client_name, {
-        revenue: current.revenue + invoiceBaseAmount(inv),
+        revenue: current.revenue + invoicePaidBaseAmount(inv),
         invoices: current.invoices + 1,
       });
     }
@@ -661,7 +661,7 @@ function businessNameForExport(): string {
               const date = new Date(inv.created_at);
               return date >= monthStart && date <= monthEnd && inv.status === "paid";
             })
-            .reduce((sum, inv) => sum + invoiceBaseAmount(inv), 0);
+            .reduce((sum, inv) => sum + invoicePaidBaseAmount(inv), 0);
           data.push(monthRevenue);
         }
         return data;

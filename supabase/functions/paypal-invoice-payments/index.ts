@@ -120,6 +120,7 @@ async function finalizePayment(admin: any, params: {
     owner_user_id: workspace.owner_user_id,
     invoice_id: invoice.id,
     provider: "paypal",
+    gateway_connection_id: connection.id,
     environment: connection.environment,
     provider_order_id: order.id,
     provider_capture_id: capture.id,
@@ -136,7 +137,7 @@ async function finalizePayment(admin: any, params: {
 
   const wasAlreadyPaid = invoice.status === "paid";
   if (!wasAlreadyPaid) {
-    const { error: invoiceError } = await admin.from("invoices").update({ status: "paid" }).eq("id", invoice.id);
+    const { error: invoiceError } = await admin.from("invoices").update({ status: "paid", refunded_amount: 0 }).eq("id", invoice.id);
     if (invoiceError) throw invoiceError;
     await admin.from("notifications").insert({
       audience: "user",
@@ -191,8 +192,9 @@ Deno.serve(async (req) => {
       }
       if (!payment) return json({ received: true });
 
-      const { data: connection } = await admin.from("payment_gateway_connections").select("*")
-        .eq("workspace_id", payment.workspace_id).eq("environment", payment.environment).eq("provider", "paypal").eq("status", "connected").maybeSingle();
+      const { data: connection } = payment.gateway_connection_id
+        ? await admin.from("payment_gateway_connections").select("*").eq("id", payment.gateway_connection_id).maybeSingle()
+        : await admin.from("payment_gateway_connections").select("*").eq("workspace_id", payment.workspace_id).eq("environment", payment.environment).eq("provider", "paypal").order("created_at", { ascending: false }).limit(1).maybeSingle();
       if (!connection?.webhook_id) return json({ error: "Webhook connection not found" }, 400);
       const token = await accessToken(connection);
       const verifyResponse = await fetch(`${paypalBase(connection.environment)}/v1/notifications/verify-webhook-signature`, {
@@ -221,7 +223,12 @@ Deno.serve(async (req) => {
         const capture = order.purchase_units?.[0]?.payments?.captures?.[0];
         await finalizePayment(admin, { invoice, workspace, connection, order, capture });
       } else if (event.event_type === "PAYMENT.CAPTURE.REFUNDED") {
-        await admin.from("invoice_payments").update({ status: "refunded", updated_at: new Date().toISOString() }).eq("id", payment.id);
+        const refundValue = Number(event.resource?.amount?.value || 0);
+        const cumulativeRefund = Math.min(Number(payment.amount), Number(payment.refunded_amount || 0) + refundValue);
+        const fullyRefunded = cumulativeRefund >= Number(payment.amount) - 0.01;
+        await admin.from("invoice_payments").update({ refunded_amount: cumulativeRefund, refunded_at: new Date().toISOString(), status: fullyRefunded ? "refunded" : "paid", updated_at: new Date().toISOString() }).eq("id", payment.id);
+        await admin.from("invoices").update({ refunded_amount: cumulativeRefund, ...(fullyRefunded ? { status: "sent" } : {}) }).eq("id", payment.invoice_id);
+        await admin.from("notifications").insert({ audience: "user", recipient_user_id: payment.owner_user_id, type: "payment_refunded", title: "Refund recorded", body: `${payment.currency} ${cumulativeRefund.toFixed(2)} has been refunded for an invoice payment.`, metadata: { invoice_id: payment.invoice_id, provider: "paypal" } });
       } else if (event.event_type === "PAYMENT.CAPTURE.DENIED") {
         await admin.from("invoice_payments").update({ status: "failed", updated_at: new Date().toISOString() }).eq("id", payment.id);
       }
@@ -278,6 +285,7 @@ Deno.serve(async (req) => {
         owner_user_id: workspace.owner_user_id,
         invoice_id: invoice.id,
         provider: "paypal",
+        gateway_connection_id: connection.id,
         environment: connection.environment,
         provider_order_id: order.id,
         amount,

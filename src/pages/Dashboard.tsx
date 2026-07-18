@@ -5,7 +5,7 @@ import { useAuth } from "../context/AuthContext";
 import type { Invoice, Client } from "../lib/types";
 import { formatDate, FREE_PLAN_LIMIT } from "../lib/constants";
 import { formatMoney } from "../lib/currency";
-import { invoiceBaseAmount, invoiceDate, startOfDay, endOfDay, isWithin } from "../lib/invoiceAnalytics";
+import { invoiceBaseAmount, invoicePaidBaseAmount, invoiceDate, startOfDay, endOfDay, isWithin } from "../lib/invoiceAnalytics";
 
 // Skeleton loader component
 function Skeleton({ className }: { className?: string }) {
@@ -274,7 +274,7 @@ function RevenueChart({
   paid.forEach((invoice) => {
     const date = invoiceDate(invoice);
     const bucket = buckets.find((item) => isWithin(date, item.start, item.end));
-    if (bucket) bucket.value += invoiceBaseAmount(invoice);
+    if (bucket) bucket.value += invoicePaidBaseAmount(invoice);
   });
 
   const data = buckets.map((bucket) => bucket.value);
@@ -288,7 +288,7 @@ function RevenueChart({
   const previousStart = new Date(previousEnd.getTime() - duration + 1);
   const previousTotal = paid
     .filter((invoice) => isWithin(invoiceDate(invoice), previousStart, previousEnd))
-    .reduce((sum, invoice) => sum + invoiceBaseAmount(invoice), 0);
+    .reduce((sum, invoice) => sum + invoicePaidBaseAmount(invoice), 0);
   const growth = previousTotal > 0 ? ((total - previousTotal) / previousTotal) * 100 : total > 0 ? 100 : 0;
 
   return (
@@ -365,7 +365,7 @@ export default function Dashboard() {
   const overdueInvoices = invoices.filter((inv) => inv.status === "overdue");
 
   const totalRevenue = paidInvoices.reduce(
-    (sum, inv) => sum + invoiceBaseAmount(inv),
+    (sum, inv) => sum + invoicePaidBaseAmount(inv),
     0
   );
   const pendingAmount = pendingInvoices.reduce(

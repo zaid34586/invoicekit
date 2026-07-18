@@ -26,7 +26,6 @@ export default function InvoicePreview() {
   const [invoice, setInvoice] = useState<Invoice | null>(null);
   const [loading, setLoading] = useState(true);
   const [updating, setUpdating] = useState(false);
-  const [showPayModal, setShowPayModal] = useState(false);
   const [shareCopied, setShareCopied] = useState(false);
   const [emailSent, setEmailSent] = useState(false);
 
@@ -707,10 +706,11 @@ invoice.client_country ?? "United States",
 
             {invoice.status !== "paid" && invoice.status !== "draft" && (
               <button
-                onClick={() => setShowPayModal(true)}
-                className="w-full mt-3 bg-green-600 text-white font-semibold rounded-lg px-4 py-2.5 hover:bg-green-700 transition active:scale-[0.98]"
+                onClick={() => invoice.share_token && window.open(`/share/${invoice.share_token}`, "_blank", "noopener,noreferrer")}
+                disabled={!invoice.share_token}
+                className="w-full mt-3 bg-green-600 text-white font-semibold rounded-lg px-4 py-2.5 hover:bg-green-700 transition active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-slate-300"
               >
-                Pay Invoice
+                {invoice.share_token ? "Preview Client Payment Page" : "Share Invoice to Enable Payments"}
               </button>
             )}
           </div>
@@ -739,45 +739,6 @@ invoice.client_country ?? "United States",
         </div>
       </div>
 
-      {showPayModal && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center p-4"
-          onClick={() => setShowPayModal(false)}
-        >
-          <div className="absolute inset-0 bg-slate-900/50 backdrop-blur-sm" />
-          <div
-            className="relative card max-w-md w-full p-8 text-center animate-scale-in"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <button
-              onClick={() => setShowPayModal(false)}
-              className="absolute top-4 right-4 text-slate-400 hover:text-slate-600 transition"
-            >
-              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
-            <div className="w-14 h-14 bg-green-50 rounded-full flex items-center justify-center mx-auto mb-4">
-              <svg className="w-7 h-7 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
-              </svg>
-            </div>
-            <h2 className="text-xl font-bold text-slate-900 mb-2">Pay Invoice</h2>
-            <p className="text-sm text-slate-500 mb-1">
-              Amount due: {formatMoney(displayTotal, invoiceCurrency)}
-            </p>
-            <p className="text-sm text-amber-600 font-medium mt-4">
-              Payment gateway coming soon
-            </p>
-            <button
-              onClick={() => setShowPayModal(false)}
-              className="btn-secondary w-full mt-6"
-            >
-              Close
-            </button>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

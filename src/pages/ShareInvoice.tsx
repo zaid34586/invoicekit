@@ -14,12 +14,13 @@ export default function ShareInvoice() {
   const [error, setError] = useState<string | null>(null);
   const [showPayModal, setShowPayModal] = useState(false);
   const [paymentAvailable, setPaymentAvailable] = useState(false);
+  const [paymentProvider, setPaymentProvider] = useState<"paypal" | "stripe" | null>(null);
   const [paymentEnvironment, setPaymentEnvironment] = useState<"sandbox" | "live" | null>(null);
   const [paymentLoading, setPaymentLoading] = useState(false);
   const [paymentMessage, setPaymentMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
-  async function callPayment(body: Record<string, unknown>) {
-    const { data, error: functionError } = await supabase.functions.invoke("paypal-invoice-payments", { body });
+  async function callPayment(functionName: "paypal-invoice-payments" | "stripe-invoice-payments", body: Record<string, unknown>) {
+    const { data, error: functionError } = await supabase.functions.invoke(functionName, { body });
     if (functionError) {
       let detail = functionError.message;
       try {
@@ -66,8 +67,13 @@ export default function ShareInvoice() {
       }
 
       try {
-        const availability = await callPayment({ action: "availability", shareToken: token });
+        const [paypal, stripe] = await Promise.all([
+          callPayment("paypal-invoice-payments", { action: "availability", shareToken: token }),
+          callPayment("stripe-invoice-payments", { action: "availability", shareToken: token }),
+        ]);
+        const availability = paypal.available ? paypal : stripe;
         setPaymentAvailable(Boolean(availability.available));
+        setPaymentProvider(availability.provider || null);
         setPaymentEnvironment(availability.environment || null);
       } catch {
         setPaymentAvailable(false);
@@ -80,7 +86,7 @@ export default function ShareInvoice() {
         } else if (query.get("token")) {
           setPaymentLoading(true);
           try {
-            const result = await callPayment({ action: "capture_order", shareToken: token, orderId: query.get("token") });
+            const result = await callPayment("paypal-invoice-payments", { action: "capture_order", shareToken: token, orderId: query.get("token") });
             if (result.paid) {
               setInvoice({ ...inv, status: "paid" });
               setPaymentMessage({ type: "success", text: `Payment successful. Receipt reference: ${result.captureId}` });
@@ -91,6 +97,23 @@ export default function ShareInvoice() {
             setPaymentLoading(false);
             window.history.replaceState({}, "", window.location.pathname);
           }
+        }
+      } else if (query.get("payment") === "stripe-cancelled") {
+        setPaymentMessage({ type: "error", text: "Stripe checkout was cancelled. No payment was taken." });
+        window.history.replaceState({}, "", window.location.pathname);
+      } else if (query.get("payment") === "stripe-return" && query.get("session_id")) {
+        setPaymentLoading(true);
+        try {
+          const result = await callPayment("stripe-invoice-payments", { action: "verify_session", shareToken: token, sessionId: query.get("session_id") });
+          if (result.paid) {
+            setInvoice({ ...inv, status: "paid" });
+            setPaymentMessage({ type: "success", text: `Payment successful. Receipt reference: ${result.paymentId}` });
+          }
+        } catch (stripeError) {
+          setPaymentMessage({ type: "error", text: stripeError instanceof Error ? stripeError.message : "Stripe payment verification failed" });
+        } finally {
+          setPaymentLoading(false);
+          window.history.replaceState({}, "", window.location.pathname);
         }
       }
       setLoading(false);
@@ -103,9 +126,15 @@ export default function ShareInvoice() {
     setPaymentLoading(true);
     setPaymentMessage(null);
     try {
-      const result = await callPayment({ action: "create_order", shareToken: token });
-      if (!result.approvalUrl) throw new Error("PayPal checkout link was not returned");
-      window.location.assign(result.approvalUrl);
+      if (paymentProvider === "stripe") {
+        const result = await callPayment("stripe-invoice-payments", { action: "create_session", shareToken: token });
+        if (!result.checkoutUrl) throw new Error("Stripe checkout link was not returned");
+        window.location.assign(result.checkoutUrl);
+      } else {
+        const result = await callPayment("paypal-invoice-payments", { action: "create_order", shareToken: token });
+        if (!result.approvalUrl) throw new Error("PayPal checkout link was not returned");
+        window.location.assign(result.approvalUrl);
+      }
     } catch (paymentError) {
       setPaymentMessage({ type: "error", text: paymentError instanceof Error ? paymentError.message : "Could not open PayPal" });
       setPaymentLoading(false);
@@ -453,12 +482,12 @@ export default function ShareInvoice() {
             {paymentAvailable ? (
               <>
                 <div className="mt-5 rounded-xl border border-blue-100 bg-blue-50 p-4 text-left">
-                  <p className="text-sm font-bold text-blue-900">Pay securely with PayPal</p>
+                  <p className="text-sm font-bold text-blue-900">Pay securely with {paymentProvider === "stripe" ? "Stripe" : "PayPal"}</p>
                   <p className="mt-1 text-xs leading-5 text-blue-700">Payment goes directly to {profile?.business_name || "this business"}. Rivox does not store your card details.</p>
                   {paymentEnvironment === "sandbox" && <p className="mt-2 text-xs font-bold text-amber-700">Test mode — no real money will be charged.</p>}
                 </div>
-                <button onClick={startPayment} disabled={paymentLoading} className="mt-5 w-full rounded-xl bg-[#0070ba] px-5 py-3 font-bold text-white hover:bg-[#005ea6] disabled:opacity-60">
-                  {paymentLoading ? "Opening PayPal…" : "Continue to PayPal"}
+                <button onClick={startPayment} disabled={paymentLoading} className={`mt-5 w-full rounded-xl px-5 py-3 font-bold text-white disabled:opacity-60 ${paymentProvider === "stripe" ? "bg-[#635bff] hover:bg-[#5149e8]" : "bg-[#0070ba] hover:bg-[#005ea6]"}`}>
+                  {paymentLoading ? "Opening secure checkout…" : `Continue to ${paymentProvider === "stripe" ? "Stripe" : "PayPal"}`}
                 </button>
               </>
             ) : (

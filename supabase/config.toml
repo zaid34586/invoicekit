@@ -86,3 +86,9 @@ enabled = true
 verify_jwt = false
 import_map = "./functions/paypal-invoice-payments/deno.json"
 entrypoint = "./functions/paypal-invoice-payments/index.ts"
+
+[functions.stripe-invoice-payments]
+enabled = true
+verify_jwt = false
+import_map = "./functions/stripe-invoice-payments/deno.json"
+entrypoint = "./functions/stripe-invoice-payments/index.ts"

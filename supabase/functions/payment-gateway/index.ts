@@ -79,6 +79,35 @@ async function createWebhook(clientId: string, clientSecret: string, environment
   throw new Error(data.message || "PayPal webhook could not be registered");
 }
 
+async function stripeAccount(secretKey: string) {
+  const response = await fetch("https://api.stripe.com/v1/account", {
+    headers: { Authorization: `Bearer ${secretKey}` },
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok || !data.id) throw new Error(data.error?.message || "Stripe restricted key could not be verified");
+  return data;
+}
+
+async function createStripeWebhook(secretKey: string) {
+  const webhookUrl = `${Deno.env.get("SUPABASE_URL")}/functions/v1/stripe-invoice-payments`;
+  const form = new URLSearchParams();
+  form.set("url", webhookUrl);
+  form.append("enabled_events[]", "checkout.session.completed");
+  form.append("enabled_events[]", "checkout.session.async_payment_succeeded");
+  form.append("enabled_events[]", "charge.refunded");
+  form.append("enabled_events[]", "refund.updated");
+  const response = await fetch("https://api.stripe.com/v1/webhook_endpoints", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${secretKey}`, "Content-Type": "application/x-www-form-urlencoded" },
+    body: form,
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok || !data.id || !data.secret) {
+    throw new Error(data.error?.message || "Stripe webhook could not be registered. Allow Webhook Endpoints write access on the restricted key.");
+  }
+  return { id: data.id as string, secret: data.secret as string };
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
   try {
@@ -103,7 +132,7 @@ Deno.serve(async (req) => {
     const body = await req.json().catch(() => ({}));
     const action = String(body.action || "status");
     const { data: connection } = await admin.from("payment_gateway_connections")
-      .select("id,provider,environment,public_key,status,account_email,last_verified_at,created_at")
+      .select("id,provider,environment,public_key,status,account_email,account_id,account_country,last_verified_at,created_at")
       .eq("workspace_id", workspaceId).eq("status", "connected").maybeSingle();
 
     if (action === "status") {
@@ -113,13 +142,15 @@ Deno.serve(async (req) => {
         environment: connection.environment,
         clientIdHint: `${connection.public_key.slice(0, 8)}…${connection.public_key.slice(-4)}`,
         accountEmail: connection.account_email,
+        accountId: connection.account_id,
+        accountCountry: connection.account_country,
         lastVerifiedAt: connection.last_verified_at,
         connectedAt: connection.created_at,
       } : null });
     }
 
     if (action === "disconnect") {
-      if (connection?.id) await admin.from("payment_gateway_connections").delete().eq("id", connection.id);
+      if (connection?.id) await admin.from("payment_gateway_connections").update({ status: "disabled", updated_at: new Date().toISOString() }).eq("id", connection.id);
       await admin.from("profiles").update({ payment_gateway: null }).eq("user_id", user.id);
       return reply({ success: true });
     }
@@ -133,14 +164,46 @@ Deno.serve(async (req) => {
       return reply({ error: "Online invoice payments are available on Pro and Business plans." }, 403);
     }
 
-    const clientId = String(body.clientId || "").trim();
-    const clientSecret = String(body.clientSecret || "").trim();
+    const provider = body.provider === "stripe" ? "stripe" : "paypal";
     const environment = body.environment === "live" ? "live" : "sandbox";
-    if (clientId.length < 12 || clientSecret.length < 12) return reply({ error: "Enter valid PayPal Client ID and Secret." }, 400);
+    let publicKey = "";
+    let encryptedSecret = "";
+    let secretIv = "";
+    let webhookId = "";
+    let encryptedWebhookSecret: string | null = null;
+    let webhookSecretIv: string | null = null;
+    let accountEmail = profile?.email || user.email || null;
+    let accountId: string | null = null;
+    let accountCountry: string | null = null;
 
-    await paypalAccessToken(clientId, clientSecret, environment);
-    const webhookId = await createWebhook(clientId, clientSecret, environment);
-    const encrypted = await encrypt(clientSecret);
+    if (provider === "paypal") {
+      const clientId = String(body.clientId || "").trim();
+      const clientSecret = String(body.clientSecret || "").trim();
+      if (clientId.length < 12 || clientSecret.length < 12) return reply({ error: "Enter valid PayPal Client ID and Secret." }, 400);
+      await paypalAccessToken(clientId, clientSecret, environment);
+      webhookId = await createWebhook(clientId, clientSecret, environment);
+      const encrypted = await encrypt(clientSecret);
+      publicKey = clientId;
+      encryptedSecret = encrypted.encryptedSecret;
+      secretIv = encrypted.secretIv;
+    } else {
+      const restrictedKey = String(body.restrictedKey || "").trim();
+      const expectedPrefix = environment === "live" ? "rk_live_" : "rk_test_";
+      if (!restrictedKey.startsWith(expectedPrefix)) return reply({ error: `Use a ${environment === "live" ? "Live" : "Test"} restricted Stripe key (${expectedPrefix}…).` }, 400);
+      const stripe = await stripeAccount(restrictedKey);
+      const stripeWebhook = await createStripeWebhook(restrictedKey);
+      const encrypted = await encrypt(restrictedKey);
+      const encryptedWebhook = await encrypt(stripeWebhook.secret);
+      publicKey = `${expectedPrefix}${"•".repeat(12)}${restrictedKey.slice(-4)}`;
+      encryptedSecret = encrypted.encryptedSecret;
+      secretIv = encrypted.secretIv;
+      webhookId = stripeWebhook.id;
+      encryptedWebhookSecret = encryptedWebhook.encryptedSecret;
+      webhookSecretIv = encryptedWebhook.secretIv;
+      accountEmail = stripe.email || accountEmail;
+      accountId = stripe.id;
+      accountCountry = stripe.country || null;
+    }
 
     await admin.from("payment_gateway_connections")
       .update({ status: "disabled", updated_at: new Date().toISOString() })
@@ -149,19 +212,23 @@ Deno.serve(async (req) => {
     const { error: insertError } = await admin.from("payment_gateway_connections").insert({
       workspace_id: workspaceId,
       owner_user_id: user.id,
-      provider: "paypal",
+      provider,
       environment,
-      public_key: clientId,
-      encrypted_secret: encrypted.encryptedSecret,
-      secret_iv: encrypted.secretIv,
+      public_key: publicKey,
+      encrypted_secret: encryptedSecret,
+      secret_iv: secretIv,
       webhook_id: webhookId,
+      encrypted_webhook_secret: encryptedWebhookSecret,
+      webhook_secret_iv: webhookSecretIv,
       status: "connected",
-      account_email: profile?.email || user.email || null,
+      account_email: accountEmail,
+      account_id: accountId,
+      account_country: accountCountry,
       last_verified_at: new Date().toISOString(),
     });
     if (insertError) throw insertError;
-    await admin.from("profiles").update({ payment_gateway: "paypal" }).eq("user_id", user.id);
-    return reply({ success: true, provider: "paypal", environment });
+    await admin.from("profiles").update({ payment_gateway: provider }).eq("user_id", user.id);
+    return reply({ success: true, provider, environment });
   } catch (error) {
     console.error("payment-gateway", error);
     return reply({ error: error instanceof Error ? error.message : "Payment gateway request failed" }, 400);

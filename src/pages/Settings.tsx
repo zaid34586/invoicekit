@@ -3,6 +3,7 @@ import { supabase } from "../lib/supabase";
 import { useAuth } from "../context/AuthContext";
 import { COUNTRIES, getCountrySetting } from "../lib/constants";
 import PaymentGatewaySettings from "../components/PaymentGatewaySettings";
+import InvoicePaymentHistory from "../components/InvoicePaymentHistory";
 
 // ── Per-country auto-derived settings ────────────────────────────────────────
 // When businessCountry changes, these values update automatically.
@@ -82,12 +83,12 @@ export default function Settings() {
     async function loadBusinessStats() {
       if (!user) return;
       const [invoiceRes, clientRes] = await Promise.all([
-        supabase.from("invoices").select("status,total,invoice_total").eq("user_id", user.id),
+        supabase.from("invoices").select("status,total,invoice_total,refunded_amount").eq("user_id", user.id),
         supabase.from("clients").select("id").eq("user_id", user.id),
       ]);
       const rows = invoiceRes.data ?? [];
       const paidRows = rows.filter((row) => row.status === "paid");
-      const revenue = paidRows.reduce((sum, row) => sum + Number(row.invoice_total ?? row.total ?? 0), 0);
+      const revenue = paidRows.reduce((sum, row) => sum + Math.max(0, Number(row.invoice_total ?? row.total ?? 0) - Number(row.refunded_amount ?? 0)), 0);
       setBusinessStats({ clients: clientRes.data?.length ?? 0, invoices: rows.length, revenue, paid: paidRows.length });
     }
     loadBusinessStats();
@@ -284,6 +285,7 @@ export default function Settings() {
         </form>
       )}
       <PaymentGatewaySettings profile={profile} />
+      <InvoicePaymentHistory />
     </div>
   );
 }

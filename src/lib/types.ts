@@ -127,6 +127,7 @@ export interface Invoice {
   base_subtotal: number | null;    // subtotal in business base currency
   invoice_subtotal: number | null; // subtotal converted to invoice currency
   invoice_total: number | null;    // total converted to invoice currency
+  refunded_amount?: number | null; // successful gateway refunds in invoice currency
   // ────────────────────────────────────────────────────────────────────────
 
   status: InvoiceStatus;

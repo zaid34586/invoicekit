@@ -53,6 +53,19 @@ export function invoiceBaseAmount(invoice: Invoice): number {
   return round2(displayTotal);
 }
 
+// Net collected revenue after successful gateway refunds. The legal invoice
+// total remains unchanged; only paid-revenue analytics use this value.
+export function invoicePaidBaseAmount(invoice: Invoice): number {
+  const gross = invoiceBaseAmount(invoice);
+  const refunded = Math.max(0, Number(invoice.refunded_amount ?? 0));
+  if (!refunded) return gross;
+  const rate = Number(invoice.exchange_rate ?? 1);
+  const invoiceCurrency = invoice.invoice_currency ?? invoice.base_currency ?? invoice.business_currency;
+  const baseCurrency = invoice.base_currency ?? invoice.business_currency;
+  const refundInBase = invoiceCurrency && baseCurrency && invoiceCurrency !== baseCurrency && rate > 0 ? refunded / rate : refunded;
+  return round2(Math.max(0, gross - refundInBase));
+}
+
 export function invoiceBaseSubtotal(invoice: Invoice): number {
   const itemsSubtotal = lineSubtotal(invoice.items);
   const storedSubtotal = Number(
