@@ -18,6 +18,8 @@ type SupportTicket = {
   created_at: string;
   updated_at: string;
   last_reply_at?: string | null;
+  plan_at_creation?: string | null;
+  sla_target_minutes?: number | null;
 };
 
 type TicketAttachment = {
@@ -56,7 +58,7 @@ function formatDate(value: string) {
 }
 
 export default function Support() {
-  const { user, profile } = useAuth();
+  const { user, profile, workspaceOwnerId, workspaceName } = useAuth();
   const [tickets, setTickets] = useState<SupportTicket[]>([]);
   const [messages, setMessages] = useState<TicketMessage[]>([]);
   const [attachments, setAttachments] = useState<TicketAttachment[]>([]);
@@ -78,6 +80,11 @@ export default function Support() {
 
   const planName = (profile?.plan || "free").toLowerCase();
   const automaticPriority: TicketPriority = planName === "business" ? "urgent" : planName === "pro" ? "high" : "medium";
+  const supportLevel = planName === "business"
+    ? { name: "Fastest Support", detail: "Highest-priority handling · target first response within 1 hour", color: "bg-amber-400/15 text-amber-200 border-amber-300/20" }
+    : planName === "pro"
+      ? { name: "Fast Support", detail: "High-priority handling · target first response within 1–2 hours", color: "bg-violet-400/15 text-violet-200 border-violet-300/20" }
+      : { name: "Standard Support", detail: "Normal queue · target first response within 1 business day", color: "bg-white/10 text-slate-200 border-white/15" };
 
   async function loadTickets(selectFirst = false) {
     if (!user) return;
@@ -86,7 +93,7 @@ export default function Support() {
     const { data, error: ticketError } = await supabase
       .from("admin_support_tickets")
       .select("*")
-      .eq("user_id", user.id)
+      .eq("user_id", workspaceOwnerId || user.id)
       .order("updated_at", { ascending: false });
 
     if (ticketError) {
@@ -162,7 +169,7 @@ export default function Support() {
 
   useEffect(() => {
     void loadTickets(true);
-  }, [user?.id]);
+  }, [user?.id, workspaceOwnerId]);
 
   useEffect(() => {
     if (selectedId) void Promise.all([loadMessages(selectedId), loadAttachments(selectedId)]);
@@ -194,7 +201,8 @@ export default function Support() {
     const { data, error: insertError } = await supabase
       .from("admin_support_tickets")
       .insert({
-        user_id: user.id,
+        user_id: workspaceOwnerId || user.id,
+        created_by: user.id,
         subject: form.subject.trim(),
         message: form.message.trim(),
         category: form.category,
@@ -268,7 +276,7 @@ export default function Support() {
       .from("admin_support_tickets")
       .update({ status: "open", updated_at: now, last_reply_at: now })
       .eq("id", selectedTicket.id)
-      .eq("user_id", user.id);
+      .eq("user_id", workspaceOwnerId || user.id);
 
     setReply("");
     await Promise.all([loadMessages(selectedTicket.id), loadTickets()]);
@@ -281,9 +289,10 @@ export default function Support() {
         <div className="absolute -right-16 -top-20 h-56 w-56 rounded-full bg-primary-500/20 blur-3xl" />
         <div className="relative flex flex-col lg:flex-row lg:items-center lg:justify-between gap-6">
           <div>
-            <span className="inline-flex rounded-full border border-white/15 bg-white/10 px-3 py-1 text-xs font-semibold tracking-wide">CUSTOMER SUPPORT</span>
+            <span className="inline-flex rounded-full border border-white/15 bg-white/10 px-3 py-1 text-xs font-semibold tracking-wide">{workspaceName || "WORKSPACE"} SUPPORT</span>
             <h1 className="mt-4 text-3xl sm:text-4xl font-bold tracking-tight">How can we help?</h1>
-            <p className="mt-3 max-w-2xl text-sm sm:text-base text-slate-300">Create a ticket, track every response and keep your issue history in one secure place.</p>
+            <p className="mt-3 max-w-2xl text-sm sm:text-base text-slate-300">Create a ticket, attach screenshots, track every response and keep your workspace issue history in one secure place.</p>
+            <div className={`mt-4 inline-flex rounded-xl border px-4 py-3 ${supportLevel.color}`}><div><p className="text-sm font-bold">{supportLevel.name}</p><p className="mt-0.5 text-xs opacity-90">{supportLevel.detail}</p></div></div>
           </div>
           <button onClick={() => setShowCreate(true)} className="rounded-xl bg-white px-5 py-3 text-sm font-semibold text-slate-950 hover:bg-slate-100 transition shadow-lg">+ Create support ticket</button>
         </div>

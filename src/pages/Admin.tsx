@@ -110,6 +110,7 @@ type AdminSupportMessage = {
   is_internal: boolean;
   created_at: string;
 };
+type AdminSupportAttachment = { id: string; ticket_id: string; file_name: string; storage_path: string; signed_url?: string; };
 
 type InvoiceBalanceModalState = {
   profile: Profile;
@@ -304,6 +305,7 @@ export default function Admin() {
   const [supportStatusFilter, setSupportStatusFilter] = useState<"all" | AdminSupportTicket["status"]>("all");
   const [selectedTicketId, setSelectedTicketId] = useState<string | null>(null);
   const [supportMessages, setSupportMessages] = useState<AdminSupportMessage[]>([]);
+  const [supportAttachments, setSupportAttachments] = useState<AdminSupportAttachment[]>([]);
   const [supportReply, setSupportReply] = useState("");
   const [supportInternal, setSupportInternal] = useState(false);
   const [auditSearch, setAuditSearch] = useState("");
@@ -1059,7 +1061,7 @@ export default function Admin() {
   }
 
   async function updateTicketStatus(ticket: AdminSupportTicket, status: AdminSupportTicket["status"]) {
-    const { error: updateError } = await supabase.from("admin_support_tickets").update({ status }).eq("id", ticket.id);
+    const { error: updateError } = await supabase.from("admin_support_tickets").update({ status, closed_at: status === "closed" ? new Date().toISOString() : null }).eq("id", ticket.id);
     if (updateError) return setError(updateError.message);
     await logAction("update_ticket_status", "admin_support_tickets", ticket.id, { status });
     await load();
@@ -1078,6 +1080,15 @@ export default function Admin() {
     setSupportMessages((data ?? []) as AdminSupportMessage[]);
   }
 
+  async function loadSupportAttachments(ticketId: string) {
+    const { data } = await supabase.from("support_ticket_attachments").select("id,ticket_id,file_name,storage_path").eq("ticket_id", ticketId).order("created_at");
+    const signed = await Promise.all(((data ?? []) as AdminSupportAttachment[]).map(async (item) => {
+      const { data: url } = await supabase.storage.from("support-attachments").createSignedUrl(item.storage_path, 3600);
+      return { ...item, signed_url: url?.signedUrl };
+    }));
+    setSupportAttachments(signed);
+  }
+
   async function sendAdminSupportReply(e: React.FormEvent) {
     e.preventDefault();
     if (!selectedTicket || !user || !supportReply.trim()) return;
@@ -1087,7 +1098,7 @@ export default function Admin() {
     });
     if (insertError) return setError(insertError.message);
     const nextStatus = supportInternal ? selectedTicket.status : "pending";
-    await supabase.from("admin_support_tickets").update({ status: nextStatus, updated_at: now, last_reply_at: now }).eq("id", selectedTicket.id);
+    await supabase.from("admin_support_tickets").update({ status: nextStatus, updated_at: now, last_reply_at: now, ...(!supportInternal ? { first_admin_reply_at: now } : {}) }).eq("id", selectedTicket.id);
     await logAction("reply_support_ticket", "admin_support_tickets", selectedTicket.id, { internal: supportInternal });
     setSupportReply(""); setSupportInternal(false); setNotice(supportInternal ? "Internal note added." : "Reply sent to customer.");
     await Promise.all([loadSupportMessages(selectedTicket.id), load()]);
@@ -1182,8 +1193,8 @@ export default function Admin() {
   const selectedTicket = supportTickets.find((ticket) => ticket.id === selectedTicketId) ?? filteredSupportTickets[0] ?? null;
 
   useEffect(() => {
-    if (selectedTicket?.id) void loadSupportMessages(selectedTicket.id);
-    else setSupportMessages([]);
+    if (selectedTicket?.id) void Promise.all([loadSupportMessages(selectedTicket.id), loadSupportAttachments(selectedTicket.id)]);
+    else { setSupportMessages([]); setSupportAttachments([]); }
   }, [selectedTicket?.id]);
   const selectedAdminTask = selectedAdminTaskId ? tasks.find((task) => task.id === selectedAdminTaskId) ?? null : null;
   const filteredAuditLogs = useMemo(() => {
@@ -2219,6 +2230,7 @@ export default function Admin() {
                         <select className="input" value={selectedTicket.priority} onChange={(e) => updateTicketPriority(selectedTicket, e.target.value as AdminSupportTicket["priority"])}><option value="low">Low</option><option value="medium">Normal</option><option value="high">High</option><option value="urgent">Highest</option></select>
                         <select className="input" value={selectedTicket.assigned_to || ""} onChange={(e) => updateTicketAssignment(selectedTicket, e.target.value)}><option value="">Unassigned</option>{supportAgents.map((m) => <option key={m.id} value={m.id}>{m.name || m.email}</option>)}</select>
                       </div>
+                      {supportAttachments.length > 0 && <div className="rounded-xl border border-slate-200 p-4"><p className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-500">Customer screenshots</p><div className="grid grid-cols-2 md:grid-cols-4 gap-3">{supportAttachments.map((item) => <a key={item.id} href={item.signed_url} target="_blank" rel="noreferrer" className="overflow-hidden rounded-xl border bg-white"><img src={item.signed_url} alt={item.file_name} className="h-28 w-full object-cover"/><p className="truncate p-2 text-xs text-slate-600">{item.file_name}</p></a>)}</div></div>}
                       <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 space-y-3">
                         <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Conversation</p>
                         <div className="max-h-72 overflow-y-auto space-y-2">{supportMessages.length === 0 ? <p className="text-sm text-slate-500">No messages yet.</p> : supportMessages.map((m) => <div key={m.id} className={cx("rounded-xl p-3 text-sm", m.is_internal ? "bg-amber-50 border border-amber-200" : m.author_type === "customer" ? "bg-white border border-slate-200" : "bg-primary-50 border border-primary-100")}><div className="mb-1 flex justify-between gap-3 text-xs text-slate-500"><span className="font-semibold">{m.is_internal ? "Internal note" : m.author_type === "customer" ? "Customer" : "Rivox Admin"}</span><span>{formatDate(m.created_at)}</span></div><p className="whitespace-pre-wrap text-slate-700">{m.message}</p></div>)}</div>

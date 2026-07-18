@@ -20,6 +20,7 @@ import Billing from "./pages/Billing";
 import Reports from "./pages/Reports";
 import Settings from "./pages/Settings";
 import TeamMembers from "./pages/TeamMembers";
+import Support from "./pages/Support";
 import AcceptInvitation from "./pages/AcceptInvitation";
 import ChangeTemporaryPassword from "./pages/ChangeTemporaryPassword";
 import Admin from "./pages/Admin";
@@ -347,6 +348,7 @@ export default function App() {
           </ProtectedRoute>
         }
       />
+      <Route path="/support" element={<ProtectedRoute><WorkspaceRoute allow={["owner","manager","accountant","staff"]}><AppLayout><Support /></AppLayout></WorkspaceRoute></ProtectedRoute>} />
       <Route
         path="/admin"
         element={
