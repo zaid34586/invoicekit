@@ -141,7 +141,8 @@ Deno.serve(async (req) => {
         );
       }
 
-      const redirectTo = `${req.headers.get("origin") || "https://getrivox.vercel.app"}/login?team_invite=1`;
+      const appOrigin = Deno.env.get("SITE_URL") || req.headers.get("origin") || "https://getrivox.vercel.app";
+      const redirectTo = `${appOrigin.replace(/\/$/, "")}/accept-invitation`;
       const { error: mailError } = await admin.auth.admin.inviteUserByEmail(email, {
         redirectTo,
         data: { workspace_invitation_id: invite.id, workspace_role: role, invited_name: name },

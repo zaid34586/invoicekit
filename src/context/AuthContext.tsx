@@ -256,6 +256,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const isAutoVerificationSession =
         event === "SIGNED_IN" &&
         Boolean(nextSession?.user?.email_confirmed_at) &&
+        window.location.pathname !== "/accept-invitation" &&
         window.location.pathname !== "/login" &&
         (verificationPending || cameFromVerificationLink);
 
