@@ -68,3 +68,6 @@ entrypoint = "./functions/lemon-webhook/index.ts"
 
 [functions.subscription-automation]
 verify_jwt = true
+
+[functions.workspace-team]
+verify_jwt = false

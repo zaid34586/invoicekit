@@ -41,6 +41,10 @@ export interface Profile {
 
   plan_expires_at: string | null;
 
+  workspace_owner_id?: string | null;
+  workspace_role?: "owner" | "manager" | "accountant" | "staff" | null;
+  workspace_member_status?: "active" | "disabled" | "pending" | null;
+
   created_at: string;
 }
 
