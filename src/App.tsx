@@ -19,7 +19,6 @@ import Account from "./pages/Account";
 import Billing from "./pages/Billing";
 import Reports from "./pages/Reports";
 import Settings from "./pages/Settings";
-import Support from "./pages/Support";
 import TeamMembers from "./pages/TeamMembers";
 import Admin from "./pages/Admin";
 import AdminLogin from "./pages/AdminLogin";
@@ -301,6 +300,14 @@ export default function App() {
         }
       />
       <Route
+        path="/team-members"
+        element={
+          <ProtectedRoute>
+            <AppLayout><TeamMembers /></AppLayout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
         path="/reports"
         element={
           <ProtectedRoute>
@@ -313,22 +320,6 @@ export default function App() {
         element={
           <ProtectedRoute>
             <AppLayout><Settings /></AppLayout>
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/team-members"
-        element={
-          <ProtectedRoute>
-            <AppLayout><TeamMembers /></AppLayout>
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/support"
-        element={
-          <ProtectedRoute>
-            <AppLayout><Support /></AppLayout>
           </ProtectedRoute>
         }
       />
