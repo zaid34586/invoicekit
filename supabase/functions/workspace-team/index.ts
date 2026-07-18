@@ -145,18 +145,22 @@ Deno.serve(async (req) => {
       // joined a workspace and never created a customer profile.
       const existingAuthUser = await findAuthUserByEmail(admin, email);
       if (existingAuthUser) {
-        const [{ count: memberships }, { count: profiles }] = await Promise.all([
+        const [{ count: memberships }, { count: ownedWorkspaces }] = await Promise.all([
           admin
             .from("workspace_members")
             .select("id", { count: "exact", head: true })
             .or(`user_id.eq.${existingAuthUser.id},auth_user_id.eq.${existingAuthUser.id}`),
           admin
-            .from("profiles")
+            .from("workspaces")
             .select("id", { count: "exact", head: true })
-            .or(`user_id.eq.${existingAuthUser.id},id.eq.${existingAuthUser.id}`),
+            .eq("owner_user_id", existingAuthUser.id),
         ]);
         const wasWorkspaceInvite = Boolean(existingAuthUser.user_metadata?.workspace_invitation_id);
-        if (wasWorkspaceInvite && !memberships && !profiles) {
+        if (wasWorkspaceInvite && !memberships && !ownedWorkspaces) {
+          // The old /login invite callback could create a blank customer profile
+          // before the invitation was accepted. It is safe to remove only after
+          // confirming this invited account owns no workspace and joined none.
+          await admin.from("profiles").delete().eq("user_id", existingAuthUser.id);
           const { error: deleteError } = await admin.auth.admin.deleteUser(existingAuthUser.id);
           if (deleteError) return json({ error: `Unable to reset the previous invitation: ${deleteError.message}` }, 409);
         } else {
@@ -237,13 +241,16 @@ Deno.serve(async (req) => {
       if (invitation?.email) {
         const invitedAuthUser = await findAuthUserByEmail(admin, invitation.email.toLowerCase());
         if (invitedAuthUser?.user_metadata?.workspace_invitation_id === body.inviteId) {
-          const [{ count: memberships }, { count: profiles }] = await Promise.all([
+          const [{ count: memberships }, { count: ownedWorkspaces }] = await Promise.all([
             admin.from("workspace_members").select("id", { count: "exact", head: true })
               .or(`user_id.eq.${invitedAuthUser.id},auth_user_id.eq.${invitedAuthUser.id}`),
-            admin.from("profiles").select("id", { count: "exact", head: true })
-              .or(`user_id.eq.${invitedAuthUser.id},id.eq.${invitedAuthUser.id}`),
+            admin.from("workspaces").select("id", { count: "exact", head: true })
+              .eq("owner_user_id", invitedAuthUser.id),
           ]);
-          if (!memberships && !profiles) await admin.auth.admin.deleteUser(invitedAuthUser.id);
+          if (!memberships && !ownedWorkspaces) {
+            await admin.from("profiles").delete().eq("user_id", invitedAuthUser.id);
+            await admin.auth.admin.deleteUser(invitedAuthUser.id);
+          }
         }
       }
       return json({ success: true });
