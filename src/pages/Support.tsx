@@ -48,13 +48,6 @@ const statusStyles: Record<TicketStatus, string> = {
   closed: "bg-slate-100 text-slate-600 border-slate-200",
 };
 
-const priorityStyles: Record<TicketPriority, string> = {
-  low: "bg-slate-100 text-slate-600",
-  medium: "bg-blue-50 text-blue-700",
-  high: "bg-orange-50 text-orange-700",
-  urgent: "bg-red-50 text-red-700",
-};
-
 function formatDate(value: string) {
   return new Intl.DateTimeFormat("en", {
     dateStyle: "medium",
@@ -85,7 +78,6 @@ export default function Support() {
 
   const planName = (profile?.plan || "free").toLowerCase();
   const automaticPriority: TicketPriority = planName === "business" ? "urgent" : planName === "pro" ? "high" : "medium";
-  const priorityLabel = planName === "business" ? "Highest" : planName === "pro" ? "High" : "Normal";
 
   async function loadTickets(selectFirst = false) {
     if (!user) return;
@@ -324,7 +316,6 @@ export default function Support() {
               <button key={ticket.id} onClick={() => setSelectedId(ticket.id)} className={`w-full p-4 text-left hover:bg-slate-50 transition ${selectedId === ticket.id ? "bg-primary-50/70 border-l-4 border-primary-600" : "border-l-4 border-transparent"}`}>
                 <div className="flex items-start justify-between gap-3"><p className="font-semibold text-slate-900 line-clamp-2">{ticket.subject}</p><span className={`text-[10px] uppercase font-bold rounded-full border px-2 py-1 ${statusStyles[ticket.status]}`}>{ticket.status}</span></div>
                 <p className="mt-2 text-xs text-slate-500">{ticket.ticket_number || `#${ticket.id.slice(0, 8).toUpperCase()}`} · {formatDate(ticket.updated_at)}</p>
-                <span className={`mt-3 inline-flex rounded-full px-2 py-1 text-[10px] font-semibold uppercase ${priorityStyles[ticket.priority]}`}>{ticket.priority}</span>
               </button>
             ))}
           </div>
@@ -338,7 +329,7 @@ export default function Support() {
               <div className="border-b border-slate-200 p-5 sm:p-6">
                 <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
                   <div><p className="text-xs font-semibold uppercase tracking-wider text-primary-600">{selectedTicket.ticket_number || `Ticket #${selectedTicket.id.slice(0, 8).toUpperCase()}`}</p><h2 className="mt-2 text-xl font-bold text-slate-900">{selectedTicket.subject}</h2><p className="mt-2 text-sm text-slate-500">Category: <span className="capitalize">{selectedTicket.category || "general"}</span> · Created {formatDate(selectedTicket.created_at)}</p></div>
-                  <div className="flex gap-2"><span className={`rounded-full border px-3 py-1 text-xs font-semibold capitalize ${statusStyles[selectedTicket.status]}`}>{selectedTicket.status}</span><span className={`rounded-full px-3 py-1 text-xs font-semibold capitalize ${priorityStyles[selectedTicket.priority]}`}>{selectedTicket.priority}</span></div>
+                  <div className="flex gap-2"><span className={`rounded-full border px-3 py-1 text-xs font-semibold capitalize ${statusStyles[selectedTicket.status]}`}>{selectedTicket.status}</span></div>
                 </div>
               </div>
 
@@ -359,6 +350,23 @@ export default function Support() {
         </div>
       </section>
 
+
+      <section className="grid gap-4 lg:grid-cols-2">
+        <div className="card p-5 sm:p-6">
+          <p className="text-xs font-bold uppercase tracking-[0.18em] text-primary-600">Contact Support</p>
+          <h2 className="mt-2 text-xl font-bold text-slate-900">Need direct help?</h2>
+          <p className="mt-2 text-sm leading-6 text-slate-600">Create a ticket and keep every reply, screenshot and status update together. Your queue is handled automatically according to your Rivox plan.</p>
+          <button onClick={() => setShowCreate(true)} className="btn-primary mt-5">Create a new ticket</button>
+        </div>
+        <div className="card p-5 sm:p-6">
+          <p className="text-xs font-bold uppercase tracking-[0.18em] text-primary-600">Knowledge Base</p>
+          <h2 className="mt-2 text-xl font-bold text-slate-900">Quick help topics</h2>
+          <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
+            {['Billing & plans','Team Members','Invoices','Account & login'].map((topic) => <div key={topic} className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 font-semibold text-slate-700">{topic}</div>)}
+          </div>
+        </div>
+      </section>
+
       {showCreate && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-slate-950/55 backdrop-blur-sm" onClick={() => setShowCreate(false)} />
@@ -366,7 +374,7 @@ export default function Support() {
             <div className="flex items-start justify-between gap-4"><div><p className="text-xs font-semibold uppercase tracking-wider text-primary-600">New support request</p><h2 className="mt-1 text-2xl font-bold text-slate-900">Tell us what happened</h2></div><button type="button" onClick={() => setShowCreate(false)} className="rounded-lg p-2 text-slate-400 hover:bg-slate-100">✕</button></div>
             <div className="mt-6 space-y-4">
               <div><label className="label">Subject</label><input required className="input mt-1" placeholder="Example: Invoice balance is not updating" value={form.subject} onChange={(e) => setForm({ ...form, subject: e.target.value })} /></div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4"><div><label className="label">Category</label><select className="input mt-1" value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })}><option value="billing">Billing & plans</option><option value="invoice">Invoice issue</option><option value="account">Account & login</option><option value="bug">Bug report</option><option value="feature">Feature request</option><option value="technical">Technical issue</option><option value="other">Other</option></select></div><div><label className="label">Plan priority</label><div className="input mt-1 flex items-center justify-between bg-slate-50"><span>{priorityLabel}</span><span className="text-xs font-semibold uppercase text-primary-600">{planName}</span></div></div></div>
+              <div><label className="label">Category</label><select className="input mt-1" value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })}><option value="billing">Billing & plans</option><option value="invoice">Invoice issue</option><option value="account">Account & login</option><option value="bug">Bug report</option><option value="feature">Feature request</option><option value="technical">Technical issue</option><option value="other">Other</option></select></div>
               <div><label className="label">Screenshot (optional)</label><input type="file" accept="image/png,image/jpeg,image/webp" className="input mt-1" onChange={(e) => { const file=e.target.files?.[0] || null; if (file) { const issue=validateAttachment(file); if (issue) { setError(issue); e.currentTarget.value=""; setAttachmentFile(null); } else { setError(""); setAttachmentFile(file); } } else setAttachmentFile(null); }} /><p className="mt-1 text-xs text-slate-500">PNG, JPG or WEBP. Maximum 5 MB.</p></div>
               <div><label className="label">Describe the issue</label><textarea required className="input mt-1 min-h-36" placeholder="Include the steps you took, what you expected and what happened instead." value={form.message} onChange={(e) => setForm({ ...form, message: e.target.value })} /></div>
             </div>
