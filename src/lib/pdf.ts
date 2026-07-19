@@ -94,6 +94,15 @@ export function generateInvoicePDF(
   const gray: [number, number, number] = [100, 116, 139];
   const lightGray: [number, number, number] = [241, 245, 249];
   const hiddenBlocks = new Set(branding?.hidden_blocks || []);
+  const darkHeader = branding?.pdf_template === "executive" || branding?.pdf_template === "luxury";
+  const headerText: [number, number, number] = branding?.pdf_template === "luxury" ? [253, 230, 138] : darkHeader ? [255, 255, 255] : dark;
+  const headerMuted: [number, number, number] = darkHeader ? [203, 213, 225] : gray;
+  if (darkHeader) {
+    doc.setFillColor(...(branding?.pdf_template === "luxury" ? [24, 18, 11] as [number,number,number] : [15, 23, 42] as [number,number,number]));
+    doc.rect(0, 0, pageWidth, 125, "F");
+  } else if (branding?.pdf_template === "corporate") {
+    doc.setFillColor(...primary); doc.rect(0, 0, pageWidth, 10, "F");
+  }
 
   const activeLogo = branding?.logo_url || profile.logo_url;
   if (activeLogo) {
@@ -106,12 +115,12 @@ export function generateInvoicePDF(
 
   doc.setFont("helvetica", "bold");
   doc.setFontSize(18);
-  doc.setTextColor(...dark);
+  doc.setTextColor(...headerText);
   doc.text(profile.business_name || "Your Business", margin + 72, y + 18);
 
   doc.setFont("helvetica", "normal");
   doc.setFontSize(9);
-  doc.setTextColor(...gray);
+  doc.setTextColor(...headerMuted);
   let addrY = y + 34;
   if (profile.address) {
     const addrLines = doc.splitTextToSize(profile.address, 220);
@@ -139,7 +148,7 @@ export function generateInvoicePDF(
   const badgeW = 90;
   const badgeH = 26;
   const badgeX = pageWidth - margin - badgeW;
-  doc.setFillColor(...primary);
+  doc.setFillColor(...(branding?.pdf_template === "luxury" ? hexToRgb(branding.accent_color) : primary));
   doc.roundedRect(badgeX, y, badgeW, badgeH, 4, 4, "F");
   doc.setFont("helvetica", "bold");
   doc.setFontSize(13);
@@ -147,14 +156,14 @@ export function generateInvoicePDF(
   doc.text(branding?.invoice_title || "INVOICE", badgeX + badgeW / 2, y + 17, { align: "center" });
 
   doc.setFontSize(11);
-  doc.setTextColor(...dark);
+  doc.setTextColor(...headerText);
   doc.text(invoice.invoice_number, pageWidth - margin, y + badgeH + 18, {
     align: "right",
   });
 
   doc.setFont("helvetica", "normal");
   doc.setFontSize(9);
-  doc.setTextColor(...gray);
+  doc.setTextColor(...headerMuted);
   doc.text(
     `Invoice Date: ${formatDate(invoice.invoice_date)}`,
     pageWidth - margin,

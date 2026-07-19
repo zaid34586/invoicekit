@@ -11,7 +11,7 @@ import StatusBadge from "../components/StatusBadge";
 import { decideTax, type TaxDecision } from "../lib/tax";
 import { formatMoney, convertCurrency } from "../lib/currency";
 import { getTaxLabel } from "../lib/international";
-import { DEFAULT_BRANDING, type WorkspaceBranding } from "../lib/branding";
+import { DEFAULT_BRANDING, brandingFont, type WorkspaceBranding } from "../lib/branding";
 
 const STATUS_OPTIONS: { value: InvoiceStatus; label: string }[] = [
   { value: "draft", label: "Draft" },
@@ -482,12 +482,12 @@ invoice.client_country ?? "United States",
         )}
       </div>
 
-      <div className="card p-6 sm:p-10">
-        <div className="flex flex-col sm:flex-row sm:justify-between gap-6 pb-6 border-b border-slate-200">
+      <div className={`card overflow-hidden p-6 sm:p-10 ${branding?.pdf_template==="luxury"?"border-amber-300 bg-[#fffdf7]":branding?.pdf_template==="minimal"?"rounded-none shadow-none":branding?.pdf_template==="corporate"?"border-t-[10px] border-t-blue-700":""}`} style={{fontFamily:branding?brandingFont(branding.font_family):undefined}}>
+        <div className={`flex flex-col sm:flex-row sm:justify-between gap-6 pb-6 border-b border-slate-200 ${branding?.pdf_template==="luxury"?"-mx-6 -mt-6 bg-stone-950 p-6 text-amber-50 sm:-mx-10 sm:-mt-10 sm:p-10 [&_h1]:!text-amber-50 [&_p]:!text-amber-100/70":branding?.pdf_template==="executive"?"-mx-6 -mt-6 bg-slate-950 p-6 text-white sm:-mx-10 sm:-mt-10 sm:p-10 [&_h1]:!text-white [&_p]:!text-slate-300":branding?.pdf_template==="modern"?"rounded-2xl bg-gradient-to-r from-violet-50 to-indigo-50 p-5":""}`}>
           <div className="flex items-start gap-4">
-            {profile?.logo_url ? (
+            {(branding?.logo_url||profile?.logo_url) ? (
               <img
-                src={profile.logo_url}
+                src={branding?.logo_url||profile?.logo_url||""}
                 alt="Logo"
                 className="w-16 h-16 rounded-lg object-cover border border-slate-200"
               />
@@ -524,8 +524,8 @@ invoice.client_country ?? "United States",
           </div>
 
           <div className="sm:text-right">
-            <span className="inline-block bg-primary-600 text-white px-4 py-1.5 rounded-lg text-sm font-bold tracking-wide">
-              INVOICE
+            <span className="inline-block text-white px-4 py-1.5 rounded-lg text-sm font-bold tracking-wide" style={{backgroundColor:branding?.brand_color||"#4f46e5"}}>
+              {branding?.invoice_title||"INVOICE"}
             </span>
             <p className="text-lg font-bold text-slate-900 mt-3">
               {invoice.invoice_number}
@@ -575,7 +575,7 @@ invoice.client_country ?? "United States",
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead>
-                <tr className="bg-primary-600 text-white">
+                <tr className="text-white" style={{backgroundColor:branding?.brand_color||"#4f46e5"}}>
                   <th className="text-left text-xs font-semibold uppercase tracking-wide px-4 py-3 rounded-l-lg">
                     Description
                   </th>
@@ -736,11 +736,15 @@ invoice.client_country ?? "United States",
           </div>
         )}
 
+        {branding?.payment_instructions&&<div className="py-4 border-t border-slate-200"><p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Payment instructions</p><p className="mt-1 whitespace-pre-line text-sm text-slate-600">{branding.payment_instructions}</p></div>}
+        {branding?.terms_text&&<div className="py-4 border-t border-slate-200"><p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Terms & conditions</p><p className="mt-1 whitespace-pre-line text-xs text-slate-500">{branding.terms_text}</p></div>}
+        {branding&&((branding.show_signature&&branding.signature_url)||(branding.show_stamp&&branding.stamp_url))&&<div className="flex justify-end gap-5 border-t border-slate-200 py-4">{branding.show_signature&&branding.signature_url&&<img src={branding.signature_url} className="h-16 object-contain" alt="Signature"/>}{branding.show_stamp&&branding.stamp_url&&<img src={branding.stamp_url} className="h-16 object-contain" alt="Company stamp"/>}</div>}
+
         <div className="pt-6 border-t border-slate-200 text-center">
-          <p className="text-base font-semibold text-primary-600">
-            Thank you for your business!
+          <p className="text-base font-semibold" style={{color:branding?.accent_color||"#4f46e5"}}>
+            {branding?.footer_text||"Thank you for your business!"}
           </p>
-          {!profile?.is_pro && (
+          {!branding?.remove_rivox_branding&&!profile?.is_pro && (
             <p className="text-xs text-slate-400 mt-2">
               Created with Rivox
             </p>
