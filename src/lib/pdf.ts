@@ -77,12 +77,59 @@ function pdfMoney(value: number, currency: string): string {
   return `${symbol}${formatted}`;
 }
 
-export function generateInvoicePDF(
+type PDFImageAsset = { data: string; format: "PNG" | "JPEG" | "WEBP" };
+
+async function loadPDFImage(url?: string | null): Promise<PDFImageAsset | null> {
+  if (!url) return null;
+  try {
+    const response = await fetch(url, { cache: "no-store" });
+    if (!response.ok) return null;
+    const blob = await response.blob();
+
+    // jsPDF cannot embed a remote URL and does not reliably support SVG.
+    // Rasterise SVG assets first; keep raster images at their original quality.
+    if (blob.type.includes("svg") || url.toLowerCase().includes(".svg")) {
+      const objectUrl = URL.createObjectURL(blob);
+      try {
+        const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+          const element = new Image();
+          element.onload = () => resolve(element);
+          element.onerror = reject;
+          element.src = objectUrl;
+        });
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.max(image.naturalWidth || 512, 512);
+        canvas.height = Math.max(image.naturalHeight || 512, 512);
+        const context = canvas.getContext("2d");
+        if (!context) return null;
+        context.drawImage(image, 0, 0, canvas.width, canvas.height);
+        return { data: canvas.toDataURL("image/png"), format: "PNG" };
+      } finally {
+        URL.revokeObjectURL(objectUrl);
+      }
+    }
+
+    const data = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result));
+      reader.onerror = () => reject(reader.error);
+      reader.readAsDataURL(blob);
+    });
+    const format = blob.type.includes("jpeg") || blob.type.includes("jpg")
+      ? "JPEG"
+      : blob.type.includes("webp") ? "WEBP" : "PNG";
+    return { data, format };
+  } catch {
+    return null;
+  }
+}
+
+export async function generateInvoicePDF(
   invoice: Invoice,
   profile: Profile,
   extras: InvoicePDFExtras,
   branding?: WorkspaceBranding | null
-): void {
+): Promise<void> {
   const doc = new jsPDF({ unit: "pt", format: "a4" });
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
@@ -97,6 +144,11 @@ export function generateInvoicePDF(
   const darkHeader = branding?.pdf_template === "executive" || branding?.pdf_template === "luxury";
   const headerText: [number, number, number] = branding?.pdf_template === "luxury" ? [253, 230, 138] : darkHeader ? [255, 255, 255] : dark;
   const headerMuted: [number, number, number] = darkHeader ? [203, 213, 225] : gray;
+  const [logoAsset, signatureAsset, stampAsset] = await Promise.all([
+    loadPDFImage(branding?.logo_url || profile.logo_url),
+    branding?.show_signature ? loadPDFImage(branding.signature_url) : Promise.resolve(null),
+    branding?.show_stamp ? loadPDFImage(branding.stamp_url) : Promise.resolve(null),
+  ]);
   if (darkHeader) {
     doc.setFillColor(...(branding?.pdf_template === "luxury" ? [24, 18, 11] as [number,number,number] : [15, 23, 42] as [number,number,number]));
     doc.rect(0, 0, pageWidth, 125, "F");
@@ -104,13 +156,8 @@ export function generateInvoicePDF(
     doc.setFillColor(...primary); doc.rect(0, 0, pageWidth, 10, "F");
   }
 
-  const activeLogo = branding?.logo_url || profile.logo_url;
-  if (activeLogo) {
-    try {
-      doc.addImage(activeLogo, "PNG", margin, y, 60, 60);
-    } catch {
-      // logo may be jpg or unsupported; skip silently
-    }
+  if (logoAsset) {
+    doc.addImage(logoAsset.data, logoAsset.format, margin, y, 60, 60);
   }
 
   doc.setFont("helvetica", "bold");
@@ -386,8 +433,8 @@ export function generateInvoicePDF(
     doc.setFont("helvetica","bold"); doc.setFontSize(52); doc.setTextColor(235,238,245); doc.text(branding.background_watermark.slice(0,30),pageWidth/2,pageHeight/2,{align:"center",angle:35});
   }
   let assetX=pageWidth-margin;
-  if (!hiddenBlocks.has("approval") && branding?.show_stamp&&branding.stamp_url) { try { doc.addImage(branding.stamp_url,"PNG",assetX-55,pageHeight-120,55,55); assetX-=65; } catch { /* optional asset */ } }
-  if (!hiddenBlocks.has("approval") && branding?.show_signature&&branding.signature_url) { try { doc.addImage(branding.signature_url,"PNG",assetX-80,pageHeight-110,80,40); } catch { /* optional asset */ } }
+  if (!hiddenBlocks.has("approval") && stampAsset) { doc.addImage(stampAsset.data,stampAsset.format,assetX-55,pageHeight-120,55,55); assetX-=65; }
+  if (!hiddenBlocks.has("approval") && signatureAsset) { doc.addImage(signatureAsset.data,signatureAsset.format,assetX-80,pageHeight-110,80,40); }
 
   if (!hiddenBlocks.has("footer")) {
     doc.setFont("helvetica", "bold");

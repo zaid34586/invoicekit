@@ -67,8 +67,9 @@ export default function ShareInvoice() {
       if (profData) {
         setProfile(profData as Profile);
       }
-      const { data: brandData } = await supabase.rpc("get_shared_invoice_branding", { p_token: token });
+      const { data: brandData, error: brandError } = await supabase.rpc("get_shared_invoice_branding", { p_token: token });
       if (brandData) setBranding({ ...DEFAULT_BRANDING, ...brandData } as WorkspaceBranding);
+      if (brandError) console.error("Could not load shared invoice branding", brandError);
 
       try {
         const [paypal, stripe] = await Promise.all([

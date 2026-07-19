@@ -144,7 +144,7 @@ export default function InvoicePreview() {
     }
   }
 
-  function handleDownloadPDF() {
+  async function handleDownloadPDF() {
     if (!invoice || !profile) return;
     const extras: InvoicePDFExtras = {
       businessCountry,
@@ -170,7 +170,7 @@ export default function InvoicePreview() {
       clientTaxLabel,
       isIndiaLineItemLabels,
     };
-    generateInvoicePDF(invoice, profile, extras, branding);
+    await generateInvoicePDF(invoice, profile, extras, branding);
   }
 
   function handleWhatsApp() {
