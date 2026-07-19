@@ -123,13 +123,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [workspaceCustomRole, setWorkspaceCustomRole] = useState<string | null>(null);
 
   async function loadWorkspaceContext(): Promise<Profile | null> {
-    const { data, error } = await supabase.rpc("get_my_workspace_context");
+    const [{ data, error }, { data: permissionData }] = await Promise.all([
+      supabase.rpc("get_my_workspace_context"),
+      supabase.rpc("get_my_workspace_permissions"),
+    ]);
     if (error || !data) return null;
     setWorkspaceOwnerId(data.owner_user_id ?? null);
     setWorkspaceRole(data.role ?? null);
     setWorkspaceStatus(data.status ?? null);
     setWorkspaceName(data.workspace_name ?? null);
-    setWorkspacePermissions(Array.isArray(data.permissions) ? data.permissions : []);
+    setWorkspacePermissions(Array.isArray(permissionData) ? permissionData : Array.isArray(data.permissions) ? data.permissions : []);
     setWorkspaceCustomRole(data.custom_role_name ?? null);
     if (data.owner_profile && data.role === "owner") {
       const ownerProfile = { ...data.owner_profile, workspace_owner_id: data.owner_user_id, workspace_role: "owner", workspace_member_status: "active" } as Profile;
