@@ -205,14 +205,19 @@ export default function ShareInvoice() {
     displaySubtotal + displayCgst + displaySgst + displayIgst;
   const hiddenBlocks = new Set(branding?.hidden_blocks || []);
   const blockOrder = branding?.block_order || DEFAULT_BRANDING.block_order;
-  const blockStyle = (id: string) => ({ order: Math.max(0, blockOrder.indexOf(id)) });
+  const blockStyle = (id: string) => ({ order: Math.max(0, blockOrder.indexOf(id)), gridColumn: branding?.layout_mode === "grid" && branding.block_widths?.[id] === "half" ? "span 1" : "1 / -1" });
   const template = branding?.pdf_template || "modern";
   const invoiceShell = template === "luxury" ? "border-amber-300 bg-[#fffdf7]" : template === "executive" ? "border-slate-300" : template === "minimal" ? "rounded-none border-x-0 shadow-none" : template === "corporate" ? "border-t-[10px] border-t-blue-700" : "";
   const headerTheme = template === "luxury" ? "-mx-6 -mt-6 bg-stone-950 px-6 pt-6 text-amber-50 sm:-mx-10 sm:-mt-10 sm:px-10 sm:pt-10 [&_h1]:!text-amber-50 [&_p]:!text-amber-100/70" : template === "executive" ? "-mx-6 -mt-6 bg-slate-950 px-6 pt-6 text-white sm:-mx-10 sm:-mt-10 sm:px-10 sm:pt-10 [&_h1]:!text-white [&_p]:!text-slate-300" : template === "minimal" ? "pb-10" : template === "corporate" ? "bg-blue-50/60" : "rounded-2xl bg-gradient-to-r from-violet-50 to-indigo-50 p-5";
+  const canvasWidth = branding?.content_width === "compact" ? "max-w-3xl" : branding?.content_width === "wide" ? "max-w-6xl" : "max-w-4xl";
+  const canvasGap = branding?.spacing_density === "compact" ? "gap-1" : branding?.spacing_density === "spacious" ? "gap-8" : "gap-4";
+  const canvasPadding = branding?.spacing_density === "compact" ? "p-4 sm:p-6" : branding?.spacing_density === "spacious" ? "p-8 sm:p-14" : "p-6 sm:p-10";
+  const canvasCorner = branding?.corner_style === "square" ? "!rounded-none" : branding?.corner_style === "soft" ? "!rounded-xl" : "!rounded-[28px]";
+  const headerAlignment = branding?.header_alignment === "center" ? "text-center sm:flex-col sm:items-center [&>div]:items-center" : branding?.header_alignment === "left" ? "sm:flex-col" : "sm:flex-row sm:justify-between";
 
   return (
     <div className="min-h-screen bg-slate-50 py-6 px-4" style={{fontFamily:branding?brandingFont(branding.font_family):undefined}}>
-      <div className="max-w-4xl mx-auto space-y-4">
+      <div className={`${canvasWidth} mx-auto space-y-4`}>
         {paymentMessage && (
           <div className={`rounded-xl border px-4 py-3 text-sm font-medium ${paymentMessage.type === "success" ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-red-200 bg-red-50 text-red-700"}`}>
             {paymentMessage.text}
@@ -233,8 +238,8 @@ export default function ShareInvoice() {
           )}
         </div>
 
-        <div className={`card flex flex-col p-6 sm:p-10 ${invoiceShell}`}>
-          {!hiddenBlocks.has("header") && <div style={blockStyle("header")} className={`flex flex-col gap-6 border-b border-slate-200 pb-6 sm:flex-row sm:justify-between ${headerTheme}`}>
+        <div className={`card ${branding?.layout_mode === "grid" ? "grid grid-cols-1 md:grid-cols-2" : "flex flex-col"} ${canvasGap} ${canvasPadding} ${canvasCorner} ${invoiceShell}`}>
+          {!hiddenBlocks.has("header") && <div style={blockStyle("header")} className={`flex flex-col gap-6 border-b border-slate-200 pb-6 ${headerAlignment} ${headerTheme}`}>
             <div className="flex items-start gap-4">
               {(branding?.logo_url||profile?.logo_url) ? (
                 <img

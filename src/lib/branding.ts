@@ -24,6 +24,12 @@ export interface WorkspaceBranding {
   block_order: string[];
   hidden_blocks: string[];
   design_name: string;
+  layout_mode: "single" | "grid";
+  content_width: "compact" | "standard" | "wide";
+  spacing_density: "compact" | "comfortable" | "spacious";
+  corner_style: "square" | "soft" | "rounded";
+  header_alignment: "left" | "split" | "center";
+  block_widths: Record<string, "full" | "half">;
 }
 
 export const DEFAULT_BRANDING: WorkspaceBranding = {
@@ -34,6 +40,8 @@ export const DEFAULT_BRANDING: WorkspaceBranding = {
   show_signature: false, show_stamp: false, remove_rivox_branding: true,
   block_order: ["header", "client", "items", "totals", "payment", "terms", "approval", "footer"],
   hidden_blocks: [], design_name: "Primary brand",
+  layout_mode: "single", content_width: "standard", spacing_density: "comfortable", corner_style: "rounded", header_alignment: "split",
+  block_widths: { header: "full", client: "full", items: "full", totals: "full", payment: "full", terms: "full", approval: "full", footer: "full" },
 };
 
 export const BRAND_PRESETS: Record<BrandTemplate, Partial<WorkspaceBranding>> = {
