@@ -164,7 +164,9 @@ function WorkspaceRoute({ children, allow, permission }: { children: ReactNode; 
     return <div className="min-h-screen grid place-items-center bg-slate-100 px-4"><div className="card max-w-md p-8 text-center"><h1 className="text-2xl font-black text-slate-900">Workspace access unavailable</h1><p className="mt-3 text-slate-600">Your access was {workspaceStatus}. Contact the workspace owner if this was unexpected.</p><button className="btn-primary mt-6" onClick={() => void signOut()}>Sign out</button></div></div>;
   }
   if (workspaceRole && !allow.includes(workspaceRole)) return <Navigate to={workspaceRole === "accountant" || workspaceRole === "staff" ? "/clients" : "/dashboard"} replace />;
-  if (workspaceRole && workspaceRole !== "owner" && permission && !workspacePermissions.includes("*") && !workspacePermissions.includes(permission)) return <Navigate to="/support" replace />;
+  if (workspaceRole && workspaceRole !== "owner" && permission && !workspacePermissions.includes("*") && !workspacePermissions.includes(permission)) {
+    return <div className="min-h-screen grid place-items-center bg-slate-100 px-4"><div className="card max-w-md p-8 text-center"><h1 className="text-2xl font-black text-slate-900">Permission required</h1><p className="mt-3 text-slate-600">Your workspace role does not allow access to this page. Contact the workspace owner.</p><button className="btn-primary mt-6" onClick={() => void signOut()}>Sign out</button></div></div>;
+  }
   return <>{children}</>;
 }
 
