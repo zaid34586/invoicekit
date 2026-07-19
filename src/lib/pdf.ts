@@ -3,6 +3,7 @@ import type { Invoice, Profile } from "./types";
 import { formatDate } from "./constants";
 import { lineAmount } from "./gst";
 import { getCurrencySymbol, getCurrencyDecimals } from "./currency";
+import { hexToRgb, type WorkspaceBranding } from "./branding";
 
 // Computed once in InvoicePreview.tsx and passed in here, so the PDF NEVER
 // recalculates currency/tax independently — it only renders numbers and
@@ -79,7 +80,8 @@ function pdfMoney(value: number, currency: string): string {
 export function generateInvoicePDF(
   invoice: Invoice,
   profile: Profile,
-  extras: InvoicePDFExtras
+  extras: InvoicePDFExtras,
+  branding?: WorkspaceBranding | null
 ): void {
   const doc = new jsPDF({ unit: "pt", format: "a4" });
   const pageWidth = doc.internal.pageSize.getWidth();
@@ -87,14 +89,15 @@ export function generateInvoicePDF(
   const margin = 40;
   let y = margin;
 
-  const primary: [number, number, number] = [37, 99, 235];
+  const primary: [number, number, number] = branding ? hexToRgb(branding.brand_color) : [37, 99, 235];
   const dark: [number, number, number] = [15, 23, 42];
   const gray: [number, number, number] = [100, 116, 139];
   const lightGray: [number, number, number] = [241, 245, 249];
 
-  if (profile.logo_url) {
+  const activeLogo = branding?.logo_url || profile.logo_url;
+  if (activeLogo) {
     try {
-      doc.addImage(profile.logo_url, "PNG", margin, y, 60, 60);
+      doc.addImage(activeLogo, "PNG", margin, y, 60, 60);
     } catch {
       // logo may be jpg or unsupported; skip silently
     }
@@ -140,7 +143,7 @@ export function generateInvoicePDF(
   doc.setFont("helvetica", "bold");
   doc.setFontSize(13);
   doc.setTextColor(255, 255, 255);
-  doc.text("INVOICE", badgeX + badgeW / 2, y + 17, { align: "center" });
+  doc.text(branding?.invoice_title || "INVOICE", badgeX + badgeW / 2, y + 17, { align: "center" });
 
   doc.setFontSize(11);
   doc.setTextColor(...dark);
@@ -361,14 +364,29 @@ export function generateInvoicePDF(
     y += noteLines.length * 12 + 8;
   }
 
+  if (branding?.payment_instructions) {
+    doc.setFont("helvetica", "bold"); doc.setFontSize(9); doc.setTextColor(...gray); doc.text("Payment instructions:", margin, y); y += 13;
+    doc.setFont("helvetica", "normal"); const lines=doc.splitTextToSize(branding.payment_instructions, tableW); doc.text(lines,margin,y); y+=lines.length*11+8;
+  }
+  if (branding?.terms_text) {
+    doc.setFont("helvetica", "bold"); doc.setFontSize(9); doc.setTextColor(...gray); doc.text("Terms & conditions:", margin, y); y += 13;
+    doc.setFont("helvetica", "normal"); const lines=doc.splitTextToSize(branding.terms_text, tableW); doc.text(lines,margin,y); y+=lines.length*11+8;
+  }
+  if (branding?.background_watermark) {
+    doc.setFont("helvetica","bold"); doc.setFontSize(52); doc.setTextColor(235,238,245); doc.text(branding.background_watermark.slice(0,30),pageWidth/2,pageHeight/2,{align:"center",angle:35});
+  }
+  let assetX=pageWidth-margin;
+  if (branding?.show_stamp&&branding.stamp_url) { try { doc.addImage(branding.stamp_url,"PNG",assetX-55,pageHeight-120,55,55); assetX-=65; } catch { /* optional asset */ } }
+  if (branding?.show_signature&&branding.signature_url) { try { doc.addImage(branding.signature_url,"PNG",assetX-80,pageHeight-110,80,40); } catch { /* optional asset */ } }
+
   doc.setFont("helvetica", "bold");
   doc.setFontSize(10);
   doc.setTextColor(...primary);
-  doc.text("Thank you for your business!", pageWidth / 2, pageHeight - 50, {
+  doc.text(branding?.footer_text || "Thank you for your business!", pageWidth / 2, pageHeight - 50, {
     align: "center",
   });
 
-  if (!profile.is_pro) {
+  if (!branding?.remove_rivox_branding && !profile.is_pro) {
     doc.setFont("helvetica", "normal");
     doc.setFontSize(8);
     doc.setTextColor(...gray);

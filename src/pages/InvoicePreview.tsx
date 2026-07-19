@@ -11,6 +11,7 @@ import StatusBadge from "../components/StatusBadge";
 import { decideTax, type TaxDecision } from "../lib/tax";
 import { formatMoney, convertCurrency } from "../lib/currency";
 import { getTaxLabel } from "../lib/international";
+import { DEFAULT_BRANDING, type WorkspaceBranding } from "../lib/branding";
 
 const STATUS_OPTIONS: { value: InvoiceStatus; label: string }[] = [
   { value: "draft", label: "Draft" },
@@ -28,6 +29,7 @@ export default function InvoicePreview() {
   const [updating, setUpdating] = useState(false);
   const [shareCopied, setShareCopied] = useState(false);
   const [emailSent, setEmailSent] = useState(false);
+  const [branding, setBranding] = useState<WorkspaceBranding | null>(null);
 
   useEffect(() => {
     async function load() {
@@ -41,10 +43,17 @@ export default function InvoicePreview() {
       if (!error && data) {
         setInvoice(data as Invoice);
       }
+      if (profile?.plan === "business") {
+        const { data: workspace } = await supabase.from("workspaces").select("id").eq("owner_user_id", profile.user_id).maybeSingle();
+        if (workspace?.id) {
+          const { data: brand } = await supabase.from("workspace_branding").select("*").eq("workspace_id",workspace.id).maybeSingle();
+          if (brand) setBranding({ ...DEFAULT_BRANDING, ...brand } as WorkspaceBranding);
+        }
+      }
       setLoading(false);
     }
     load();
-  }, [id, user]);
+  }, [id, user, profile?.plan, profile?.user_id]);
 
   async function updateStatus(newStatus: InvoiceStatus) {
     if (!invoice || !user) return;
@@ -161,7 +170,7 @@ export default function InvoicePreview() {
       clientTaxLabel,
       isIndiaLineItemLabels,
     };
-    generateInvoicePDF(invoice, profile, extras);
+    generateInvoicePDF(invoice, profile, extras, branding);
   }
 
   function handleWhatsApp() {

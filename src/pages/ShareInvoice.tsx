@@ -5,11 +5,13 @@ import type { Invoice, Profile } from "../lib/types";
 import { formatDate } from "../lib/constants";
 import { convertCurrency, formatMoney } from "../lib/currency";
 import { lineAmount } from "../lib/gst";
+import { DEFAULT_BRANDING, brandingFont, type WorkspaceBranding } from "../lib/branding";
 
 export default function ShareInvoice() {
   const { token } = useParams<{ token: string }>();
   const [invoice, setInvoice] = useState<Invoice | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
+  const [branding, setBranding] = useState<WorkspaceBranding | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showPayModal, setShowPayModal] = useState(false);
@@ -65,6 +67,8 @@ export default function ShareInvoice() {
       if (profData) {
         setProfile(profData as Profile);
       }
+      const { data: brandData } = await supabase.rpc("get_shared_invoice_branding", { p_token: token });
+      if (brandData) setBranding({ ...DEFAULT_BRANDING, ...brandData } as WorkspaceBranding);
 
       try {
         const [paypal, stripe] = await Promise.all([
@@ -201,7 +205,7 @@ export default function ShareInvoice() {
     displaySubtotal + displayCgst + displaySgst + displayIgst;
 
   return (
-    <div className="min-h-screen bg-slate-50 py-6 px-4">
+    <div className="min-h-screen bg-slate-50 py-6 px-4" style={{fontFamily:branding?brandingFont(branding.font_family):undefined}}>
       <div className="max-w-4xl mx-auto space-y-4">
         {paymentMessage && (
           <div className={`rounded-xl border px-4 py-3 text-sm font-medium ${paymentMessage.type === "success" ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-red-200 bg-red-50 text-red-700"}`}>
@@ -210,10 +214,8 @@ export default function ShareInvoice() {
         )}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <div className="w-8 h-8 bg-primary-600 rounded-lg flex items-center justify-center">
-              <span className="text-white text-sm font-bold">⚡</span>
-            </div>
-            <span className="font-bold text-slate-900">Rivox</span>
+            {branding?.logo_url?<img src={branding.logo_url} className="h-9 w-9 rounded-lg object-contain"/>:<div className="w-8 h-8 bg-primary-600 rounded-lg flex items-center justify-center"><span className="text-white text-sm font-bold">⚡</span></div>}
+            <span className="font-bold text-slate-900">{branding?.remove_rivox_branding?(profile?.business_name||"Business"):"Rivox"}</span>
           </div>
           {invoice.status !== "paid" && invoice.status !== "draft" && (
             <button
@@ -228,9 +230,9 @@ export default function ShareInvoice() {
         <div className="card p-6 sm:p-10">
           <div className="flex flex-col sm:flex-row sm:justify-between gap-6 pb-6 border-b border-slate-200">
             <div className="flex items-start gap-4">
-              {profile?.logo_url ? (
+              {(branding?.logo_url||profile?.logo_url) ? (
                 <img
-                  src={profile.logo_url}
+                  src={branding?.logo_url||profile?.logo_url||""}
                   alt="Logo"
                   className="w-16 h-16 rounded-lg object-cover border border-slate-200"
                 />
@@ -263,8 +265,8 @@ export default function ShareInvoice() {
             </div>
 
             <div className="sm:text-right">
-              <span className="inline-block bg-primary-600 text-white px-4 py-1.5 rounded-lg text-sm font-bold tracking-wide">
-                INVOICE
+              <span className="inline-block text-white px-4 py-1.5 rounded-lg text-sm font-bold tracking-wide" style={{backgroundColor:branding?.brand_color||"#4f46e5"}}>
+                {branding?.invoice_title||"INVOICE"}
               </span>
               <p className="text-lg font-bold text-slate-900 mt-3">
                 {invoice.invoice_number}
@@ -310,7 +312,7 @@ export default function ShareInvoice() {
             <div className="overflow-x-auto">
               <table className="w-full">
                 <thead>
-                  <tr className="bg-primary-600 text-white">
+                  <tr className="text-white" style={{backgroundColor:branding?.brand_color||"#4f46e5"}}>
                     <th className="text-left text-xs font-semibold uppercase tracking-wide px-4 py-3 rounded-l-lg">
                       Description
                     </th>
@@ -432,11 +434,15 @@ export default function ShareInvoice() {
             </div>
           )}
 
+          {branding?.payment_instructions && <div className="py-4 border-t border-slate-200"><p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1">Payment instructions</p><p className="text-sm text-slate-600 whitespace-pre-line">{branding.payment_instructions}</p></div>}
+          {branding?.terms_text && <div className="py-4 border-t border-slate-200"><p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1">Terms & conditions</p><p className="text-xs text-slate-500 whitespace-pre-line">{branding.terms_text}</p></div>}
+          {branding && ((branding.show_signature&&branding.signature_url)||(branding.show_stamp&&branding.stamp_url)) && <div className="flex justify-end gap-5 py-4 border-t border-slate-200">{branding.show_signature&&branding.signature_url&&<img src={branding.signature_url} className="h-16 object-contain" alt="Authorized signature"/>}{branding.show_stamp&&branding.stamp_url&&<img src={branding.stamp_url} className="h-16 object-contain" alt="Company stamp"/>}</div>}
+
           <div className="pt-6 border-t border-slate-200 text-center">
-            <p className="text-base font-semibold text-primary-600">
-              Thank you for your business!
+            <p className="text-base font-semibold" style={{color:branding?.accent_color||"#4f46e5"}}>
+              {branding?.footer_text||"Thank you for your business!"}
             </p>
-            {!profile?.is_pro && (
+            {!branding?.remove_rivox_branding && !profile?.is_pro && (
               <p className="text-xs text-slate-400 mt-2">
                 Created with Rivox
               </p>
@@ -444,12 +450,12 @@ export default function ShareInvoice() {
           </div>
         </div>
 
-        <p className="text-center text-xs text-slate-400">
+        {!branding?.remove_rivox_branding&&<p className="text-center text-xs text-slate-400">
           Powered by{" "}
           <Link to="/" className="text-primary-600 font-medium hover:underline">
             Rivox
           </Link>
-        </p>
+        </p>}
       </div>
 
       {showPayModal && (
