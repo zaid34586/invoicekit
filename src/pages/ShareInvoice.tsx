@@ -203,6 +203,12 @@ export default function ShareInvoice() {
   const displaySubtotal = itemSubtotal;
   const displayTotal =
     displaySubtotal + displayCgst + displaySgst + displayIgst;
+  const hiddenBlocks = new Set(branding?.hidden_blocks || []);
+  const blockOrder = branding?.block_order || DEFAULT_BRANDING.block_order;
+  const blockStyle = (id: string) => ({ order: Math.max(0, blockOrder.indexOf(id)) });
+  const template = branding?.pdf_template || "modern";
+  const invoiceShell = template === "luxury" ? "border-amber-300 bg-[#fffdf7]" : template === "executive" ? "border-slate-300" : template === "minimal" ? "rounded-none border-x-0 shadow-none" : template === "corporate" ? "border-t-[10px] border-t-blue-700" : "";
+  const headerTheme = template === "luxury" ? "-mx-6 -mt-6 bg-stone-950 px-6 pt-6 text-amber-50 sm:-mx-10 sm:-mt-10 sm:px-10 sm:pt-10 [&_h1]:!text-amber-50 [&_p]:!text-amber-100/70" : template === "executive" ? "-mx-6 -mt-6 bg-slate-950 px-6 pt-6 text-white sm:-mx-10 sm:-mt-10 sm:px-10 sm:pt-10 [&_h1]:!text-white [&_p]:!text-slate-300" : template === "minimal" ? "pb-10" : template === "corporate" ? "bg-blue-50/60" : "rounded-2xl bg-gradient-to-r from-violet-50 to-indigo-50 p-5";
 
   return (
     <div className="min-h-screen bg-slate-50 py-6 px-4" style={{fontFamily:branding?brandingFont(branding.font_family):undefined}}>
@@ -227,8 +233,8 @@ export default function ShareInvoice() {
           )}
         </div>
 
-        <div className="card p-6 sm:p-10">
-          <div className="flex flex-col sm:flex-row sm:justify-between gap-6 pb-6 border-b border-slate-200">
+        <div className={`card flex flex-col p-6 sm:p-10 ${invoiceShell}`}>
+          {!hiddenBlocks.has("header") && <div style={blockStyle("header")} className={`flex flex-col gap-6 border-b border-slate-200 pb-6 sm:flex-row sm:justify-between ${headerTheme}`}>
             <div className="flex items-start gap-4">
               {(branding?.logo_url||profile?.logo_url) ? (
                 <img
@@ -278,9 +284,9 @@ export default function ShareInvoice() {
                 Due Date: {formatDate(invoice.due_date)}
               </p>
             </div>
-          </div>
+          </div>}
 
-          <div className="py-6 border-b border-slate-200">
+          {!hiddenBlocks.has("client") && <div style={blockStyle("client")} className="py-6 border-b border-slate-200">
             <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-2">
               Bill To
             </p>
@@ -306,9 +312,9 @@ export default function ShareInvoice() {
             {invoice.client_email && (
               <p className="text-sm text-slate-500">Email: {invoice.client_email}</p>
             )}
-          </div>
+          </div>}
 
-          <div className="py-6">
+          {!hiddenBlocks.has("items") && <div style={blockStyle("items")} className="py-6">
             <div className="overflow-x-auto">
               <table className="w-full">
                 <thead>
@@ -362,9 +368,9 @@ export default function ShareInvoice() {
                 </tbody>
               </table>
             </div>
-          </div>
+          </div>}
 
-          <div className="flex flex-col sm:flex-row gap-6 pb-6">
+          {!hiddenBlocks.has("totals") && <div style={blockStyle("totals")} className="flex flex-col sm:flex-row gap-6 pb-6">
             <div className="flex-1">
               {isInterState ? (
                 <GSTBreakup
@@ -421,10 +427,10 @@ export default function ShareInvoice() {
                 </span>
               </div>
             </div>
-          </div>
+          </div>}
 
           {invoice.notes && (
-            <div className="py-4 border-t border-slate-200">
+            <div style={blockStyle("items")} className="py-4 border-t border-slate-200">
               <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1">
                 Notes
               </p>
@@ -434,11 +440,11 @@ export default function ShareInvoice() {
             </div>
           )}
 
-          {branding?.payment_instructions && <div className="py-4 border-t border-slate-200"><p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1">Payment instructions</p><p className="text-sm text-slate-600 whitespace-pre-line">{branding.payment_instructions}</p></div>}
-          {branding?.terms_text && <div className="py-4 border-t border-slate-200"><p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1">Terms & conditions</p><p className="text-xs text-slate-500 whitespace-pre-line">{branding.terms_text}</p></div>}
-          {branding && ((branding.show_signature&&branding.signature_url)||(branding.show_stamp&&branding.stamp_url)) && <div className="flex justify-end gap-5 py-4 border-t border-slate-200">{branding.show_signature&&branding.signature_url&&<img src={branding.signature_url} className="h-16 object-contain" alt="Authorized signature"/>}{branding.show_stamp&&branding.stamp_url&&<img src={branding.stamp_url} className="h-16 object-contain" alt="Company stamp"/>}</div>}
+          {!hiddenBlocks.has("payment") && branding?.payment_instructions && <div style={blockStyle("payment")} className="py-4 border-t border-slate-200"><p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1">Payment instructions</p><p className="text-sm text-slate-600 whitespace-pre-line">{branding.payment_instructions}</p></div>}
+          {!hiddenBlocks.has("terms") && branding?.terms_text && <div style={blockStyle("terms")} className="py-4 border-t border-slate-200"><p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1">Terms & conditions</p><p className="text-xs text-slate-500 whitespace-pre-line">{branding.terms_text}</p></div>}
+          {!hiddenBlocks.has("approval") && branding && ((branding.show_signature&&branding.signature_url)||(branding.show_stamp&&branding.stamp_url)) && <div style={blockStyle("approval")} className="flex justify-end gap-5 py-4 border-t border-slate-200">{branding.show_signature&&branding.signature_url&&<img src={branding.signature_url} className="h-16 object-contain" alt="Authorized signature"/>}{branding.show_stamp&&branding.stamp_url&&<img src={branding.stamp_url} className="h-16 object-contain" alt="Company stamp"/>}</div>}
 
-          <div className="pt-6 border-t border-slate-200 text-center">
+          {!hiddenBlocks.has("footer") && <div style={blockStyle("footer")} className="pt-6 border-t border-slate-200 text-center">
             <p className="text-base font-semibold" style={{color:branding?.accent_color||"#4f46e5"}}>
               {branding?.footer_text||"Thank you for your business!"}
             </p>
@@ -447,7 +453,7 @@ export default function ShareInvoice() {
                 Created with Rivox
               </p>
             )}
-          </div>
+          </div>}
         </div>
 
         {!branding?.remove_rivox_branding&&<p className="text-center text-xs text-slate-400">

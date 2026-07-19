@@ -93,6 +93,7 @@ export function generateInvoicePDF(
   const dark: [number, number, number] = [15, 23, 42];
   const gray: [number, number, number] = [100, 116, 139];
   const lightGray: [number, number, number] = [241, 245, 249];
+  const hiddenBlocks = new Set(branding?.hidden_blocks || []);
 
   const activeLogo = branding?.logo_url || profile.logo_url;
   if (activeLogo) {
@@ -364,11 +365,11 @@ export function generateInvoicePDF(
     y += noteLines.length * 12 + 8;
   }
 
-  if (branding?.payment_instructions) {
+  if (!hiddenBlocks.has("payment") && branding?.payment_instructions) {
     doc.setFont("helvetica", "bold"); doc.setFontSize(9); doc.setTextColor(...gray); doc.text("Payment instructions:", margin, y); y += 13;
     doc.setFont("helvetica", "normal"); const lines=doc.splitTextToSize(branding.payment_instructions, tableW); doc.text(lines,margin,y); y+=lines.length*11+8;
   }
-  if (branding?.terms_text) {
+  if (!hiddenBlocks.has("terms") && branding?.terms_text) {
     doc.setFont("helvetica", "bold"); doc.setFontSize(9); doc.setTextColor(...gray); doc.text("Terms & conditions:", margin, y); y += 13;
     doc.setFont("helvetica", "normal"); const lines=doc.splitTextToSize(branding.terms_text, tableW); doc.text(lines,margin,y); y+=lines.length*11+8;
   }
@@ -376,15 +377,15 @@ export function generateInvoicePDF(
     doc.setFont("helvetica","bold"); doc.setFontSize(52); doc.setTextColor(235,238,245); doc.text(branding.background_watermark.slice(0,30),pageWidth/2,pageHeight/2,{align:"center",angle:35});
   }
   let assetX=pageWidth-margin;
-  if (branding?.show_stamp&&branding.stamp_url) { try { doc.addImage(branding.stamp_url,"PNG",assetX-55,pageHeight-120,55,55); assetX-=65; } catch { /* optional asset */ } }
-  if (branding?.show_signature&&branding.signature_url) { try { doc.addImage(branding.signature_url,"PNG",assetX-80,pageHeight-110,80,40); } catch { /* optional asset */ } }
+  if (!hiddenBlocks.has("approval") && branding?.show_stamp&&branding.stamp_url) { try { doc.addImage(branding.stamp_url,"PNG",assetX-55,pageHeight-120,55,55); assetX-=65; } catch { /* optional asset */ } }
+  if (!hiddenBlocks.has("approval") && branding?.show_signature&&branding.signature_url) { try { doc.addImage(branding.signature_url,"PNG",assetX-80,pageHeight-110,80,40); } catch { /* optional asset */ } }
 
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(10);
-  doc.setTextColor(...primary);
-  doc.text(branding?.footer_text || "Thank you for your business!", pageWidth / 2, pageHeight - 50, {
-    align: "center",
-  });
+  if (!hiddenBlocks.has("footer")) {
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(10);
+    doc.setTextColor(...primary);
+    doc.text(branding?.footer_text || "Thank you for your business!", pageWidth / 2, pageHeight - 50, { align: "center" });
+  }
 
   if (!branding?.remove_rivox_branding && !profile.is_pro) {
     doc.setFont("helvetica", "normal");
