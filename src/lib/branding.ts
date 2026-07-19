@@ -21,6 +21,9 @@ export interface WorkspaceBranding {
   show_signature: boolean;
   show_stamp: boolean;
   remove_rivox_branding: boolean;
+  block_order: string[];
+  hidden_blocks: string[];
+  design_name: string;
 }
 
 export const DEFAULT_BRANDING: WorkspaceBranding = {
@@ -29,6 +32,8 @@ export const DEFAULT_BRANDING: WorkspaceBranding = {
   header_style: "split", table_style: "solid", footer_text: "Thank you for your business!", email_footer: "",
   payment_instructions: "", terms_text: "", signature_url: "", stamp_url: "", background_watermark: "",
   show_signature: false, show_stamp: false, remove_rivox_branding: true,
+  block_order: ["header", "client", "items", "totals", "payment", "terms", "approval", "footer"],
+  hidden_blocks: [], design_name: "Primary brand",
 };
 
 export const BRAND_PRESETS: Record<BrandTemplate, Partial<WorkspaceBranding>> = {
