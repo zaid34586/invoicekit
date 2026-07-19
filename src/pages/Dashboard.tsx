@@ -377,7 +377,8 @@ export default function Dashboard() {
     0
   );
 
-  const isPro = profile?.is_pro ?? false;
+  const planName = profile?.plan === "business" ? "Business" : profile?.plan === "pro" || profile?.is_pro ? "Pro" : "Free";
+  const isPro = planName !== "Free";
   const invoiceBalance = Number(profile?.credits ?? 0);
   const freeRemaining = Math.max(0, FREE_PLAN_LIMIT - invoicesThisMonth);
   // Business rule: 1 invoice balance = 1 extra invoice after free monthly limit.
@@ -396,8 +397,9 @@ export default function Dashboard() {
     .slice(0, 5);
 
   // Plan badge
-  const planName = isPro ? "Pro" : "Free";
-  const planBadgeColor = isPro
+  const planBadgeColor = planName === "Business"
+    ? "bg-gradient-to-r from-amber-300 to-yellow-400 text-amber-950"
+    : isPro
     ? "bg-gradient-to-r from-primary-600 to-primary-700 text-white"
     : "bg-slate-100 text-slate-600";
 

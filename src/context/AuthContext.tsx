@@ -131,6 +131,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setWorkspaceName(data.workspace_name ?? null);
     setWorkspacePermissions(Array.isArray(data.permissions) ? data.permissions : []);
     setWorkspaceCustomRole(data.custom_role_name ?? null);
+    if (data.owner_profile && data.role === "owner") {
+      const ownerProfile = { ...data.owner_profile, workspace_owner_id: data.owner_user_id, workspace_role: "owner", workspace_member_status: "active" } as Profile;
+      setProfile(ownerProfile);
+      return ownerProfile;
+    }
     if (data.owner_profile && data.role !== "owner" && data.status === "active") {
       const merged = { ...data.owner_profile, workspace_owner_id: data.owner_user_id, workspace_role: data.role, workspace_member_status: data.status } as Profile;
       setProfile(merged);
