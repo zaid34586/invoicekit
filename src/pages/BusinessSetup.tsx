@@ -25,23 +25,30 @@ export default function BusinessSetup() {
     setSaving(true);
     setError(null);
     const cfg = getGlobalCountryConfig(country);
-    const { error: updateError } = await supabase
+    const { data: savedProfile, error: updateError } = await supabase
       .from("profiles")
-      .update({
+      .upsert({
+        user_id: user.id,
+        email: user.email ?? null,
         business_name: businessName.trim() || null,
         country,
         country_code: cfg.phoneCode,
         currency: cfg.currency,
         timezone: cfg.timezone,
         date_format: cfg.dateFormat,
-      })
-      .eq("user_id", user.id);
+      }, { onConflict: "user_id" })
+      .select("user_id, country")
+      .single();
     setSaving(false);
-    if (updateError) {
-      setError(updateError.message);
+    if (updateError || !savedProfile?.country) {
+      setError(updateError?.message || "Business setup could not be saved. Please try again.");
       return;
     }
-    await refreshProfile();
+    const refreshed = await refreshProfile();
+    if (!refreshed?.country) {
+      setError("Business setup was saved but could not be loaded. Please refresh and try again.");
+      return;
+    }
     navigate("/verify-phone", { replace: true });
   }
 

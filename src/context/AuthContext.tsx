@@ -122,6 +122,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [workspacePermissions, setWorkspacePermissions] = useState<string[]>([]);
   const [workspaceCustomRole, setWorkspaceCustomRole] = useState<string | null>(null);
 
+  function clearAuthState() {
+    setSession(null);
+    setProfile(null);
+    setWorkspaceOwnerId(null);
+    setWorkspaceRole(null);
+    setWorkspaceStatus(null);
+    setWorkspaceName(null);
+    setWorkspacePermissions([]);
+    setWorkspaceCustomRole(null);
+  }
+
   async function loadWorkspaceContext(): Promise<Profile | null> {
     const [{ data, error }, { data: permissionData }] = await Promise.all([
       supabase.rpc("get_my_workspace_context"),
@@ -240,8 +251,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   async function syncSession(nextSession: Session | null, options?: { skipProfile?: boolean }) {
     if (!nextSession?.user) {
-      setSession(null);
-      setProfile(null);
+      clearAuthState();
       return null;
     }
 
@@ -250,8 +260,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (error || !data.user) {
       await supabase.auth.signOut();
       clearSupabaseStorage();
-      setSession(null);
-      setProfile(null);
+      clearAuthState();
       return null;
     }
 
@@ -311,8 +320,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         localStorage.removeItem(VERIFICATION_PENDING_KEY);
         await supabase.auth.signOut({ scope: "local" });
         clearSupabaseStorage();
-        setSession(null);
-        setProfile(null);
+        clearAuthState();
         window.location.replace("/login?confirmed=1");
         return;
       }
@@ -350,7 +358,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       };
     }
 
-    const { error } = await supabase.auth.signUp({
+    const { data: signUpData, error } = await supabase.auth.signUp({
       email: cleanEmail,
       password,
       options: {
@@ -364,6 +372,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return { error: "This email is already registered. Please sign in." };
       }
       return { error: error.message };
+    }
+
+    // Supabase deliberately returns a successful-looking response for an
+    // existing email in some configurations. An empty identities array is the
+    // reliable signal that no new account was created.
+    if (signUpData.user && Array.isArray(signUpData.user.identities) && signUpData.user.identities.length === 0) {
+      await supabase.auth.signOut({ scope: "local" });
+      clearSupabaseStorage();
+      clearAuthState();
+      return { error: "This email is already registered. Please sign in or reset your password." };
     }
 
     localStorage.setItem(VERIFICATION_PENDING_KEY, "1");
@@ -385,8 +403,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (!staff) {
           await supabase.auth.signOut();
           clearSupabaseStorage();
-          setSession(null);
-          setProfile(null);
+          clearAuthState();
           return { error: "This staff account is not active or not authorized." };
         }
         await syncSession(data.session, { skipProfile: true });
@@ -397,8 +414,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (!profileAfterLogin) {
         await supabase.auth.signOut();
         clearSupabaseStorage();
-        setSession(null);
-        setProfile(null);
+        clearAuthState();
         return { error: "This account is disabled, is a staff account, or could not be loaded." };
       }
     }
@@ -409,28 +425,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const signOut = async () => {
     await supabase.auth.signOut({ scope: "global" });
     clearSupabaseStorage();
-    setSession(null);
-    setProfile(null);
-    setWorkspaceOwnerId(null);
-    setWorkspaceRole(null);
-    setWorkspaceStatus(null);
-    setWorkspaceName(null);
-    setWorkspacePermissions([]);
-    setWorkspaceCustomRole(null);
+    clearAuthState();
   };
 
   const refreshProfile = async (options?: { skipProfile?: boolean }) => {
     const { data } = await supabase.auth.getSession();
 
     if (!data.session?.user) {
-      setSession(null);
-      setProfile(null);
-      setWorkspaceOwnerId(null);
-      setWorkspaceRole(null);
-      setWorkspaceStatus(null);
-      setWorkspaceName(null);
-      setWorkspacePermissions([]);
-      setWorkspaceCustomRole(null);
+      clearAuthState();
       return null;
     }
 
