@@ -24,12 +24,18 @@ function minorAmount(amount: number, currency: string) { return Math.round(amoun
 function majorAmount(amount: number, currency: string) { return amount / (zeroDecimal.has(currency) ? 1 : 100); }
 function escapeHtml(value: string) { return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#039;"); }
 
-async function sendEmail(to: string | null, subject: string, html: string) {
+type EmailResult = { sent: boolean; id?: string; error?: string };
+function isDeliverableEmail(value: string | null | undefined) { if (!value) return false; const email = value.trim().toLowerCase(); return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) && !email.endsWith(".example.com") && !email.endsWith("@example.com"); }
+async function sendEmail(to: string | null, subject: string, html: string): Promise<EmailResult> {
   const key = (Deno.env.get("RESEND_API_KEY") || "").trim();
-  if (!key || !to) return;
+  if (!key) return { sent: false, error: "RESEND_API_KEY is not configured" };
+  if (!isDeliverableEmail(to)) return { sent: false, error: "A deliverable recipient email is required" };
   const response = await fetch("https://api.resend.com/emails", { method: "POST", headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" }, body: JSON.stringify({ from: Deno.env.get("RESEND_FROM_EMAIL") || "Rivox <onboarding@resend.dev>", to, subject, html }) });
-  if (!response.ok) console.error("Stripe payment email failed", await response.text());
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok) { const error = result?.message || `Resend returned ${response.status}`; console.error("Stripe payment email failed", error); return { sent: false, error }; }
+  return { sent: true, id: result?.id };
 }
+async function logEmail(admin: any, params: { to: string; subject: string; result: EmailResult; metadata: Record<string, unknown> }) { await admin.from("email_delivery_logs").insert({ template_key: "invoice_payment_receipt", recipient_email: params.to, subject: params.subject, status: params.result.sent ? "sent" : "failed", provider_message_id: params.result.id || null, error_message: params.result.error || null, metadata: params.metadata }); }
 
 async function stripeRequest(secret: string, path: string, init: RequestInit = {}) {
   const response = await fetch(`https://api.stripe.com${path}`, { ...init, headers: { Authorization: `Bearer ${secret}`, ...(init.headers || {}) } });
@@ -66,10 +72,15 @@ async function finalizePaid(admin: any, context: any, session: any) {
     await admin.from("invoices").update({ status: "paid", refunded_amount: 0 }).eq("id", invoice.id);
     await admin.from("notifications").insert({ audience: "user", recipient_user_id: workspace.owner_user_id, type: "invoice_paid", title: `Invoice ${invoice.invoice_number} paid`, body: `${invoice.client_name} paid ${currency} ${amount.toFixed(2)} via Stripe.`, metadata: { invoice_id: invoice.id, payment_id: paymentIntent, provider: "stripe" } });
     const business = profile?.business_name || workspace.name || "Business";
-    await Promise.all([
-      sendEmail(payerEmail, `Receipt for invoice ${invoice.invoice_number}`, `<div style="font-family:Arial,sans-serif;background:#f8fafc;padding:28px"><div style="max-width:600px;margin:auto;background:#fff;border-radius:16px;padding:28px"><h1 style="color:#635bff">Payment receipt</h1><p>Your payment to <b>${escapeHtml(business)}</b> was successful.</p><p><b>Invoice:</b> ${escapeHtml(invoice.invoice_number)}<br><b>Amount:</b> ${currency} ${amount.toFixed(2)}<br><b>Stripe reference:</b> ${escapeHtml(paymentIntent)}<br><b>Status:</b> Paid</p></div></div>`),
-      sendEmail(profile?.email || null, `Payment received for ${invoice.invoice_number}`, `<div style="font-family:Arial,sans-serif"><h2>Payment received</h2><p>${escapeHtml(invoice.client_name)} paid <b>${currency} ${amount.toFixed(2)}</b> via Stripe for invoice <b>${escapeHtml(invoice.invoice_number)}</b>.</p></div>`),
-    ]);
+    const receiptEmail = isDeliverableEmail(invoice.client_email) ? String(invoice.client_email).trim().toLowerCase() : (isDeliverableEmail(payerEmail) ? String(payerEmail).trim().toLowerCase() : null);
+    const receiptSubject = `Receipt for invoice ${invoice.invoice_number}`;
+    const receiptHtml = `<div style="font-family:Arial,sans-serif;background:#f8fafc;padding:28px"><div style="max-width:600px;margin:auto;background:#fff;border-radius:16px;padding:28px"><h1 style="color:#635bff">Payment receipt</h1><p>Your payment to <b>${escapeHtml(business)}</b> was successful.</p><p><b>Invoice:</b> ${escapeHtml(invoice.invoice_number)}<br><b>Amount:</b> ${currency} ${amount.toFixed(2)}<br><b>Stripe reference:</b> ${escapeHtml(paymentIntent)}<br><b>Status:</b> Paid</p></div></div>`;
+    const receiptResult = await sendEmail(receiptEmail, receiptSubject, receiptHtml);
+    if (receiptEmail) await logEmail(admin, { to: receiptEmail, subject: receiptSubject, result: receiptResult, metadata: { invoice_id: invoice.id, payment_id: paymentIntent, provider: "stripe", audience: "customer" } });
+    await admin.from("invoice_payments").update({ receipt_email: receiptEmail, receipt_email_status: receiptResult.sent ? "sent" : receiptEmail ? "failed" : "skipped", receipt_email_sent_at: receiptResult.sent ? new Date().toISOString() : null, receipt_email_error: receiptResult.error || null }).eq("provider", "stripe").eq("environment", connection.environment).eq("provider_order_id", session.id);
+    const ownerSubject = `Payment received for ${invoice.invoice_number}`;
+    const ownerResult = await sendEmail(profile?.email || null, ownerSubject, `<div style="font-family:Arial,sans-serif"><h2>Payment received</h2><p>${escapeHtml(invoice.client_name)} paid <b>${currency} ${amount.toFixed(2)}</b> via Stripe for invoice <b>${escapeHtml(invoice.invoice_number)}</b>.</p></div>`);
+    if (profile?.email) await logEmail(admin, { to: profile.email, subject: ownerSubject, result: ownerResult, metadata: { invoice_id: invoice.id, payment_id: paymentIntent, provider: "stripe", audience: "owner" } });
   }
   return { paid: true, paymentId: paymentIntent, invoiceNumber: invoice.invoice_number };
 }
@@ -126,6 +137,26 @@ Deno.serve(async (req) => {
 
     const body = await req.json().catch(() => ({}));
     const action = String(body.action || "availability");
+    if (action === "resend_receipt") {
+      const tokenValue = (req.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+      const { data: { user }, error: authError } = await admin.auth.getUser(tokenValue);
+      if (authError || !user) return json({ error: "Unauthorized" }, 401);
+      const payment = (await admin.from("invoice_payments").select("*").eq("id", String(body.paymentId || "")).eq("provider", "stripe").eq("owner_user_id", user.id).eq("status", "paid").maybeSingle()).data;
+      if (!payment) return json({ error: "Paid invoice transaction not found" }, 404);
+      const invoice = (await admin.from("invoices").select("*").eq("id", payment.invoice_id).single()).data;
+      const workspace = (await admin.from("workspaces").select("id,name").eq("id", payment.workspace_id).single()).data;
+      const profile = (await admin.from("profiles").select("business_name").eq("user_id", user.id).maybeSingle()).data;
+      const receiptEmail = isDeliverableEmail(invoice.client_email) ? String(invoice.client_email).trim().toLowerCase() : (isDeliverableEmail(payment.payer_email) ? String(payment.payer_email).trim().toLowerCase() : null);
+      if (!receiptEmail) return json({ error: "Add a valid client email to this invoice before resending the receipt." }, 400);
+      const subject = `Receipt for invoice ${invoice.invoice_number}`;
+      const business = profile?.business_name || workspace.name || "Business";
+      const html = `<div style="font-family:Arial,sans-serif;background:#f8fafc;padding:28px"><div style="max-width:600px;margin:auto;background:#fff;border-radius:16px;padding:28px"><h1 style="color:#635bff">Payment receipt</h1><p>Your payment to <b>${escapeHtml(business)}</b> was successful.</p><p><b>Invoice:</b> ${escapeHtml(invoice.invoice_number)}<br><b>Amount:</b> ${payment.currency} ${Number(payment.amount).toFixed(2)}<br><b>Stripe reference:</b> ${escapeHtml(payment.provider_capture_id || payment.provider_order_id)}<br><b>Status:</b> Paid</p></div></div>`;
+      const result = await sendEmail(receiptEmail, subject, html);
+      await logEmail(admin, { to: receiptEmail, subject, result, metadata: { invoice_id: invoice.id, payment_id: payment.provider_capture_id, provider: "stripe", audience: "customer", resent: true } });
+      await admin.from("invoice_payments").update({ receipt_email: receiptEmail, receipt_email_status: result.sent ? "sent" : "failed", receipt_email_sent_at: result.sent ? new Date().toISOString() : null, receipt_email_error: result.error || null }).eq("id", payment.id);
+      if (!result.sent) return json({ error: result.error || "Receipt email could not be sent" }, 502);
+      return json({ success: true, email: receiptEmail });
+    }
     const shareToken = String(body.shareToken || "");
     if (!shareToken) return json({ error: "Invoice link is required" }, 400);
     const context = await publicContext(admin, shareToken);
