@@ -863,6 +863,16 @@ export default function Admin() {
     setError(null);
     setNotice(null);
 
+    // Remove the Auth identity first. If this fails, keep all customer data
+    // intact so the account cannot be left as a registered email with an
+    // empty/recreated profile.
+    try {
+      await invokeAdminUserAction("delete_auth_user", { user_id: authId });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Auth user could not be deleted. No customer data was removed.");
+      return;
+    }
+
     const { error: invError } = await supabase.from("invoices").delete().eq("user_id", authId);
     if (invError) return setError(invError.message);
     const { error: clientError } = await supabase.from("clients").delete().eq("user_id", authId);
@@ -871,16 +881,6 @@ export default function Admin() {
     if (subError && !subError.message.toLowerCase().includes("does not exist")) return setError(subError.message);
     const { error: profileError } = await supabase.from("profiles").delete().eq("id", profile.id);
     if (profileError) return setError(profileError.message);
-
-    try {
-      await invokeAdminUserAction("delete_auth_user", { user_id: authId });
-    } catch (err) {
-      await logAction("delete_user_data_auth_pending", "profile", profile.id, { email: profile.email, user_id: authId });
-      setSelectedUserId(null);
-      setNotice("User data deleted. Auth user delete skip hua — admin-user-actions Edge Function deploy karo ya Supabase Auth se manually delete karo.");
-      await load();
-      return;
-    }
 
     await logAction("delete_user_data", "profile", profile.id, { email: profile.email, user_id: authId });
     setSelectedUserId(null);
