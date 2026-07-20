@@ -8,6 +8,8 @@ import Signup from "./pages/Signup";
 import CheckEmail from "./pages/CheckEmail";
 import BusinessSetup from "./pages/BusinessSetup";
 import VerifyPhone from "./pages/VerifyPhone";
+import ForgotPassword from "./pages/ForgotPassword";
+import ResetPassword from "./pages/ResetPassword";
 
 import AppLayout from "./components/AppLayout";
 import Dashboard from "./pages/Dashboard";
@@ -265,6 +267,9 @@ export default function App() {
           </PublicOnlyRoute>
         }
       />
+
+      <Route path="/forgot-password" element={<ForgotPassword />} />
+      <Route path="/reset-password" element={<ResetPassword />} />
 
       <Route path="/check-email" element={<CheckEmailRoute />} />
       <Route path="/business-setup" element={<BusinessSetupRoute />} />

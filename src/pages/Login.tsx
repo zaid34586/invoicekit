@@ -12,6 +12,8 @@ export default function Login() {
 
   const emailConfirmed =
     new URLSearchParams(location.search).get("confirmed") === "1";
+  const passwordReset =
+    new URLSearchParams(location.search).get("password_reset") === "1";
 
   const [email, setEmail] = useState(() => new URLSearchParams(location.search).get("email") || "");
   const [password, setPassword] = useState("");
@@ -80,6 +82,14 @@ export default function Login() {
         </div>
       )}
 
+      {passwordReset && (
+        <div className="fixed top-6 left-1/2 -translate-x-1/2 z-50 w-full max-w-md px-4 animate-fade-in">
+          <div className="rounded-2xl border border-emerald-300 bg-emerald-50 px-5 py-4 text-sm font-bold text-emerald-800 shadow-2xl">
+            Password updated. Sign in with your new password.
+          </div>
+        </div>
+      )}
+
       <div className="w-full max-w-5xl grid lg:grid-cols-[1.05fr_.95fr] overflow-hidden rounded-3xl border border-white/10 bg-white shadow-2xl shadow-violet-950/30">
         <section className="hidden lg:flex flex-col justify-between p-10 text-white bg-[radial-gradient(circle_at_top_left,_rgba(139,92,246,.42),_transparent_42%),linear-gradient(145deg,#0f172a,#111827)]">
           <div>
@@ -130,9 +140,12 @@ export default function Login() {
             </div>
 
             <div>
-              <label className="label" htmlFor="password">
-                Password
-              </label>
+              <div className="mb-1 flex items-center justify-between">
+                <label className="label mb-0" htmlFor="password">Password</label>
+                <Link to="/forgot-password" className="text-sm font-semibold text-violet-600 hover:underline">
+                  Forgot password?
+                </Link>
+              </div>
               <input
                 id="password"
                 type="password"
