@@ -11,34 +11,6 @@ const json = (body: unknown, status = 200) =>
     headers: { ...cors, "Content-Type": "application/json" },
   });
 
-function escapeHtml(value: string) {
-  return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#039;");
-}
-
-async function sendMemberCredentials(params: { email: string; name: string | null; password: string; role: string; workspace: string; loginUrl: string }) {
-  const key = (Deno.env.get("RESEND_API_KEY") || "").trim();
-  if (!key) return { sent: false, error: "RESEND_API_KEY is not configured" };
-  const from = Deno.env.get("RESEND_FROM_EMAIL") || "Rivox <onboarding@resend.dev>";
-  const response = await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
-    body: JSON.stringify({
-      from,
-      to: params.email,
-      subject: `Your Rivox login for ${params.workspace}`,
-      html: `<div style="font-family:Arial,sans-serif;background:#f8fafc;padding:32px"><div style="max-width:600px;margin:auto;background:white;border-radius:18px;padding:30px"><h1 style="color:#4f46e5">Welcome to Rivox</h1><p>Hello <b>${escapeHtml(params.name || params.email)}</b>,</p><p>You have been added to <b>${escapeHtml(params.workspace)}</b> as <b>${escapeHtml(params.role)}</b>.</p><div style="background:#f1f5f9;border-radius:12px;padding:18px"><p><b>Email</b><br>${escapeHtml(params.email)}</p><p><b>Temporary password</b><br><code style="font-size:16px">${escapeHtml(params.password)}</code></p></div><p>You will be asked to create a new password after your first login.</p><a href="${escapeHtml(params.loginUrl)}" style="display:inline-block;background:#4f46e5;color:white;text-decoration:none;padding:12px 20px;border-radius:10px;font-weight:bold">Login to Rivox</a></div></div>`,
-    }),
-  });
-  const result = await response.json().catch(() => ({}));
-  return response.ok ? { sent: true, id: result?.id } : { sent: false, error: result?.message || `Email failed (${response.status})` };
-}
-
-function temporaryPassword() {
-  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%";
-  const bytes = crypto.getRandomValues(new Uint8Array(16));
-  return Array.from(bytes, (value) => alphabet[value % alphabet.length]).join("");
-}
-
 async function recordInvitationEmail(admin: ReturnType<typeof createClient>, inviteId: string, email: string, result: { sent: boolean; id?: string; error?: string }) {
   const now = new Date().toISOString();
   await Promise.all([
@@ -145,10 +117,9 @@ Deno.serve(async (req) => {
     if (action === "invite") {
       const email = String(body.email || "").trim().toLowerCase();
       const name = String(body.name || "").trim() || null;
-      const password = String(body.password || "");
       const role = String(body.role || "");
-      if (!email || password.length < 8 || !["manager", "accountant", "staff"].includes(role)) {
-        return json({ error: "Valid email, role and a temporary password of at least 8 characters are required" }, 400);
+      if (!email || !["manager", "accountant", "staff"].includes(role)) {
+        return json({ error: "A valid email and role are required." }, 400);
       }
 
       // Expired pending rows must not block a fresh invitation. Remove only
@@ -247,18 +218,22 @@ Deno.serve(async (req) => {
       }
 
       const appOrigin = req.headers.get("origin") || Deno.env.get("SITE_URL") || "https://getrivox.vercel.app";
-      const loginUrl = `${appOrigin.replace(/\/$/, "")}/login?team=1&email=${encodeURIComponent(email)}`;
-      const { error: createError } = await admin.auth.admin.createUser({
-        email,
-        password,
-        email_confirm: true,
-        user_metadata: { workspace_invitation_id: invite.id, workspace_role: role, invited_name: name, force_password_change: true },
+      const redirectTo = `${appOrigin.replace(/\/$/, "")}/accept-invitation`;
+      const { data: invitedUser, error: createError } = await admin.auth.admin.inviteUserByEmail(email, {
+        redirectTo,
+        data: {
+          workspace_invitation_id: invite.id,
+          workspace_role: role,
+          invited_name: name,
+          workspace_name: profile?.business_name || "Rivox Workspace",
+          force_password_change: true,
+        },
       });
       if (createError) {
         await admin.from("workspace_invitations").delete().eq("id", invite.id);
         return json({ error: createError.message }, 400);
       }
-      const emailResult = await sendMemberCredentials({ email, name, password, role, workspace: profile?.business_name || "Rivox Workspace", loginUrl });
+      const emailResult = { sent: true, id: invitedUser.user?.id };
       await recordInvitationEmail(admin, invite.id, email, emailResult);
       await admin.from("workspace_audit_logs").insert({ workspace_id: workspaceId, actor_user_id: user.id, actor_email: user.email, action: "member.invited", entity_type: "workspace_invitation", entity_id: invite.id, metadata: { email, role } });
       return json({ success: true, invite, emailSent: emailResult.sent, emailError: emailResult.error || null });
@@ -274,17 +249,35 @@ Deno.serve(async (req) => {
       if (!invitedAuthUser || invitedAuthUser.user_metadata?.workspace_invitation_id !== inviteId) {
         return json({ error: "The invited login is missing. Revoke this invitation and send a new one." }, 409);
       }
-      const password = temporaryPassword();
+      const [{ count: memberships }, { count: ownedWorkspaces }] = await Promise.all([
+        admin.from("workspace_members").select("id", { count: "exact", head: true }).or(`user_id.eq.${invitedAuthUser.id},auth_user_id.eq.${invitedAuthUser.id}`),
+        admin.from("workspaces").select("id", { count: "exact", head: true }).eq("owner_user_id", invitedAuthUser.id),
+      ]);
+      if (memberships || ownedWorkspaces) return json({ error: "This user has already joined a workspace." }, 409);
+
+      // Deleting the unclaimed invited Auth user invalidates every previous
+      // invite link before Supabase sends a fresh one through custom SMTP.
+      await admin.from("profiles").delete().eq("user_id", invitedAuthUser.id);
+      const { error: deleteError } = await admin.auth.admin.deleteUser(invitedAuthUser.id);
+      if (deleteError) return json({ error: deleteError.message }, 400);
+
       const expiresAt = new Date(Date.now() + 7 * 86400000).toISOString();
-      const { error: updateUserError } = await admin.auth.admin.updateUserById(invitedAuthUser.id, {
-        password,
-        user_metadata: { ...invitedAuthUser.user_metadata, force_password_change: true, workspace_invitation_id: inviteId, workspace_role: invitation.role },
-      });
-      if (updateUserError) return json({ error: updateUserError.message }, 400);
       await admin.from("workspace_invitations").update({ expires_at: expiresAt, status: "pending", updated_at: new Date().toISOString() }).eq("id", inviteId);
       const appOrigin = req.headers.get("origin") || Deno.env.get("SITE_URL") || "https://getrivox.vercel.app";
-      const loginUrl = `${appOrigin.replace(/\/$/, "")}/login?team=1&email=${encodeURIComponent(invitation.email)}`;
-      const emailResult = await sendMemberCredentials({ email: invitation.email, name: invitation.name, password, role: invitation.role, workspace: profile?.business_name || "Rivox Workspace", loginUrl });
+      const redirectTo = `${appOrigin.replace(/\/$/, "")}/accept-invitation`;
+      const { data: resentUser, error: resendError } = await admin.auth.admin.inviteUserByEmail(invitation.email, {
+        redirectTo,
+        data: {
+          workspace_invitation_id: inviteId,
+          workspace_role: invitation.role,
+          invited_name: invitation.name,
+          workspace_name: profile?.business_name || "Rivox Workspace",
+          force_password_change: true,
+        },
+      });
+      const emailResult = resendError
+        ? { sent: false, error: resendError.message }
+        : { sent: true, id: resentUser.user?.id };
       await recordInvitationEmail(admin, inviteId, invitation.email, emailResult);
       await admin.from("workspace_audit_logs").insert({ workspace_id: workspaceId, actor_user_id: user.id, actor_email: user.email, action: "member.invitation_resent", entity_type: "workspace_invitation", entity_id: inviteId, metadata: { email: invitation.email, role: invitation.role } });
       if (!emailResult.sent) return json({ error: emailResult.error || "Invitation email could not be sent.", invitationRetained: true }, 502);
