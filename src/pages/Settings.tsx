@@ -2,6 +2,7 @@ import { useEffect, useState, useRef, type FormEvent } from "react";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../context/AuthContext";
 import { COUNTRIES, getCountrySetting } from "../lib/constants";
+import CountrySelect from "../components/CountrySelect";
 import PaymentGatewaySettings from "../components/PaymentGatewaySettings";
 import InvoicePaymentHistory from "../components/InvoicePaymentHistory";
 
@@ -270,7 +271,7 @@ export default function Settings() {
             <div className="space-y-7">
               <section><h3 className="text-sm font-semibold text-slate-900">Company information</h3><div className="mt-4 grid grid-cols-1 gap-5 sm:grid-cols-2">
                 <div className="sm:col-span-2"><label className="label">Business Name <span className="text-red-500">*</span></label><input required value={businessName} onChange={(e)=>setBusinessName(e.target.value)} className="input h-12" placeholder="Acme Enterprises" /></div>
-                <div><label className="label">Business Country</label><select value={businessCountry} onChange={(e)=>handleCountryChange(e.target.value)} className="input h-12">{COUNTRIES.map((c)=><option key={c.name} value={c.name}>{c.name}</option>)}</select></div>
+                <div><label className="label">Business Country</label><CountrySelect value={businessCountry} onChange={handleCountryChange} /></div>
                 <div><label className="label">{businessCountry === "Canada" ? "Province" : businessCountry === "UAE" ? "Emirate" : businessCountry === "United Kingdom" ? "Region" : "State / Region"}</label><select value={state} onChange={(e)=>setState(e.target.value)} className="input h-12" disabled={statesForCountry.length===0}><option value="">{statesForCountry.length===0 ? "Not applicable" : "Select"}</option>{statesForCountry.map((s:string)=><option key={s} value={s}>{s}</option>)}</select></div>
                 <div><label className="label">{config.taxLabel}</label><input value={gstin} onChange={(e)=>setGstin(e.target.value.toUpperCase())} className="input h-12" placeholder={config.taxPlaceholder} /></div>
                 <div><label className="label">Phone</label><div className="flex gap-2"><span className="input h-12 w-20 flex-none bg-slate-50 text-slate-500 flex items-center justify-center">{config.code}</span><input value={phone} onChange={(e)=>setPhone(e.target.value)} className="input h-12" placeholder="Phone number" /></div></div>

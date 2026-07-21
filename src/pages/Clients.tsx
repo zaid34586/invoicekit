@@ -3,6 +3,7 @@ import { supabase } from "../lib/supabase";
 import { useAuth } from "../context/AuthContext";
 import type { Client, Invoice } from "../lib/types";
 import { INDIAN_STATES, formatDate, COUNTRIES as ALL_COUNTRIES } from "../lib/constants";
+import CountrySelect from "../components/CountrySelect";
 import { formatMoney } from "../lib/currency";
 import StatusBadge from "../components/StatusBadge";
 
@@ -518,17 +519,7 @@ export default function Clients() {
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="label">Country</label>
-                  <select
-                    value={form.country}
-                    onChange={(e) => handleCountryChange(e.target.value)}
-                    className="input"
-                  >
-                    {COUNTRIES.map((country) => (
-                      <option key={country.name} value={country.name}>
-                        {country.name}
-                      </option>
-                    ))}
-                  </select>
+                  <CountrySelect value={form.country} onChange={handleCountryChange} />
                 </div>
 
                 <div>

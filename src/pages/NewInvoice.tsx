@@ -19,6 +19,7 @@ import {
   formatMoney,
 } from "../lib/currency";
 import { decideTax } from "../lib/tax";
+import CountrySelect from "../components/CountrySelect";
 
 function makeId() {
   return Math.random().toString(36).slice(2, 10);
@@ -585,17 +586,7 @@ export default function NewInvoice() {
               </div>
               <div>
                 <label className="label">Country</label>
-                <select
-                  value={clientCountry}
-                  onChange={(e) => handleCountryChange(e.target.value)}
-                  className="input"
-                >
-                  {COUNTRIES.map((c) => (
-                    <option key={c.name} value={c.name}>
-                      {c.name}
-                    </option>
-                  ))}
-                </select>
+                <CountrySelect value={clientCountry} onChange={handleCountryChange} />
               </div>
               <div>
                 <label className="label">Phone</label>

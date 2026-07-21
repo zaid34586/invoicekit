@@ -2,7 +2,8 @@ import { useState, useRef, useEffect, type FormEvent } from "react";
 import { supabase } from "../lib/supabase";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
-import { getGlobalCountryConfig, getGlobalCountries } from "../lib/globalConfig";
+import { getGlobalCountryConfig } from "../lib/globalConfig";
+import CountrySelect from "../components/CountrySelect";
 
 
 // Time zones list
@@ -18,13 +19,6 @@ const TIME_ZONES = [
   { value: "Asia/Tokyo", label: "Japan Standard Time (JST)" },
   { value: "Australia/Sydney", label: "Australian Eastern Time (AET)" },
 ];
-
-// Previously a hand-picked 10-country list (+ "Other") that was completely
-// disconnected from the Settings page's country list — meaning a user could
-// come here instead of Settings, pick "Other" (or any country not in this
-// list), and silently have their currency reset to USD. Now derived from
-// the same shared country config as everywhere else in the app.
-const COUNTRIES = getGlobalCountries();
 
 // Password strength calculator
 function getPasswordStrength(password: string): {
@@ -579,17 +573,7 @@ currency: config.currency,
             </div>
             <div>
               <label className="label">Country</label>
-              <select
-                value={country}
-                onChange={(e) => setCountry(e.target.value)}
-                className="input"
-              >
-                {COUNTRIES.map((c) => (
-                  <option key={c} value={c}>
-                    {c}
-                  </option>
-                ))}
-              </select>
+              <CountrySelect value={country} onChange={setCountry} />
             </div>
             <div>
               <label className="label">Time Zone</label>

@@ -1,3 +1,5 @@
+import { COUNTRY_CATALOG, getCatalogCountry } from "./countryCatalog";
+
 // ISO 3166-1 alpha-2 codes, used only to compute flag emoji below.
 const COUNTRY_ISO2: Record<string, string> = {
   Argentina: "AR", Australia: "AU", Austria: "AT", Bangladesh: "BD",
@@ -15,7 +17,7 @@ const COUNTRY_ISO2: Record<string, string> = {
 
 /** Emoji flag for a country name, e.g. getCountryFlag("India") -> "🇮🇳". */
 export function getCountryFlag(country: string | null | undefined): string {
-  const iso2 = country ? COUNTRY_ISO2[country] : undefined;
+  const iso2 = country ? (COUNTRY_ISO2[country] ?? getCatalogCountry(country)?.iso2) : undefined;
   if (!iso2) return "";
   const codePoints = [...iso2.toUpperCase()].map(
     (c) => 0x1f1e6 + (c.charCodeAt(0) - 65)
@@ -145,14 +147,15 @@ export const COUNTRY_SETTINGS: Record<string, CountrySetting> = {
  */
 export function getCountrySetting(country: string | null | undefined): CountrySetting {
   if (country && COUNTRY_SETTINGS[country]) return COUNTRY_SETTINGS[country];
+  const catalog = getCatalogCountry(country);
   return {
-    currency: "USD",
-    symbol: "$",
-    decimals: 2,
+    currency: catalog?.currency ?? "USD",
+    symbol: catalog?.symbol ?? "$",
+    decimals: catalog?.decimals ?? 2,
     taxLabel: "Tax ID",
     taxPlaceholder: "Enter your tax ID",
-    timezone: "UTC",
-    dateFormat: "DD/MM/YYYY",
+    timezone: catalog?.timezone ?? "UTC",
+    dateFormat: catalog?.dateFormat ?? "DD/MM/YYYY",
   };
 }
 
@@ -164,7 +167,7 @@ export interface CountryData {
   states: string[];
 }
 
-export const COUNTRIES: CountryData[] = [
+const FEATURED_COUNTRIES: CountryData[] = [
   {
     name: "Argentina",
     code: "+54",
@@ -317,6 +320,21 @@ export const COUNTRIES: CountryData[] = [
   },
   { name: "Vietnam", code: "+84", states: [] },
 ];
+
+const FEATURED_COUNTRY_STATES = Object.fromEntries(
+  FEATURED_COUNTRIES.map((country) => [country.name, country.states])
+) as Record<string, string[]>;
+
+/**
+ * Complete ISO-3166 country list used across onboarding, clients, invoices,
+ * account settings and business settings. Detailed state/province lists are
+ * preserved for the markets where Rivox already supports regional tax logic.
+ */
+export const COUNTRIES: CountryData[] = COUNTRY_CATALOG.map((country) => ({
+  name: country.name,
+  code: country.callingCode,
+  states: FEATURED_COUNTRY_STATES[country.name] ?? [],
+}));
 
 export const FREE_PLAN_LIMIT = 3;
 export const PRO_PLAN_PRICE = 399;

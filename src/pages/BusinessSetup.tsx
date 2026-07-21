@@ -2,7 +2,8 @@ import { useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { supabase } from "../lib/supabase";
-import { GLOBAL_COUNTRIES, getGlobalCountries, getGlobalCountryConfig } from "../lib/globalConfig";
+import { GLOBAL_COUNTRIES, getGlobalCountryConfig } from "../lib/globalConfig";
+import CountrySelect from "../components/CountrySelect";
 
 export default function BusinessSetup() {
   const { user, refreshProfile } = useAuth();
@@ -13,7 +14,6 @@ export default function BusinessSetup() {
   const [error, setError] = useState<string | null>(null);
 
   const config = country ? getGlobalCountryConfig(country) : null;
-  const countries = getGlobalCountries();
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -99,10 +99,7 @@ export default function BusinessSetup() {
 
             <div>
               <label className="label" htmlFor="country">Business country</label>
-              <select id="country" className="input h-12" value={country} onChange={(e) => setCountry(e.target.value)} required>
-                <option value="" disabled>Select your country</option>
-                {countries.map((name) => <option key={name} value={name}>{name}</option>)}
-              </select>
+              <CountrySelect id="country" value={country} onChange={setCountry} placeholder="Select your country" required />
             </div>
 
             {config && (
