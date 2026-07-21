@@ -65,7 +65,7 @@ export default function Login() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-violet-950 px-4 py-10 flex items-center justify-center">
+    <div className="auth-page">
       {emailConfirmed && (
         <div className="fixed top-6 left-1/2 -translate-x-1/2 z-50 w-full max-w-md px-4 animate-fade-in">
           <div className="flex items-center gap-3 rounded-2xl border border-emerald-300 bg-emerald-50 px-5 py-4 shadow-2xl shadow-emerald-900/20">
@@ -90,8 +90,8 @@ export default function Login() {
         </div>
       )}
 
-      <div className="w-full max-w-5xl grid lg:grid-cols-[1.05fr_.95fr] overflow-hidden rounded-3xl border border-white/10 bg-white shadow-2xl shadow-violet-950/30">
-        <section className="hidden lg:flex flex-col justify-between p-10 text-white bg-[radial-gradient(circle_at_top_left,_rgba(139,92,246,.42),_transparent_42%),linear-gradient(145deg,#0f172a,#111827)]">
+      <div className="auth-shell">
+        <section className="auth-aside">
           <div>
             <div className="inline-flex items-center gap-3">
               <img src="/rivox-logo.svg" alt="Rivox" className="h-10 w-10 rounded-xl" />
@@ -110,9 +110,9 @@ export default function Login() {
           </div>
         </section>
 
-        <section className="p-6 sm:p-10 lg:p-12 flex flex-col justify-center">
+        <section className="auth-content flex flex-col justify-center">
           <div className="mb-8">
-            <h2 className="text-3xl font-bold text-slate-950">Welcome back</h2>
+            <h2 className="auth-heading font-bold text-slate-950">Welcome back</h2>
             <p className="mt-2 text-sm text-slate-500">Sign in to your account to continue.</p>
           </div>
 

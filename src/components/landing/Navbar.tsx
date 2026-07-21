@@ -11,7 +11,7 @@ const navigation = [
 export default function Navbar() {
   return (
     <header className="sticky top-0 z-50 border-b border-slate-200/70 bg-white/90 backdrop-blur-xl">
-      <div className="mx-auto flex h-[72px] max-w-7xl items-center justify-between px-5 sm:px-6">
+      <div className="page-container flex h-16 items-center justify-between sm:h-[72px]">
         <Link to="/" aria-label="Rivox home" className="rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2">
           <RivoxLogo />
         </Link>
@@ -32,9 +32,9 @@ export default function Navbar() {
           <Link to="/login" className="hidden rounded-xl px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-100 sm:inline-flex">
             Sign in
           </Link>
-          <Link to="/signup" className="inline-flex items-center rounded-xl bg-slate-950 px-4 py-2.5 text-sm font-bold text-white shadow-lg shadow-slate-950/15 transition hover:-translate-y-0.5 hover:bg-primary-600">
+          <Link to="/signup" className="inline-flex min-h-10 items-center rounded-xl bg-slate-950 px-3.5 py-2 text-sm font-bold sm:px-4 sm:py-2.5 text-white shadow-lg shadow-slate-950/15 transition hover:-translate-y-0.5 hover:bg-primary-600">
             Start free
-            <span className="ml-2" aria-hidden="true">→</span>
+            <span className="ml-2 hidden sm:inline" aria-hidden="true">→</span>
           </Link>
         </div>
       </div>

@@ -32,8 +32,8 @@ export default function FAQ() {
   const [open, setOpen] = useState<number | null>(0);
 
   return (
-    <section id="faq" className="scroll-mt-24 py-24 bg-white">
-      <div className="max-w-4xl mx-auto px-6">
+    <section id="faq" className="scroll-mt-20 bg-white section-shell">
+      <div className="mx-auto w-full max-w-4xl px-4 sm:px-6">
 
         <div className="text-center mb-14">
           <h2 className="text-4xl font-bold text-slate-900">

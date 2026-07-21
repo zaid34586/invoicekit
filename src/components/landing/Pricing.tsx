@@ -80,7 +80,7 @@ function PricingCard({
 
       <div className="mt-7">
         <div className="flex items-end gap-2">
-          <span className="text-5xl font-black tracking-tight text-slate-950">{formatPlanPrice(plan, cycle)}</span>
+          <span className="section-title font-black text-slate-950">{formatPlanPrice(plan, cycle)}</span>
           {!isFree && <span className="pb-2 text-sm font-medium text-slate-500">/month</span>}
         </div>
         {cycle === "yearly" && !isFree && (
@@ -183,12 +183,12 @@ export default function Pricing() {
   }
 
   return (
-    <section id="pricing" className="scroll-mt-24 relative overflow-hidden bg-slate-50 py-24">
+    <section id="pricing" className="scroll-mt-20 relative overflow-hidden bg-slate-50 section-shell">
       <div className="absolute inset-x-0 top-0 h-48 bg-gradient-to-b from-primary-50 to-transparent" />
-      <div className="relative mx-auto max-w-7xl px-6">
+      <div className="page-container relative">
         <div className="mx-auto max-w-3xl text-center">
           <span className="inline-flex rounded-full bg-primary-100 px-4 py-1 text-xs font-bold uppercase tracking-wide text-primary-700">Pricing built for growth</span>
-          <h2 className="mt-5 text-4xl font-black tracking-tight text-slate-950 md:text-5xl">Choose a plan that matches your business stage.</h2>
+          <h2 className="section-title mt-4 font-black text-slate-950 sm:mt-5">Choose a plan that matches your business stage.</h2>
           <p className="mt-5 text-lg leading-8 text-slate-600">Start free, upgrade when you need payment links, higher invoice limits, team access, API, and advanced analytics.</p>
           <div className="mt-8"><BillingToggle cycle={cycle} setCycle={setCycle} /></div>
         </div>

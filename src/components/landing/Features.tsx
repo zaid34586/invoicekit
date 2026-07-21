@@ -29,9 +29,9 @@ export default function Features() {
   return (
     <section
       id="features"
-      className="scroll-mt-24 py-24 bg-white"
+      className="scroll-mt-20 bg-white section-shell"
     >
-      <div className="max-w-7xl mx-auto px-6">
+      <div className="page-container">
 
         <div className="text-center">
 
@@ -45,13 +45,13 @@ export default function Features() {
 
         </div>
 
-        <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8 mt-16">
+        <div className="mt-9 grid gap-4 sm:mt-12 sm:grid-cols-2 sm:gap-6 lg:mt-16 lg:grid-cols-3 lg:gap-8">
 
           {features.map((item) => (
 
             <div
               key={item.title}
-              className="rounded-2xl border border-slate-200 p-8 hover:shadow-xl transition"
+              className="rounded-2xl border border-slate-200 p-5 transition hover:shadow-xl sm:p-7 lg:p-8"
             >
               <div className="w-12 h-12 rounded-xl bg-primary-100 flex items-center justify-center text-2xl mb-6">
                 ⚡

@@ -4,22 +4,36 @@
 
 @layer base {
   :root { color-scheme: light; }
-  html { font-family: "Inter", system-ui, sans-serif; scroll-behavior: smooth; }
-  body { @apply bg-slate-50 text-slate-900 antialiased; }
+  html { font-family: "Inter", system-ui, sans-serif; scroll-behavior: smooth; overflow-x: hidden; }
+  body { @apply min-w-0 overflow-x-hidden bg-slate-50 text-slate-900 antialiased; }
+  #root { @apply min-h-screen min-w-0 overflow-x-hidden; }
+  img, svg, video, canvas { max-width: 100%; }
   ::selection { @apply bg-primary-200 text-slate-950; }
 }
 
 @layer components {
-  .btn { @apply inline-flex items-center justify-center gap-2 rounded-xl font-bold transition-all duration-200 disabled:cursor-not-allowed disabled:opacity-50; }
+  .btn { @apply inline-flex min-h-11 items-center justify-center gap-2 rounded-xl font-bold transition-all duration-200 disabled:cursor-not-allowed disabled:opacity-50; }
   .btn-primary { @apply btn bg-primary-600 px-4 py-2.5 text-white shadow-lg shadow-primary-600/15 hover:-translate-y-0.5 hover:bg-primary-700 active:translate-y-0; }
   .btn-secondary { @apply btn border border-slate-300 bg-white px-4 py-2.5 text-slate-700 shadow-sm hover:-translate-y-0.5 hover:border-primary-300 hover:text-primary-700 active:translate-y-0; }
   .btn-danger { @apply btn bg-red-600 px-4 py-2.5 text-white shadow-sm hover:bg-red-700 active:scale-[0.98]; }
   .btn-ghost { @apply btn px-3 py-2 text-slate-600 hover:bg-slate-100 hover:text-slate-950; }
-  .input { @apply w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-sm text-slate-900 shadow-sm placeholder:text-slate-400 focus:border-primary-500 focus:outline-none focus:ring-4 focus:ring-primary-500/10; }
+  .input { @apply w-full min-w-0 rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-base text-slate-900 shadow-sm placeholder:text-slate-400 focus:border-primary-500 focus:outline-none focus:ring-4 focus:ring-primary-500/10 sm:text-sm; }
   .label { @apply mb-1.5 block text-sm font-bold text-slate-700; }
   .card { @apply rounded-2xl border border-slate-200/80 bg-white shadow-sm; }
   .card-premium { @apply rounded-3xl border border-white/80 bg-white/90 shadow-premium backdrop-blur; }
   .badge { @apply inline-flex items-center rounded-full px-2.5 py-1 text-xs font-bold; }
+  .page-container { @apply mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8; }
+  .section-shell { @apply py-14 sm:py-20 lg:py-24; }
+  .display-title { font-size: clamp(2.35rem, 7.5vw, 5.4rem); line-height: .98; letter-spacing: -0.055em; }
+  .section-title { font-size: clamp(1.85rem, 5vw, 3rem); line-height: 1.08; letter-spacing: -0.035em; }
+  .auth-page { @apply flex min-h-screen items-center justify-center overflow-x-hidden bg-gradient-to-br from-slate-950 via-slate-900 to-violet-950 px-3 py-5 sm:px-6 sm:py-8 lg:py-10; }
+  .auth-shell { @apply grid w-full max-w-5xl min-w-0 overflow-hidden rounded-2xl border border-white/10 bg-white shadow-2xl shadow-violet-950/30 sm:rounded-3xl lg:grid-cols-[1.05fr_.95fr]; }
+  .auth-aside { @apply hidden flex-col justify-between bg-[radial-gradient(circle_at_top_left,_rgba(139,92,246,.42),_transparent_42%),linear-gradient(145deg,#0f172a,#111827)] p-8 text-white lg:flex xl:p-10; }
+  .auth-content { @apply min-w-0 p-5 sm:p-8 lg:p-10 xl:p-12; }
+  .auth-heading { font-size: clamp(1.75rem, 7vw, 2.25rem); line-height: 1.12; letter-spacing: -0.03em; }
+  .responsive-grid-3 { @apply grid grid-cols-1 gap-3 sm:grid-cols-3; }
+  .mobile-scroll { @apply max-w-full overflow-x-auto overscroll-x-contain; }
+
 }
 
 @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
