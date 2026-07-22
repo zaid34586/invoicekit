@@ -160,6 +160,42 @@ const COUNTRY_TAX_RULES: Record<string, CountryTaxRule> = {
   "Sri Lanka": { label: "VAT", defaultRate: 18, note: "Sri Lankan VAT at 18% applies." },
 };
 
+/** Returns true when Rivox has a maintained automatic default tax rule.
+ * India is handled separately by the GST decision logic.
+ */
+export function hasConfiguredCountryTax(country: string | null | undefined): boolean {
+  const normalized = normaliseCountry(country);
+  return normalized === "India" || Boolean(COUNTRY_TAX_RULES[normalized]);
+}
+
+/** Lightweight public summary used by settings and invoice UI. */
+export function getCountryTaxSummary(country: string | null | undefined): {
+  label: string;
+  defaultRate: number | null;
+  configured: boolean;
+  note: string;
+} {
+  const normalized = normaliseCountry(country);
+  if (normalized === "India") {
+    return {
+      label: "GST",
+      defaultRate: 18,
+      configured: true,
+      note: "GST is selected per invoice line. CGST/SGST or IGST is determined from business and client state.",
+    };
+  }
+  const rule = COUNTRY_TAX_RULES[normalized];
+  if (!rule) {
+    return {
+      label: "Tax",
+      defaultRate: null,
+      configured: false,
+      note: `No automatic default tax rate is configured for ${normalized}. Enter the applicable rate manually and verify it with a tax professional.`,
+    };
+  }
+  return { label: rule.label, defaultRate: rule.defaultRate, configured: true, note: rule.note };
+}
+
 // Approximate combined average state + local sales tax rate (%). Real-world
 // rates vary by city/county; these are reasonable state-level defaults a
 // user can still see and verify before sending the invoice.
@@ -372,15 +408,15 @@ export function decideTax(input: TaxDecisionInput): TaxDecision {
     };
   }
 
-  // ── Fallback ──────────────────────────────────────────────────────────────
+  // ── Fallback: same-country rule not maintained yet ───────────────────────
   return {
     taxType: "unknown",
-    taxLabel: "Tax",
+    taxLabel: "Tax (manual)",
     taxRate: 0,
     cgst: 0,
     sgst: 0,
     igst: 0,
-    taxNote: "Unable to determine tax type. Please verify with your tax advisor.",
+    taxNote: `No automatic default tax rate is configured for ${bCountry}. Enter the applicable rate manually and verify it with a tax professional.`,
     isZeroRated: false,
     isCgstSgst: false,
     isIgst: false,

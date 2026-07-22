@@ -1,5 +1,5 @@
 import { getExchangeRate } from "../lib/exchangeRate";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../context/AuthContext";
@@ -18,7 +18,7 @@ import {
   getCurrencySymbol,
   formatMoney,
 } from "../lib/currency";
-import { decideTax } from "../lib/tax";
+import { decideTax, hasConfiguredCountryTax } from "../lib/tax";
 import CountrySelect from "../components/CountrySelect";
 
 function makeId() {
@@ -232,6 +232,7 @@ export default function NewInvoice() {
       setClientAddress(invoice.client_address ?? "");
       setClientState(invoice.client_state ?? "");
       setClientGstin(invoice.client_gstin ?? "");
+      preserveLoadedTaxRef.current = true;
       setItems((invoice.items ?? []).map((item) => ({ ...item, id: makeId() })));
       setNotes(invoice.notes ?? "");
 
@@ -258,10 +259,19 @@ export default function NewInvoice() {
     loadClients();
   }, [user]);
 
-  // GST calc stays in base currency (INR) — this never changes
+  // Calculate using the actual business/client countries. The previous call
+  // omitted both countries, which made calculateInvoice fall back to India and
+  // could apply CGST/SGST logic to international businesses.
   const calc = useMemo(
-    () => calculateInvoice(items, businessState, clientState || null),
-    [items, businessState, clientState]
+    () =>
+      calculateInvoice(
+        items,
+        businessState,
+        clientState || null,
+        profile?.country ?? null,
+        clientCountry || null
+      ),
+    [items, businessState, clientState, profile?.country, clientCountry]
   );
 
   // Tax decision — determines label, note, and tax type for display.
@@ -278,20 +288,29 @@ export default function NewInvoice() {
     [businessState, clientCountry, clientState, items]
   );
 
-  // Priority 1: for every country except India, tax is fully automatic —
-  // the rate the tax engine decided IS the rate used in the calculation.
-  // No manual selection. India keeps its existing per-item GST-slab picker,
-  // since real Indian invoices commonly mix multiple HSN/GST rates on one
-  // invoice — that is correct behaviour, not something to automate away.
+  const automaticTaxConfigured = hasConfiguredCountryTax(profile?.country);
+  const lastTaxContextRef = useRef<string>("");
+  const preserveLoadedTaxRef = useRef(false);
+
+  // Suggest a default tax rate when the tax context changes. The field stays
+  // editable because real tax treatment can vary by product, registration,
+  // customer type and locality. Existing invoice rates are preserved on edit.
   useEffect(() => {
     if (profile?.country === "India") return;
 
-    setItems((prev) => {
-      const needsUpdate = prev.some((it) => it.gstRate !== taxDecision.taxRate);
-      if (!needsUpdate) return prev;
-      return prev.map((it) => ({ ...it, gstRate: taxDecision.taxRate }));
-    });
-  }, [taxDecision.taxRate, profile?.country]);
+    const contextKey = [profile?.country ?? "", clientCountry, clientState].join("|");
+    if (lastTaxContextRef.current === contextKey) return;
+    lastTaxContextRef.current = contextKey;
+
+    if (preserveLoadedTaxRef.current) {
+      preserveLoadedTaxRef.current = false;
+      return;
+    }
+
+    setItems((prev) =>
+      prev.map((it) => ({ ...it, gstRate: taxDecision.taxRate }))
+    );
+  }, [taxDecision.taxRate, profile?.country, clientCountry, clientState]);
 
   // Item rates are entered directly in the selected invoice currency.
   // Therefore calc.* is already expressed in invoiceCurrency and must never
@@ -321,7 +340,9 @@ export default function NewInvoice() {
   }
 
   function addItem() {
-    setItems((prev) => [...prev, emptyItem()]);
+    const item = emptyItem();
+    item.gstRate = profile?.country === "India" ? 18 : taxDecision.taxRate;
+    setItems((prev) => [...prev, item]);
   }
 
   function deleteItem(id: string) {
@@ -782,11 +803,29 @@ export default function NewInvoice() {
                         ))}
                       </select>
                     ) : (
-                      <div
-                        className="input flex items-center bg-slate-100 text-slate-600 cursor-not-allowed"
-                        title={`${taxDecision.taxLabel} — set automatically from ${clientCountry || "client country"}. Not editable.`}
-                      >
-                        {taxDecision.taxRate}%
+                      <div>
+                        <div className="relative">
+                          <input
+                            type="number"
+                            min={0}
+                            max={100}
+                            step="0.01"
+                            value={item.gstRate}
+                            onChange={(e) =>
+                              updateItem(item.id, {
+                                gstRate: Math.max(0, Math.min(100, Number(e.target.value) || 0)),
+                              })
+                            }
+                            className="input pr-8"
+                            aria-label={`${taxDecision.taxLabel} rate`}
+                          />
+                          <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-sm text-slate-400">%</span>
+                        </div>
+                        <p className={`mt-1 text-[11px] ${automaticTaxConfigured ? "text-slate-400" : "text-amber-600"}`}>
+                          {automaticTaxConfigured
+                            ? `Suggested ${taxDecision.taxRate}%. You can override it.`
+                            : "No default rate available — enter it manually."}
+                        </p>
                       </div>
                     )}
                   </div>

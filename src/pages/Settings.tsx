@@ -3,6 +3,7 @@ import { supabase } from "../lib/supabase";
 import { useAuth } from "../context/AuthContext";
 import { COUNTRIES, getCountrySetting } from "../lib/constants";
 import CountrySelect from "../components/CountrySelect";
+import { getCountryTaxSummary } from "../lib/tax";
 import PaymentGatewaySettings from "../components/PaymentGatewaySettings";
 import InvoicePaymentHistory from "../components/InvoicePaymentHistory";
 
@@ -63,6 +64,7 @@ export default function Settings() {
 
   // Auto-derived from businessCountry — never manually edited
   const config = getConfig(businessCountry);
+  const taxSummary = getCountryTaxSummary(businessCountry);
   const statesForCountry = COUNTRIES.find((c) => c.name === businessCountry)?.states ?? [];
 
   // Load existing profile
@@ -279,7 +281,7 @@ export default function Settings() {
                 <div className="sm:col-span-2"><label className="label">Address</label><textarea value={address} onChange={(e)=>setAddress(e.target.value)} className="input" rows={4} placeholder="Street, City, PIN / ZIP" /></div>
               </div></section>
 
-              <section className="rounded-2xl border border-slate-200 bg-slate-50 p-5"><div className="flex items-center justify-between"><div><h3 className="text-sm font-semibold text-slate-900">Regional configuration</h3><p className="mt-1 text-xs text-slate-500">Updated automatically from your country.</p></div><span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-violet-600 shadow-sm">Auto</span></div><div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">{[["Currency",`${config.currency} (${config.symbol})`],["Phone code",config.code],["Date format",config.dateFormat],["Timezone",config.timezone.split("/")[1]?.replace("_"," ") ?? config.timezone]].map(([label,value])=><div key={label} className="rounded-xl bg-white p-3"><p className="text-xs text-slate-400">{label}</p><p className="mt-1 truncate text-sm font-semibold text-slate-800" title={value}>{value}</p></div>)}</div></section>
+              <section className="rounded-2xl border border-slate-200 bg-slate-50 p-5"><div className="flex items-center justify-between"><div><h3 className="text-sm font-semibold text-slate-900">Regional configuration</h3><p className="mt-1 text-xs text-slate-500">Updated automatically from your country.</p></div><span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-violet-600 shadow-sm">Auto</span></div><div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-5">{[["Currency",`${config.currency} (${config.symbol})`],["Phone code",config.code],["Date format",config.dateFormat],["Timezone",config.timezone.split("/")[1]?.replace("_"," ") ?? config.timezone],["Default tax",taxSummary.defaultRate === null ? "Manual" : `${taxSummary.label} ${taxSummary.defaultRate}%`]].map(([label,value])=><div key={label} className="rounded-xl bg-white p-3"><p className="text-xs text-slate-400">{label}</p><p className="mt-1 truncate text-sm font-semibold text-slate-800" title={value}>{value}</p></div>)}</div><p className={`mt-3 text-xs ${taxSummary.configured ? "text-slate-500" : "text-amber-600"}`}>{taxSummary.note}</p></section>
             </div>
           </div>
           <div className="sticky bottom-0 flex justify-end gap-3 border-t border-slate-100 bg-white/95 px-6 py-4 backdrop-blur sm:px-8"><button type="submit" disabled={saving} className="btn-primary min-w-36 justify-center">{saving ? "Saving..." : profileComplete ? "Save changes" : "Complete setup"}</button></div>
