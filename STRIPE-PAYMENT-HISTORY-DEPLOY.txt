@@ -1,0 +1,26 @@
+Rivox Stripe BYOG + payment history + refund sync
+=================================================
+
+This package upgrades the already deployed PayPal invoice payment system.
+
+Deployment order:
+1. Copy package files into the Rivox project.
+2. Run: supabase db push
+3. Deploy payment-gateway.
+4. Deploy paypal-invoice-payments with JWT verification disabled.
+5. Deploy stripe-invoice-payments with JWT verification disabled.
+6. Run npm run build, commit and push.
+
+Do not remove PAYMENT_CREDENTIALS_ENCRYPTION_KEY. Existing PayPal credentials
+were encrypted using it and will stop working if the value is changed.
+
+Stripe restricted-key permissions:
+- Account: Read
+- Checkout Sessions: Write
+- Payment Intents: Read
+- Charges: Read
+- Refunds: Read
+- Webhook Endpoints: Write
+
+One workspace can have only one active provider. Keep PayPal Sandbox active
+until Stripe Test credentials are available for end-to-end testing.
