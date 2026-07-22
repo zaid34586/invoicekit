@@ -5,12 +5,20 @@ import { hasStaffPermission, STAFF_ROLE_LABELS, type StaffMember, type StaffRole
 import CommunicationCenter from "../components/CommunicationCenter";
 
 interface TaskRow { id: string; title: string; description?: string | null; status: string; priority: string; due_date: string | null; progress?: number | null; staff_notes?: string | null; internal_notes?: string | null; department?: string | null; last_staff_update?: string | null; }
-interface TicketRow { id: string; subject: string; message?: string | null; status: string; priority: string; created_at: string; staff_notes?: string | null; }
+interface TicketRow { id: string; ticket_number?: string | null; subject: string; message?: string | null; status: string; priority: string; created_at: string; staff_notes?: string | null; sla_target_minutes?: number | null; first_admin_reply_at?: string | null; assigned_to?: string | null; }
 interface FinanceRow { id: string; type: string; source: string; amount: number; currency: string; status: string; title: string; }
 interface NotificationRow { id: string; title: string; body: string | null; type: string; read_at: string | null; created_at: string; }
 
 const taskStatuses = ["pending", "in_progress", "blocked", "done"];
-const ticketStatuses = ["open", "pending", "resolved", "closed"];
+const ticketStatuses = ["open", "in_progress", "waiting_customer", "pending", "resolved", "closed"];
+
+function ticketSla(ticket: TicketRow) {
+  if (ticket.first_admin_reply_at) return "First response sent";
+  const due = new Date(ticket.created_at).getTime() + Number(ticket.sla_target_minutes || 1440) * 60000;
+  const minutes = Math.ceil((due - Date.now()) / 60000);
+  if (minutes <= 0) return `SLA breached ${Math.abs(minutes)}m`;
+  return minutes < 60 ? `${minutes}m remaining` : `${Math.ceil(minutes / 60)}h remaining`;
+}
 
 function StatCard({ label, value, note, icon }: { label: string; value: string | number; note?: string; icon: string }) {
   return (
@@ -118,7 +126,7 @@ export default function StaffDashboard() {
     if (hasStaffPermission(team.role, "tickets")) {
       const { data: ticketData } = await supabase
         .from("admin_support_tickets")
-        .select("id, subject, message, status, priority, created_at, staff_notes")
+        .select("id, ticket_number, subject, message, status, priority, created_at, staff_notes, sla_target_minutes, first_admin_reply_at, assigned_to")
         .or(`assigned_to.eq.${team.id},assigned_to.is.null`)
         .order("created_at", { ascending: false })
         .limit(40);
@@ -382,7 +390,7 @@ export default function StaffDashboard() {
 
   function TicketsPage() {
     return <Section title="Support Tickets" subtitle="Handle assigned customer issues." actions={<div className="flex flex-col sm:flex-row gap-2"><input value={ticketSearch} onChange={(e) => setTicketSearch(e.target.value)} placeholder="Search tickets..." className="rounded-2xl border border-slate-200 px-4 py-2 text-sm"/><select value={ticketFilter} onChange={(e) => setTicketFilter(e.target.value)} className="rounded-2xl border border-slate-200 px-4 py-2 text-sm"><option value="open">Open</option><option value="urgent">Urgent</option><option value="pending">Pending</option><option value="resolved">Resolved</option><option value="closed">Closed</option><option value="all">All</option></select></div>}>
-      <div className="divide-y divide-slate-100">{filteredTickets.length === 0 ? <div className="p-10 text-center text-slate-500">No support tickets found.</div> : filteredTickets.map(ticket => <div key={ticket.id} className="p-5 space-y-4"><div className="flex flex-col xl:flex-row xl:items-start xl:justify-between gap-4"><div><div className="flex flex-wrap gap-2 mb-2"><Badge tone={ticket.priority === "urgent" || ticket.priority === "high" ? "red" : ticket.priority === "medium" ? "amber" : "slate"}>{ticket.priority}</Badge><Badge tone={ticket.status === "resolved" || ticket.status === "closed" ? "green" : "blue"}>{ticket.status}</Badge></div><div className="font-black text-slate-950">{ticket.subject}</div>{ticket.message && <div className="text-sm text-slate-500 mt-1">{ticket.message}</div>}<div className="text-xs text-slate-400 mt-2">Created {new Date(ticket.created_at).toLocaleString()}</div></div><div className="flex gap-2 flex-wrap"><select value={ticket.status} onChange={(e) => updateTicket(ticket.id, { status: e.target.value })} disabled={savingId === ticket.id} className="rounded-2xl border border-slate-200 px-3 py-2 text-sm">{ticketStatuses.map(status => <option key={status} value={status}>{status}</option>)}</select>{ticket.status !== "resolved" && ticket.status !== "closed" && <button onClick={() => updateTicket(ticket.id, { status: "resolved" })} disabled={savingId === ticket.id} className="rounded-2xl bg-emerald-600 text-white px-4 py-2 text-sm font-bold">Resolve</button>}</div></div><textarea defaultValue={ticket.staff_notes ?? ""} placeholder="Support note / resolution summary..." className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm min-h-[90px]" onBlur={(e) => { if (e.target.value !== (ticket.staff_notes ?? "")) updateTicket(ticket.id, { staff_notes: e.target.value }); }} /></div>)}</div>
+      <div className="divide-y divide-slate-100">{filteredTickets.length === 0 ? <div className="p-10 text-center text-slate-500">No support tickets found.</div> : filteredTickets.map(ticket => <div key={ticket.id} className="p-5 space-y-4"><div className="flex flex-col xl:flex-row xl:items-start xl:justify-between gap-4"><div><div className="flex flex-wrap gap-2 mb-2"><Badge tone={ticket.priority === "urgent" || ticket.priority === "high" ? "red" : ticket.priority === "medium" ? "amber" : "slate"}>{ticket.priority}</Badge><Badge tone={ticket.status === "resolved" || ticket.status === "closed" ? "green" : "blue"}>{ticket.status.replaceAll("_", " ")}</Badge><Badge tone={ticket.first_admin_reply_at ? "green" : ticketSla(ticket).includes("breached") ? "red" : "amber"}>{ticketSla(ticket)}</Badge></div><div className="text-xs font-bold text-indigo-600">{ticket.ticket_number || ticket.id.slice(0,8)}</div><div className="font-black text-slate-950">{ticket.subject}</div>{ticket.message && <div className="text-sm text-slate-500 mt-1">{ticket.message}</div>}<div className="text-xs text-slate-400 mt-2">Created {new Date(ticket.created_at).toLocaleString()}</div></div><div className="flex gap-2 flex-wrap"><select value={ticket.status} onChange={(e) => updateTicket(ticket.id, { status: e.target.value })} disabled={savingId === ticket.id} className="rounded-2xl border border-slate-200 px-3 py-2 text-sm">{ticketStatuses.map(status => <option key={status} value={status}>{status.replaceAll("_", " ")}</option>)}</select>{ticket.status !== "resolved" && ticket.status !== "closed" && <button onClick={() => updateTicket(ticket.id, { status: "in_progress" })} disabled={savingId === ticket.id} className="rounded-2xl bg-indigo-600 text-white px-4 py-2 text-sm font-bold">Start work</button>}</div></div><textarea defaultValue={ticket.staff_notes ?? ""} placeholder="Support note / resolution summary..." className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm min-h-[90px]" onBlur={(e) => { if (e.target.value !== (ticket.staff_notes ?? "")) updateTicket(ticket.id, { staff_notes: e.target.value }); }} /></div>)}</div>
     </Section>;
   }
 

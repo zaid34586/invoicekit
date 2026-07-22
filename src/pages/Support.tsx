@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "../context/AuthContext";
 import { supabase } from "../lib/supabase";
 
-type TicketStatus = "open" | "pending" | "resolved" | "closed";
+type TicketStatus = "open" | "in_progress" | "waiting_customer" | "pending" | "resolved" | "closed";
 type TicketPriority = "low" | "medium" | "high" | "urgent";
 
 type SupportTicket = {
@@ -20,6 +20,8 @@ type SupportTicket = {
   last_reply_at?: string | null;
   plan_at_creation?: string | null;
   sla_target_minutes?: number | null;
+  first_admin_reply_at?: string | null;
+  resolution_summary?: string | null;
 };
 
 type TicketAttachment = {
@@ -45,10 +47,21 @@ type TicketMessage = {
 
 const statusStyles: Record<TicketStatus, string> = {
   open: "bg-blue-50 text-blue-700 border-blue-200",
+  in_progress: "bg-violet-50 text-violet-700 border-violet-200",
+  waiting_customer: "bg-cyan-50 text-cyan-700 border-cyan-200",
   pending: "bg-amber-50 text-amber-700 border-amber-200",
   resolved: "bg-emerald-50 text-emerald-700 border-emerald-200",
   closed: "bg-slate-100 text-slate-600 border-slate-200",
 };
+
+function supportSla(ticket: SupportTicket) {
+  if (ticket.first_admin_reply_at) return "First response sent";
+  const due = new Date(ticket.created_at).getTime() + Number(ticket.sla_target_minutes || 1440) * 60000;
+  const minutes = Math.ceil((due - Date.now()) / 60000);
+  if (minutes <= 0) return "Response SLA escalated";
+  if (minutes < 60) return `Target response in ${minutes} minutes`;
+  return `Target response in ${Math.ceil(minutes / 60)} hours`;
+}
 
 function formatDate(value: string) {
   return new Intl.DateTimeFormat("en", {
@@ -303,7 +316,7 @@ export default function Support() {
 
       <section className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div className="card p-5"><p className="text-sm text-slate-500">Open tickets</p><p className="mt-2 text-3xl font-bold text-slate-900">{tickets.filter((t) => t.status === "open").length}</p></div>
-        <div className="card p-5"><p className="text-sm text-slate-500">Waiting / pending</p><p className="mt-2 text-3xl font-bold text-slate-900">{tickets.filter((t) => t.status === "pending").length}</p></div>
+        <div className="card p-5"><p className="text-sm text-slate-500">In progress / waiting</p><p className="mt-2 text-3xl font-bold text-slate-900">{tickets.filter((t) => ["in_progress","waiting_customer","pending"].includes(t.status)).length}</p></div>
         <div className="card p-5"><p className="text-sm text-slate-500">Resolved</p><p className="mt-2 text-3xl font-bold text-slate-900">{tickets.filter((t) => t.status === "resolved" || t.status === "closed").length}</p></div>
       </section>
 
@@ -313,7 +326,7 @@ export default function Support() {
             <input className="input" placeholder="Search tickets..." value={search} onChange={(e) => setSearch(e.target.value)} />
             <div className="grid grid-cols-2 gap-2">
               <select className="input" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as typeof statusFilter)}>
-                <option value="all">All statuses</option><option value="open">Open</option><option value="pending">Pending</option><option value="resolved">Resolved</option><option value="closed">Closed</option>
+                <option value="all">All statuses</option><option value="open">Open</option><option value="in_progress">In progress</option><option value="waiting_customer">Waiting for you</option><option value="pending">Pending</option><option value="resolved">Resolved</option><option value="closed">Closed</option>
               </select>
               <button onClick={() => setShowCreate(true)} className="btn-primary">New ticket</button>
             </div>
@@ -338,7 +351,7 @@ export default function Support() {
               <div className="border-b border-slate-200 p-5 sm:p-6">
                 <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
                   <div><p className="text-xs font-semibold uppercase tracking-wider text-primary-600">{selectedTicket.ticket_number || `Ticket #${selectedTicket.id.slice(0, 8).toUpperCase()}`}</p><h2 className="mt-2 text-xl font-bold text-slate-900">{selectedTicket.subject}</h2><p className="mt-2 text-sm text-slate-500">Category: <span className="capitalize">{selectedTicket.category || "general"}</span> · Created {formatDate(selectedTicket.created_at)}</p></div>
-                  <div className="flex gap-2"><span className={`rounded-full border px-3 py-1 text-xs font-semibold capitalize ${statusStyles[selectedTicket.status]}`}>{selectedTicket.status}</span></div>
+                  <div className="flex flex-wrap gap-2"><span className={`rounded-full border px-3 py-1 text-xs font-semibold capitalize ${statusStyles[selectedTicket.status]}`}>{selectedTicket.status.replaceAll("_", " ")}</span><span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold text-slate-600">{supportSla(selectedTicket)}</span></div>
                 </div>
               </div>
 
@@ -354,6 +367,7 @@ export default function Support() {
               <form onSubmit={sendReply} className="border-t border-slate-200 p-4 sm:p-5">
                 {selectedTicket.status === "closed" ? <p className="rounded-xl bg-slate-100 p-3 text-center text-sm text-slate-600">This ticket is closed. Create a new ticket if you need more help.</p> : <div className="flex flex-col sm:flex-row gap-3"><textarea className="input min-h-24 flex-1" placeholder="Write a reply..." value={reply} onChange={(e) => setReply(e.target.value)} /><button disabled={saving || !reply.trim()} className="btn-primary self-end disabled:opacity-50">{saving ? "Sending..." : "Send reply"}</button></div>}
               </form>
+              {selectedTicket.resolution_summary && <div className="border-t border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800"><b>Resolution:</b> {selectedTicket.resolution_summary}</div>}
             </>
           )}
         </div>

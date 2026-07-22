@@ -11,6 +11,7 @@ import CommunicationCenter from "../components/CommunicationCenter";
 import AdminPaddleSettings from "../components/AdminPaddleSettings";
 import AdminGrowthCenter from "../components/AdminGrowthCenter";
 import AdminSubscriptionAutomation from "../components/AdminSubscriptionAutomation";
+import AdminSupportCenter from "../components/AdminSupportCenter";
 
 type AdminSection =
   | "dashboard"
@@ -2174,7 +2175,8 @@ export default function Admin() {
             </div>
           </section>
         )}
-        {active === "support" && (
+        {active === "support" && <AdminSupportCenter profiles={profiles} team={team} />}
+        {false && active === "support" && (
           <section className="space-y-6">
             <SectionHeader title="Support Center" subtitle="Tickets create, assign, resolve aur track karo" />
             <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
