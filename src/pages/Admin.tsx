@@ -15,6 +15,7 @@ import AdminSupportCenter from "../components/AdminSupportCenter";
 import AdminBillingRecovery from "../components/AdminBillingRecovery";
 import AdminSystemMonitor from "../components/AdminSystemMonitor";
 import AdminSecurityCenter from "../components/AdminSecurityCenter";
+import AdminProductionQA from "../components/AdminProductionQA";
 
 type AdminSection =
   | "dashboard"
@@ -2354,6 +2355,7 @@ export default function Admin() {
         )}
         {active === "qa" && (
           <section className="space-y-6">
+            <AdminProductionQA />
             <SectionHeader title="Production QA Center" subtitle="Final checklist for auth, admin backend, RLS and production readiness" />
             <div className="grid md:grid-cols-4 gap-4">
               <Metric title="QA Score" value={`${qaChecks.score}%`} icon="✅" />
