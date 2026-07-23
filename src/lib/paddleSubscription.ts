@@ -68,6 +68,13 @@ export async function syncPaddleTransaction(transactionId: string, environment: 
   return response;
 }
 
+export async function reportPaddleActivationDelay(transactionId: string, environment: "sandbox" | "production") {
+  return invoke<PaddleTransactionSyncResult>("report_activation_delay", {
+    transaction_id: transactionId,
+    environment,
+  });
+}
+
 export async function loadPaddleSubscriptionStatus() {
   const response = await invoke<{ status: SubscriptionStatusResponse }>("status", { environment: paddleEnvironment });
   return response.status;

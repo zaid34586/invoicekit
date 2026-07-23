@@ -12,6 +12,7 @@ import AdminPaddleSettings from "../components/AdminPaddleSettings";
 import AdminGrowthCenter from "../components/AdminGrowthCenter";
 import AdminSubscriptionAutomation from "../components/AdminSubscriptionAutomation";
 import AdminSupportCenter from "../components/AdminSupportCenter";
+import AdminBillingRecovery from "../components/AdminBillingRecovery";
 
 type AdminSection =
   | "dashboard"
@@ -21,6 +22,7 @@ type AdminSection =
   | "growth"
   | "paddle"
   | "subscriptionAutomation"
+  | "billingRecovery"
   | "team"
   | "tasks"
   | "communication"
@@ -161,6 +163,7 @@ const sections: { id: AdminSection; label: string; icon: string; group: string }
   { id: "growth", label: "Growth Center", icon: "🚀", group: "Money" },
   { id: "paddle", label: "Paddle & API Key", icon: "🔐", group: "Money" },
   { id: "subscriptionAutomation", label: "Subscription Automation", icon: "🔁", group: "Money" },
+  { id: "billingRecovery", label: "Activation Recovery", icon: "⚡", group: "Money" },
   { id: "team", label: "Team Members", icon: "👨‍💼", group: "Operations" },
   { id: "tasks", label: "Tasks", icon: "📋", group: "Operations" },
   { id: "communication", label: "Communication", icon: "💬", group: "Operations" },
@@ -1445,6 +1448,7 @@ export default function Admin() {
         {active === "growth" && <AdminGrowthCenter />}
         {active === "paddle" && <AdminPaddleSettings />}
         {active === "subscriptionAutomation" && <AdminSubscriptionAutomation />}
+        {active === "billingRecovery" && <AdminBillingRecovery profiles={profiles} team={team} />}
 
         {active === "communication" && (
           <CommunicationCenter actorName={user?.email || "Owner Admin"} actorRole="Owner Admin" canManageChannels />

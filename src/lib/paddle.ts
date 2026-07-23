@@ -97,6 +97,7 @@ export async function openPaddleCheckout({
       plan,
       billing_cycle: cycle,
       source: "rivox_web",
+      environment: paddleEnvironment,
       offer_id: offerId ?? null,
       offer_code: discountCode?.trim() || null,
       paddle_discount_id: discountId?.trim() || null,

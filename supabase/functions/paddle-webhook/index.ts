@@ -134,13 +134,16 @@ Deno.serve(async (req) => {
   try {
     const rawBody = await req.text();
     const signature = req.headers.get("Paddle-Signature") || "";
-    const secret = Deno.env.get("PADDLE_WEBHOOK_SECRET") || "";
-    const signatureValid = Boolean(secret) && (await verifySignature(rawBody, signature, secret));
+    const productionSecret = Deno.env.get("PADDLE_WEBHOOK_SECRET") || "";
+    const sandboxSecret = Deno.env.get("PADDLE_SANDBOX_WEBHOOK_SECRET") || "";
+    const productionValid = Boolean(productionSecret) && (await verifySignature(rawBody, signature, productionSecret));
+    const sandboxValid = !productionValid && Boolean(sandboxSecret) && (await verifySignature(rawBody, signature, sandboxSecret));
+    const signatureValid = productionValid || sandboxValid;
 
     if (!signatureValid) {
       // (b) Signature verification failed.
       logError("signature verification failed", {
-        hasSecretConfigured: Boolean(secret),
+        hasSecretConfigured: Boolean(productionSecret || sandboxSecret),
         hasSignatureHeader: Boolean(signature),
       });
       return new Response("Invalid signature", { status: 401 });
@@ -153,6 +156,7 @@ Deno.serve(async (req) => {
     const plan = custom.plan || "free";
     const billingCycle = custom.billing_cycle || null;
     const eventType = String(event.event_type);
+    const environment = sandboxValid || custom.environment === "sandbox" ? "sandbox" : "production";
 
     log("event parsed", { eventType, userId: userId || null, plan, eventId: event.event_id || null });
 
@@ -170,8 +174,10 @@ Deno.serve(async (req) => {
         status, currency: data.currency_code || null, renews_at: data.next_billed_at || null,
         ends_at: data.scheduled_change?.effective_at || data.canceled_at || null,
         cancelled: status === "canceled" || Boolean(data.scheduled_change?.action === "cancel"),
+        provider_environment: environment,
+        billing_provider: "paddle",
         raw_payload: event, updated_at: new Date().toISOString(),
-      }, { onConflict: "user_id" });
+      }, { onConflict: "user_id,provider_environment" });
       // (c) DB update failed.
       if (subscriptionError) {
         logError("db update failed: subscriptions upsert", { eventType, userId, message: subscriptionError.message });
@@ -192,6 +198,7 @@ Deno.serve(async (req) => {
       const status = data.status || (eventType === "transaction.payment_failed" ? "failed" : "completed");
       const { error: billingError } = await admin.from("billing_events").upsert({
         provider_event_id: event.event_id, user_id: userId, provider: "paddle",
+        provider_environment: environment,
         event_name: eventType, order_id: data.id, subscription_id: data.subscription_id || null,
         plan, billing_cycle: billingCycle, amount: Number(data.details?.totals?.grand_total || 0) / 100,
         currency: data.currency_code || null, status, raw_payload: event,
@@ -204,12 +211,46 @@ Deno.serve(async (req) => {
       }
 
       if (eventType === "transaction.completed") {
-        await syncProfilePlan(
-          admin,
-          userId,
-          { plan, isActive: true, subscriptionStatus: subscriptionStatus || "active", planExpiresAt: data.billing_period?.ends_at || null },
-          { eventType },
-        );
+        const validPlan = plan === "pro" || plan === "business";
+        if (validPlan && data.subscription_id && data.customer_id) {
+          const activationPayload = {
+            user_id: userId,
+            environment,
+            transaction_id: data.id,
+            subscription_id: data.subscription_id,
+            customer_id: data.customer_id,
+            plan,
+            billing_cycle: billingCycle,
+            status: "active",
+            currency: data.currency_code || null,
+            amount: Number(data.details?.totals?.grand_total || 0) / 100,
+            customer_email: custom.customer_email || null,
+            renews_at: data.billing_period?.ends_at || null,
+            product_id: data.items?.[0]?.price?.product_id || null,
+            price_id: data.items?.[0]?.price?.id || null,
+            raw_payload: data,
+          };
+          const { error: activationError } = await admin.rpc("activate_paddle_transaction_v4", { p_payload: activationPayload });
+          if (activationError) {
+            logError("atomic transaction activation failed", { userId, transactionId: data.id, message: activationError.message });
+          } else {
+            await admin.from("billing_activation_incidents").update({
+              status: "activated",
+              paddle_status: "completed",
+              activated_at: new Date().toISOString(),
+              resolved_at: new Date().toISOString(),
+              error_message: null,
+              updated_at: new Date().toISOString(),
+            }).eq("transaction_id", data.id).eq("provider_environment", environment);
+          }
+        } else {
+          await syncProfilePlan(
+            admin,
+            userId,
+            { plan, isActive: validPlan, subscriptionStatus: subscriptionStatus || "active", planExpiresAt: data.billing_period?.ends_at || null },
+            { eventType },
+          );
+        }
       }
     }
 

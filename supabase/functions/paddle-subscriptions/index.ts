@@ -77,6 +77,81 @@ function planFromTransaction(transaction: any): "pro" | "business" {
   throw new Error("The Paddle transaction does not contain a recognized Rivox plan.");
 }
 
+async function saveActivationIncident(
+  admin: ReturnType<typeof createClient>,
+  input: {
+    userId: string;
+    transactionId: string;
+    environment: Environment;
+    plan?: "pro" | "business" | null;
+    status: "detecting" | "verifying" | "activated" | "manual_review" | "resolved";
+    severity?: "warning" | "critical";
+    paddleStatus?: string | null;
+    error?: string | null;
+    notify?: boolean;
+  },
+) {
+  const now = new Date().toISOString();
+  const { data: existing } = await admin
+    .from("billing_activation_incidents")
+    .select("id,attempts,assigned_to,notified_at")
+    .eq("transaction_id", input.transactionId)
+    .eq("provider_environment", input.environment)
+    .maybeSingle();
+
+  const values = {
+    user_id: input.userId,
+    transaction_id: input.transactionId,
+    provider_environment: input.environment,
+    expected_plan: input.plan || null,
+    status: input.status,
+    severity: input.severity || "warning",
+    paddle_status: input.paddleStatus || null,
+    attempts: Number(existing?.attempts || 0) + 1,
+    error_message: input.error || null,
+    last_checked_at: now,
+    activated_at: input.status === "activated" ? now : null,
+    resolved_at: input.status === "activated" || input.status === "resolved" ? now : null,
+    updated_at: now,
+  };
+  const { data: incident, error } = await admin
+    .from("billing_activation_incidents")
+    .upsert(values, { onConflict: "transaction_id,provider_environment" })
+    .select("id,assigned_to,notified_at")
+    .single();
+  if (error) {
+    console.error("[billing-recovery] incident write failed", { message: error.message });
+    return null;
+  }
+
+  if (input.notify && !existing?.notified_at && input.status !== "activated") {
+    const title = input.status === "manual_review"
+      ? "Payment activation needs review"
+      : "Payment activation delayed";
+    const body = `${input.transactionId} · ${input.environment} · Paddle ${input.paddleStatus || "pending"}`;
+    const notifications = [{
+      audience: "admin",
+      type: "billing_activation_delayed",
+      title,
+      body,
+      metadata: { incident_id: incident.id, user_id: input.userId, transaction_id: input.transactionId, severity: input.severity || "warning" },
+    }];
+    if (incident.assigned_to) {
+      notifications.push({
+        audience: "staff",
+        type: "billing_activation_delayed",
+        title,
+        body,
+        metadata: { incident_id: incident.id, user_id: input.userId, transaction_id: input.transactionId, severity: input.severity || "warning" },
+        recipient_team_member_id: incident.assigned_to,
+      } as any);
+    }
+    await admin.from("notifications").insert(notifications);
+    await admin.from("billing_activation_incidents").update({ notified_at: now }).eq("id", incident.id);
+  }
+  return incident;
+}
+
 Deno.serve(async (request) => {
   if (request.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
@@ -101,7 +176,8 @@ Deno.serve(async (request) => {
     const body = await request.json().catch(() => ({}));
     const action = String(body.action || "status");
 
-    if (action === "sync_transaction") {
+    if (action === "sync_transaction" || action === "report_activation_delay") {
+      const shouldNotify = action === "report_activation_delay";
       const transactionId = String(body.transaction_id || "").trim();
       if (!/^txn_[a-zA-Z0-9]+$/.test(transactionId)) {
         return json({ ok: false, error: "A valid Paddle transaction ID is required." }, 400);
@@ -110,9 +186,6 @@ Deno.serve(async (request) => {
       const response = await paddle(environment, `/transactions/${encodeURIComponent(transactionId)}`);
       const transaction = response?.data;
       if (!transaction) throw new Error("Paddle returned no transaction data.");
-      if (transaction.status !== "completed") {
-        return json({ ok: false, error: `Payment is not completed yet (status: ${transaction.status || "unknown"}).` }, 409);
-      }
 
       const customUserId = String(transaction?.custom_data?.user_id || "").trim();
       const customEmail = String(transaction?.custom_data?.customer_email || "").trim().toLowerCase();
@@ -122,12 +195,48 @@ Deno.serve(async (request) => {
       if (!customUserId && customEmail && customEmail !== String(user.email || "").toLowerCase()) {
         return json({ ok: false, error: "This payment email does not match the signed-in Rivox account." }, 403);
       }
+      if (!customUserId && !customEmail) {
+        return json({ ok: false, error: "This payment has no Rivox account identity and cannot be activated automatically." }, 403);
+      }
 
-      const plan = planFromTransaction(transaction);
+      let plan: "pro" | "business" | null = null;
+      try {
+        plan = planFromTransaction(transaction);
+      } catch {
+        plan = null;
+      }
+      if (transaction.status !== "completed") {
+        await saveActivationIncident(admin, {
+          userId: user.id, transactionId, environment, plan,
+          status: shouldNotify ? "manual_review" : "verifying",
+          severity: shouldNotify ? "critical" : "warning",
+          paddleStatus: transaction.status || "unknown",
+          error: `Paddle transaction is ${transaction.status || "unknown"}.`,
+          notify: shouldNotify,
+        });
+        return json({ ok: false, error: `Payment is not completed yet (status: ${transaction.status || "unknown"}).` }, 409);
+      }
+
+      if (!plan) {
+        await saveActivationIncident(admin, {
+          userId: user.id, transactionId, environment,
+          status: "manual_review", severity: "critical", paddleStatus: "completed",
+          error: "Paddle transaction has no recognized Rivox plan.", notify: shouldNotify,
+        });
+        return json({ ok: false, error: "The verified Paddle payment has no recognized Rivox plan." }, 409);
+      }
       const billingCycle = cycleFromTransaction(transaction);
       const subscriptionId = transaction.subscription_id || null;
       const customerId = transaction.customer_id || null;
       if (!subscriptionId || !customerId) {
+        await saveActivationIncident(admin, {
+          userId: user.id, transactionId, environment, plan,
+          status: shouldNotify ? "manual_review" : "verifying",
+          severity: shouldNotify ? "critical" : "warning",
+          paddleStatus: "completed",
+          error: "Payment completed but Paddle subscription identifiers are not ready.",
+          notify: shouldNotify,
+        });
         return json({ ok: false, error: "Paddle payment is completed but subscription identifiers are not ready yet. Try Check again in a few seconds." }, 409);
       }
 
@@ -162,7 +271,19 @@ Deno.serve(async (request) => {
         "activate_paddle_transaction_v4",
         { p_payload: activationPayload },
       );
-      if (activationError) throw new Error(`Database activation failed: ${activationError.message}`);
+      if (activationError) {
+        await saveActivationIncident(admin, {
+          userId: user.id, transactionId, environment, plan,
+          status: "manual_review", severity: "critical", paddleStatus: "completed",
+          error: `Database activation failed: ${activationError.message}`, notify: shouldNotify,
+        });
+        throw new Error(`Database activation failed: ${activationError.message}`);
+      }
+
+      await saveActivationIncident(admin, {
+        userId: user.id, transactionId, environment, plan,
+        status: "activated", severity: "warning", paddleStatus: "completed",
+      });
 
       const { data: subscription, error: subscriptionError } = await admin
         .from("subscriptions")
@@ -182,7 +303,7 @@ Deno.serve(async (request) => {
         .limit(25);
       if (eventsError) throw new Error(eventsError.message);
 
-      return json({ ok: true, subscription, billingEvents: billingEvents || [], plan, activation });
+      return json({ ok: true, subscription, billingEvents: billingEvents || [], plan, activation, recovered: shouldNotify });
     }
 
     const environment = normalizeEnvironment(body.environment);

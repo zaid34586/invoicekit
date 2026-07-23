@@ -20,6 +20,7 @@ import {
   cancelPaddleSubscription,
   createPaddlePortalSession,
   loadPaddleSubscriptionStatus,
+  reportPaddleActivationDelay,
   syncPaddleTransaction,
   undoScheduledPaddleCancellation,
   type BillingEventRecord,
@@ -314,13 +315,16 @@ export default function Billing() {
     let cancelled = false;
     let timer: number | undefined;
     let attempts = 0;
+    let escalationReported = false;
     setActivationStatus("waiting");
     setSubscriptionMessage(null);
 
-    const finishActivation = async () => {
+    const finishActivation = async (escalate = false) => {
       if (transactionId) {
         try {
-          const synced = await syncPaddleTransaction(transactionId, paddleEnvironment);
+          const synced = escalate
+            ? await reportPaddleActivationDelay(transactionId, paddleEnvironment)
+            : await syncPaddleTransaction(transactionId, paddleEnvironment);
           if (cancelled) return true;
           setSubscription(synced.subscription);
           setBillingEvents(synced.billingEvents);
@@ -366,7 +370,15 @@ export default function Billing() {
 
     const poll = async () => {
       attempts += 1;
-      const done = await finishActivation();
+      if (attempts === 6) {
+        setSubscriptionMessage("Payment received. Rivox is running a secure Paddle recovery check.");
+      }
+      const shouldEscalate = attempts >= 11 && !escalationReported;
+      if (shouldEscalate) {
+        escalationReported = true;
+        setSubscriptionMessage("Activation is taking longer than expected. Secure recovery is running and the Rivox team will be notified if review is needed.");
+      }
+      const done = await finishActivation(shouldEscalate);
       if (done) {
         if (timer) window.clearInterval(timer);
         return;
