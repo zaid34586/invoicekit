@@ -19,6 +19,7 @@ import AdminProductionQA from "../components/AdminProductionQA";
 import AdminOperationsCommand from "../components/AdminOperationsCommand";
 import AdminTeamWorkload from "../components/AdminTeamWorkload";
 import AdminRevenueIntelligence from "../components/AdminRevenueIntelligence";
+import AdminCustomerSuccess from "../components/AdminCustomerSuccess";
 
 type AdminSection =
   | "dashboard"
@@ -1452,7 +1453,7 @@ export default function Admin() {
         )}
 
         {active === "subscriptions" && <AdminSubscriptionManager />}
-        {active === "growth" && <AdminGrowthCenter />}
+        {active === "growth" && <><AdminCustomerSuccess /><AdminGrowthCenter /></>}
         {active === "paddle" && <AdminPaddleSettings />}
         {active === "subscriptionAutomation" && <AdminSubscriptionAutomation />}
         {active === "billingRecovery" && <AdminBillingRecovery profiles={profiles} team={team} />}
