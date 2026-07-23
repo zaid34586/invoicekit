@@ -16,6 +16,7 @@ import AdminBillingRecovery from "../components/AdminBillingRecovery";
 import AdminSystemMonitor from "../components/AdminSystemMonitor";
 import AdminSecurityCenter from "../components/AdminSecurityCenter";
 import AdminProductionQA from "../components/AdminProductionQA";
+import AdminOperationsCommand from "../components/AdminOperationsCommand";
 
 type AdminSection =
   | "dashboard"
@@ -1385,6 +1386,7 @@ export default function Admin() {
 
         {active === "dashboard" && (
           <section className="space-y-6">
+            <AdminOperationsCommand onNavigate={(section) => setActive(section)} />
             <SectionHeader title="Admin Dashboard" subtitle="Overview of users, plans, invoices, team work, and revenue" />
             <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
               {[
