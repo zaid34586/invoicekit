@@ -14,6 +14,7 @@ import AdminSubscriptionAutomation from "../components/AdminSubscriptionAutomati
 import AdminSupportCenter from "../components/AdminSupportCenter";
 import AdminBillingRecovery from "../components/AdminBillingRecovery";
 import AdminSystemMonitor from "../components/AdminSystemMonitor";
+import AdminSecurityCenter from "../components/AdminSecurityCenter";
 
 type AdminSection =
   | "dashboard"
@@ -2266,6 +2267,7 @@ export default function Admin() {
         )}
         {active === "system" && (
           <section className="space-y-6">
+            <AdminSecurityCenter />
             <AdminSystemMonitor team={team} />
             <SectionHeader title="System Center" subtitle="Maintenance mode, feature flags, permissions aur security controls" />
             <div className="grid md:grid-cols-2 xl:grid-cols-4 gap-4">

@@ -53,6 +53,45 @@ function normalizeEmail(email: string) {
   return email.trim().toLowerCase();
 }
 
+function getSecurityDeviceId() {
+  const key = "rivox_security_device_id";
+  let value = localStorage.getItem(key);
+  if (!value) {
+    value = crypto.randomUUID();
+    localStorage.setItem(key, value);
+  }
+  return value;
+}
+
+function deviceLabel() {
+  const ua = navigator.userAgent;
+  const browser = ua.includes("Edg/") ? "Edge" : ua.includes("Chrome/") ? "Chrome" : ua.includes("Firefox/") ? "Firefox" : ua.includes("Safari/") ? "Safari" : "Browser";
+  const platform = (navigator as Navigator & { userAgentData?: { platform?: string } }).userAgentData?.platform || navigator.platform || "Device";
+  return `${browser} on ${platform}`;
+}
+
+async function registerSecuritySession(user: User) {
+  try {
+    const sessionKey = `${user.id}:${getSecurityDeviceId()}`;
+    await supabase.from("admin_active_sessions").upsert({
+      session_key: sessionKey,
+      user_id: user.id,
+      email: user.email || null,
+      portal: isStaffPortalRoute() ? "staff" : "customer",
+      device_label: deviceLabel(),
+      user_agent: navigator.userAgent,
+      last_seen_at: new Date().toISOString(),
+      expires_at: null,
+      force_logout: false,
+      status: "active",
+      revoked_at: null,
+      revoke_reason: null,
+    }, { onConflict: "session_key" });
+  } catch (error) {
+    console.warn("Security session registration unavailable", error);
+  }
+}
+
 function clearSupabaseStorage() {
   try {
     Object.keys(localStorage).forEach((key) => {
@@ -265,6 +304,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
 
     setSession(nextSession);
+    void registerSecuritySession(data.user);
     const auditKey = `rivox_login_audit_${nextSession.access_token.slice(-12)}`;
     if (!sessionStorage.getItem(auditKey)) {
       sessionStorage.setItem(auditKey, "1");
@@ -333,6 +373,47 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       subscription.unsubscribe();
     };
   }, []);
+
+  useEffect(() => {
+    if (!session?.user) return;
+    let stopped = false;
+    const sessionKey = `${session.user.id}:${getSecurityDeviceId()}`;
+
+    const heartbeat = async () => {
+      const { data } = await supabase.from("admin_active_sessions")
+        .select("force_logout,status")
+        .eq("session_key", sessionKey)
+        .maybeSingle();
+      if (stopped) return;
+      if (data?.force_logout || data?.status === "revoked") {
+        await supabase.from("admin_security_events").insert({
+          event_type: "force_logout",
+          actor_user_id: session.user.id,
+          actor_email: session.user.email || null,
+          portal: isStaffPortalRoute() ? "staff" : "customer",
+          status: "warning",
+          severity: "warning",
+          device_label: deviceLabel(),
+          user_agent: navigator.userAgent,
+          details: { source: "security_center" },
+        });
+        await supabase.auth.signOut({ scope: "local" });
+        clearSupabaseStorage();
+        clearAuthState();
+        window.location.replace("/login?session=revoked");
+        return;
+      }
+      await supabase.from("admin_active_sessions").update({
+        last_seen_at: new Date().toISOString(),
+        device_label: deviceLabel(),
+        user_agent: navigator.userAgent,
+      }).eq("session_key", sessionKey);
+    };
+
+    void heartbeat();
+    const timer = window.setInterval(() => void heartbeat(), 60000);
+    return () => { stopped = true; window.clearInterval(timer); };
+  }, [session?.user?.id]);
 
   const signUp = async (email: string, password: string) => {
     const cleanEmail = normalizeEmail(email);
@@ -423,6 +504,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const signOut = async () => {
+    if (session?.user) {
+      const sessionKey = `${session.user.id}:${getSecurityDeviceId()}`;
+      await supabase.from("admin_active_sessions").update({
+        status: "expired",
+        last_seen_at: new Date().toISOString(),
+      }).eq("session_key", sessionKey);
+    }
     await supabase.auth.signOut({ scope: "global" });
     clearSupabaseStorage();
     clearAuthState();
