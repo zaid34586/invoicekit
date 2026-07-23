@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { supabase } from "../lib/supabase";
+import { useAuth } from "../context/AuthContext";
 
 type SessionRow = {
   id: string; user_id: string; email: string | null; portal: string;
@@ -14,6 +15,7 @@ type EventRow = {
 };
 
 export default function AdminSecurityCenter() {
+  const { user } = useAuth();
   const [sessions, setSessions] = useState<SessionRow[]>([]);
   const [events, setEvents] = useState<EventRow[]>([]);
   const [message, setMessage] = useState("");
@@ -78,7 +80,9 @@ export default function AdminSecurityCenter() {
         {visible.length === 0 ? <p className="p-10 text-center text-sm text-slate-500">Sessions will appear after users sign in on the updated deployment.</p> : <div className="divide-y divide-slate-100">{visible.map((session) => (
           <div key={session.id} className="flex flex-col gap-4 p-5 lg:flex-row lg:items-center lg:justify-between">
             <div><div className="flex flex-wrap items-center gap-2"><p className="font-bold text-slate-950">{session.email || session.user_id}</p><span className={`rounded-full px-2.5 py-1 text-xs font-bold ${session.status === "active" && !session.force_logout ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-600"}`}>{session.force_logout ? "revoked" : session.status}</span><span className="rounded-full bg-indigo-50 px-2.5 py-1 text-xs font-bold text-indigo-700">{session.portal}</span></div><p className="mt-1 text-sm text-slate-600">{session.device_label || "Unknown device"}</p><p className="mt-1 text-xs text-slate-500">Last seen {new Date(session.last_seen_at).toLocaleString()}</p></div>
-            {session.status === "active" && !session.force_logout && <button onClick={() => void revoke(session)} className="rounded-xl bg-red-600 px-4 py-2.5 text-sm font-bold text-white">Force logout</button>}
+            {session.status === "active" && !session.force_logout && session.user_id !== user?.id
+              ? <button onClick={() => void revoke(session)} className="rounded-xl bg-red-600 px-4 py-2.5 text-sm font-bold text-white">Force logout</button>
+              : session.user_id === user?.id ? <span className="text-xs font-bold text-emerald-600">Current owner session</span> : null}
           </div>
         ))}</div>}
       </div>

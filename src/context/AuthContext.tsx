@@ -70,6 +70,11 @@ function deviceLabel() {
   return `${browser} on ${platform}`;
 }
 
+function securityPortal(user: User): "admin" | "staff" | "customer" {
+  if (String(user.email || "").toLowerCase() === ADMIN_EMAIL.toLowerCase()) return "admin";
+  return isStaffPortalRoute() ? "staff" : "customer";
+}
+
 async function registerSecuritySession(user: User) {
   try {
     const sessionKey = `${user.id}:${getSecurityDeviceId()}`;
@@ -77,7 +82,7 @@ async function registerSecuritySession(user: User) {
       session_key: sessionKey,
       user_id: user.id,
       email: user.email || null,
-      portal: isStaffPortalRoute() ? "staff" : "customer",
+      portal: securityPortal(user),
       device_label: deviceLabel(),
       user_agent: navigator.userAgent,
       last_seen_at: new Date().toISOString(),
@@ -390,7 +395,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           event_type: "force_logout",
           actor_user_id: session.user.id,
           actor_email: session.user.email || null,
-          portal: isStaffPortalRoute() ? "staff" : "customer",
+          portal: securityPortal(session.user),
           status: "warning",
           severity: "warning",
           device_label: deviceLabel(),
