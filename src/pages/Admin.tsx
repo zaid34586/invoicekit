@@ -17,6 +17,7 @@ import AdminSystemMonitor from "../components/AdminSystemMonitor";
 import AdminSecurityCenter from "../components/AdminSecurityCenter";
 import AdminProductionQA from "../components/AdminProductionQA";
 import AdminOperationsCommand from "../components/AdminOperationsCommand";
+import AdminTeamWorkload from "../components/AdminTeamWorkload";
 
 type AdminSection =
   | "dashboard"
@@ -1706,6 +1707,7 @@ export default function Admin() {
 
         {active === "team" && (
           <section className="space-y-6">
+            <AdminTeamWorkload />
             <SectionHeader title="Manage Team Members" subtitle="Create staff accounts, assign permissions, and manage workload from one place." />
             <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
               <Metric title="Total Members" value={String(teamStats.total)} icon="👨‍💼" />
