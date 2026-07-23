@@ -4,9 +4,10 @@ import { supabase } from "../lib/supabase";
 type Subscription = {
   id: string; plan: string; billing_cycle: string | null; status: string;
   currency: string | null; amount: number | null; cancelled: boolean;
+  provider_environment?: "sandbox" | "production";
   created_at: string; updated_at: string;
 };
-type BillingEvent = { id: string; event_name: string; status: string | null; amount: number; currency: string | null; created_at: string };
+type BillingEvent = { id: string; event_name: string; status: string | null; amount: number; currency: string | null; provider_environment?: "sandbox" | "production"; created_at: string };
 
 function money(value: number, currency: string) {
   try { return new Intl.NumberFormat("en", { style: "currency", currency, maximumFractionDigits: 2 }).format(value); }
@@ -17,11 +18,12 @@ export default function AdminRevenueIntelligence() {
   const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
   const [events, setEvents] = useState<BillingEvent[]>([]);
   const [message, setMessage] = useState("");
+  const [environment, setEnvironment] = useState<"production" | "sandbox" | "all">("production");
 
   const load = useCallback(async () => {
     const [subs, billing] = await Promise.all([
-      supabase.from("subscriptions").select("id,plan,billing_cycle,status,currency,amount,cancelled,created_at,updated_at").order("updated_at", { ascending: false }),
-      supabase.from("billing_events").select("id,event_name,status,amount,currency,created_at").order("created_at", { ascending: false }).limit(500),
+      supabase.from("subscriptions").select("id,plan,billing_cycle,status,currency,amount,cancelled,provider_environment,created_at,updated_at").order("updated_at", { ascending: false }),
+      supabase.from("billing_events").select("id,event_name,status,amount,currency,provider_environment,created_at").order("created_at", { ascending: false }).limit(500),
     ]);
     if (subs.error || billing.error) setMessage(subs.error?.message || billing.error?.message || "Unable to load revenue intelligence.");
     else { setSubscriptions((subs.data || []) as Subscription[]); setEvents((billing.data || []) as BillingEvent[]); }
@@ -37,7 +39,9 @@ export default function AdminRevenueIntelligence() {
   }, [load]);
 
   const analytics = useMemo(() => {
-    const active = subscriptions.filter((s) => ["active", "trialing"].includes(s.status) && !s.cancelled);
+    const visibleSubscriptions = subscriptions.filter((s) => environment === "all" || (s.provider_environment || "production") === environment);
+    const visibleEvents = events.filter((e) => environment === "all" || (e.provider_environment || "production") === environment);
+    const active = visibleSubscriptions.filter((s) => ["active", "trialing"].includes(s.status) && !s.cancelled);
     const currency = new Map<string, { mrr: number; collected: number; active: number }>();
     for (const sub of active) {
       const code = (sub.currency || "USD").toUpperCase();
@@ -45,21 +49,21 @@ export default function AdminRevenueIntelligence() {
       bucket.mrr += Number(sub.amount || 0) / (sub.billing_cycle === "yearly" ? 12 : 1);
       bucket.active += 1; currency.set(code, bucket);
     }
-    for (const event of events.filter((e) => e.status === "completed" || e.event_name === "transaction.completed")) {
+    for (const event of visibleEvents.filter((e) => e.status === "completed" || e.event_name === "transaction.completed")) {
       const code = (event.currency || "USD").toUpperCase();
       const bucket = currency.get(code) || { mrr: 0, collected: 0, active: 0 };
       bucket.collected += Number(event.amount || 0); currency.set(code, bucket);
     }
-    const plans = ["free", "pro", "business"].map((plan) => ({ plan, count: subscriptions.filter((s) => s.plan === plan && ["active", "trialing"].includes(s.status)).length }));
-    const failures = events.filter((e) => e.event_name.includes("payment_failed") || e.status === "failed").length;
-    const churned = subscriptions.filter((s) => s.cancelled || ["canceled", "cancelled"].includes(s.status)).length;
-    const new30 = subscriptions.filter((s) => Date.now() - new Date(s.created_at).getTime() < 30 * 86400000).length;
+    const plans = ["free", "pro", "business"].map((plan) => ({ plan, count: active.filter((s) => s.plan === plan).length }));
+    const failures = visibleEvents.filter((e) => e.event_name.includes("payment_failed") || e.status === "failed").length;
+    const churned = visibleSubscriptions.filter((s) => s.cancelled || ["canceled", "cancelled"].includes(s.status)).length;
+    const new30 = visibleSubscriptions.filter((s) => Date.now() - new Date(s.created_at).getTime() < 30 * 86400000).length;
     return { active, currency: [...currency.entries()], plans, failures, churned, new30 };
-  }, [events, subscriptions]);
+  }, [environment, events, subscriptions]);
 
   return (
     <div className="space-y-6">
-      <div className="rounded-3xl bg-gradient-to-br from-slate-950 via-indigo-950 to-blue-950 p-6 text-white shadow-xl"><div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between"><div><p className="text-xs font-black uppercase tracking-[0.2em] text-blue-300">Global SaaS economics</p><h1 className="mt-2 text-3xl font-black">Revenue & Subscription Intelligence</h1><p className="mt-2 text-sm text-slate-300">MRR, ARR, collections, churn and plan performance without mixing international currencies.</p></div><button onClick={() => void load()} className="rounded-xl bg-white px-4 py-2.5 text-sm font-black text-slate-950">Refresh revenue</button></div></div>
+      <div className="rounded-3xl bg-gradient-to-br from-slate-950 via-indigo-950 to-blue-950 p-6 text-white shadow-xl"><div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between"><div><p className="text-xs font-black uppercase tracking-[0.2em] text-blue-300">Global SaaS economics</p><h1 className="mt-2 text-3xl font-black">Revenue & Subscription Intelligence</h1><p className="mt-2 text-sm text-slate-300">MRR, ARR, collections, churn and plan performance without mixing international currencies.</p></div><div className="flex gap-2"><select value={environment} onChange={(e) => setEnvironment(e.target.value as typeof environment)} className="rounded-xl border border-white/20 bg-white px-4 py-2.5 text-sm font-black text-slate-950"><option value="production">Production</option><option value="sandbox">Sandbox</option><option value="all">All environments</option></select><button onClick={() => void load()} className="rounded-xl bg-white px-4 py-2.5 text-sm font-black text-slate-950">Refresh</button></div></div></div>
       {message && <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">{message}</div>}
       <div className="grid grid-cols-2 gap-4 xl:grid-cols-4">
         {[["Active subscriptions", analytics.active.length, "💳"], ["New subscriptions 30d", analytics.new30, "📈"], ["Payment failures", analytics.failures, "⚠️"], ["Churned/cancelled", analytics.churned, "📉"]].map(([label, value, icon]) => <div key={String(label)} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><p className="text-2xl">{icon}</p><p className="mt-3 text-xs font-bold uppercase text-slate-500">{label}</p><p className="mt-1 text-3xl font-black text-slate-950">{value}</p></div>)}
