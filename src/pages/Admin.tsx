@@ -18,6 +18,7 @@ import AdminSecurityCenter from "../components/AdminSecurityCenter";
 import AdminProductionQA from "../components/AdminProductionQA";
 import AdminOperationsCommand from "../components/AdminOperationsCommand";
 import AdminTeamWorkload from "../components/AdminTeamWorkload";
+import AdminRevenueIntelligence from "../components/AdminRevenueIntelligence";
 
 type AdminSection =
   | "dashboard"
@@ -1920,6 +1921,7 @@ export default function Admin() {
 
         {active === "finance" && (
           <section className="space-y-6">
+            <AdminRevenueIntelligence />
             <SectionHeader title="Revenue & Finance" subtitle="Revenue, ads income, expenses, receivables, balance aur reports track karo" />
             <div className="grid grid-cols-2 xl:grid-cols-6 gap-4">
               <Metric title="Total Revenue" value={formatMoney(financeReport.income, "INR")} icon="💰" />
