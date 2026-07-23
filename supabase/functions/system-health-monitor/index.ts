@@ -32,8 +32,11 @@ Deno.serve(async (request) => {
     const anonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const authorization = request.headers.get("Authorization") || "";
+    const monitorSecret = Deno.env.get("SYSTEM_MONITOR_CRON_SECRET") || "";
+    const suppliedMonitorSecret = request.headers.get("x-rivox-monitor-secret") || "";
     const isService = authorization === `Bearer ${serviceKey}`;
-    if (!isService) {
+    const isScheduledMonitor = Boolean(monitorSecret) && suppliedMonitorSecret === monitorSecret;
+    if (!isService && !isScheduledMonitor) {
       const auth = createClient(url, anonKey, { global: { headers: { Authorization: authorization } } });
       const { data: { user } } = await auth.auth.getUser();
       if (!user || String(user.email || "").toLowerCase() !== "mz7123272@gmail.com") {
