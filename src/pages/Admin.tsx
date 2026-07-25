@@ -20,6 +20,7 @@ import AdminOperationsCommand from "../components/AdminOperationsCommand";
 import AdminTeamWorkload from "../components/AdminTeamWorkload";
 import AdminRevenueIntelligence from "../components/AdminRevenueIntelligence";
 import AdminCustomerSuccess from "../components/AdminCustomerSuccess";
+import AdminAccessGovernance from "../components/AdminAccessGovernance";
 
 type AdminSection =
   | "dashboard"
@@ -2263,6 +2264,7 @@ export default function Admin() {
         )}
         {active === "audit" && (
           <section className="space-y-6">
+            <AdminAccessGovernance />
             <SectionHeader title="Audit Logs" subtitle="Admin actions ka searchable security history" />
             <Card>
               <div className="p-5 border-b border-slate-100 flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between">
