@@ -81,6 +81,7 @@ export default function AdminSupportCenter({ profiles, team }: { profiles: Profi
   }), [tickets, search, view]);
   const selected = tickets.find((ticket) => ticket.id === selectedId) || null;
   const customer = selected ? profiles.find((profile) => profile.user_id === selected.user_id || profile.id === selected.user_id) : undefined;
+  const selectedIsFinal = Boolean(selected && ["resolved", "closed"].includes(selected.status));
 
   async function patchTicket(changes: Partial<Ticket>, success: string) {
     if (!selected) return;
@@ -107,7 +108,9 @@ export default function AdminSupportCenter({ profiles, team }: { profiles: Profi
   }
 
   async function resolve() {
-    if (!selected || !resolution.trim()) { setNotice("Resolution summary is required before resolving a ticket."); return; }
+    if (!selected) return;
+    if (selectedIsFinal) { setNotice("This ticket is already finalised. Reopen it before resolving again."); return; }
+    if (!resolution.trim()) { setNotice("Resolution summary is required before resolving a ticket."); return; }
     await patchTicket({ status: "resolved", resolution_summary: resolution.trim() }, "Ticket resolved.");
     setResolution("");
   }
