@@ -635,18 +635,31 @@ export default function NewInvoice() {
               </div>
               <div>
                 <label className="label">State</label>
-                <select
-                  value={clientState}
-                  onChange={(e) => setClientState(e.target.value)}
-                  className="input"
-                >
-                  <option value="">Select state</option>
-                  {statesForSelectedCountry.map((s: string) => (
-                    <option key={s} value={s}>
-                      {s}
-                    </option>
-                  ))}
-                </select>
+                {statesForSelectedCountry.length > 0 ? (
+                  <select
+                    value={clientState}
+                    onChange={(e) => setClientState(e.target.value)}
+                    className="input"
+                  >
+                    <option value="">Select state</option>
+                    {statesForSelectedCountry.map((s: string) => (
+                      <option key={s} value={s}>
+                        {s}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  // Bug-001 fix: countries without a maintained state list used
+                  // to show a select with only "Select state" and no way to
+                  // ever enter one. A free-text input lets any country's state
+                  // still be recorded and used for CGST/SGST vs IGST checks.
+                  <input
+                    value={clientState}
+                    onChange={(e) => setClientState(e.target.value)}
+                    className="input"
+                    placeholder="Enter state / region"
+                  />
+                )}
               </div>
               <div className="sm:col-span-2">
                 <label className="label">Address</label>

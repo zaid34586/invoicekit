@@ -400,7 +400,7 @@ export function decideTax(input: TaxDecisionInput): TaxDecision {
       cgst: 0,
       sgst: 0,
       igst: 0,
-      taxNote: `Cross-border supply from ${bCountry} to ${cCountry}. Local tax typically not applicable — verify with your tax advisor.`,
+      taxNote: `Cross-border supply from ${bCountry} to ${cCountry}. Local tax typically not applicable — defaults to 0%, but you can enter a rate manually below and it will be applied to the total. Verify with your tax advisor.`,
       isZeroRated: true,
       isCgstSgst: false,
       isIgst: false,

@@ -68,8 +68,19 @@ export function calculateInvoice(
   const isIndiaBusiness = (businessCountry ?? "India") === "India";
   const isCrossBorder = (businessCountry ?? "India") !== (clientCountry ?? businessCountry ?? "India");
 
-  // Cross-border supply (any country pair) — zero-rated/exempt, no tax charged.
-  if (isCrossBorder) {
+  // India → foreign client is zero-rated by law (export under LUT, Section 16
+  // IGST Act). This is a compliance rule, not a user preference, so it always
+  // stays at 0 regardless of any per-line rate entered.
+  //
+  // Bug-001 fix: previously EVERY cross-border invoice (not just India's)
+  // was force-zeroed here, silently discarding any tax rate the user typed
+  // into a line item. For non-India cross-border invoices there is no such
+  // legal mandate in Rivox — decideTax() only *suggests* export-exempt as a
+  // default (rate 0) and tells the user to verify with their advisor. So a
+  // non-India cross-border invoice now falls through to the same flat
+  // per-line-rate calculation used for domestic non-India invoices below,
+  // meaning a manually-entered rate is respected instead of being ignored.
+  if (isIndiaBusiness && isCrossBorder) {
     return {
       subtotal,
       cgst: 0,
@@ -87,6 +98,7 @@ export function calculateInvoice(
   const breakup: GstBreakup[] = [];
 
   if (isIndiaBusiness) {
+    // isIndiaBusiness && !isCrossBorder here (the cross-border case returned above).
     const isInterState =
       !!businessState && !!clientState && businessState !== clientState;
 
@@ -108,7 +120,12 @@ export function calculateInvoice(
     return { subtotal, cgst, sgst, igst, total, breakup, isInterState };
   }
 
-  // Non-India, same-country supply: flat tax per line rate, no CGST/SGST split.
+  // Non-India business — either domestic (same country as client) or
+  // cross-border. Both use a flat tax at each line item's own rate, no
+  // CGST/SGST split. For cross-border this defaults to 0 (decideTax()
+  // suggests an export-exempt 0% rate that auto-fills the line items), but
+  // if the user overrides the rate on a line, that rate is now honoured
+  // instead of being silently zeroed out.
   for (const rate of sortedRates) {
     const { taxable } = rateMap.get(rate)!;
     const tax = (taxable * rate) / 100;

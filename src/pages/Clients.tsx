@@ -525,27 +525,36 @@ export default function Clients() {
                 <div>
                   <label className="label">
                     {stateLabel}
-                    {availableStates.length === 0 && (
-                      <span className="text-slate-400 font-normal"> (not applicable)</span>
+                    {availableStates.length === 0 && form.country && (
+                      <span className="text-slate-400 font-normal"> (type it in)</span>
                     )}
                   </label>
-                  <select
-                    value={form.state}
-                    onChange={(e) => setForm({ ...form, state: e.target.value })}
-                    className="input disabled:bg-slate-50 disabled:text-slate-400 disabled:cursor-not-allowed"
-                    disabled={availableStates.length === 0}
-                  >
-                    <option value="">
-                      {availableStates.length === 0
-                        ? "Not applicable"
-                        : `Select ${stateLabel.toLowerCase()}`}
-                    </option>
-                    {availableStates.map((s) => (
-                      <option key={s} value={s}>
-                        {s}
-                      </option>
-                    ))}
-                  </select>
+                  {availableStates.length > 0 ? (
+                    <select
+                      value={form.state}
+                      onChange={(e) => setForm({ ...form, state: e.target.value })}
+                      className="input"
+                    >
+                      <option value="">{`Select ${stateLabel.toLowerCase()}`}</option>
+                      {availableStates.map((s) => (
+                        <option key={s} value={s}>
+                          {s}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    // Bug-001 fix: Rivox only maintains a dropdown list for a
+                    // handful of countries. Every other country used to get a
+                    // disabled "Not applicable" select, which meant the state
+                    // could never be recorded at all. A free-text field lets
+                    // the client's state/province be entered for any country.
+                    <input
+                      value={form.state}
+                      onChange={(e) => setForm({ ...form, state: e.target.value })}
+                      className="input"
+                      placeholder={`Enter ${stateLabel.toLowerCase()}`}
+                    />
+                  )}
                 </div>
               </div>
 
