@@ -203,7 +203,14 @@ export default function AppLayout({ children }: { children: ReactNode }) {
   useEffect(() => {
     const refresh = () => void refreshWorkspace();
     window.addEventListener("focus", refresh);
-    const timer = window.setInterval(refresh, 10000);
+    // Was 10s — far too aggressive: it forced a fresh `profile` object into
+    // every page under AppLayout (including Settings/Account forms) every
+    // 10 seconds, which is the underlying reason those forms kept losing
+    // in-progress edits even after guarding the profile-load effect.
+    // Workspace role/status doesn't need near-real-time polling — refresh
+    // on focus/navigation (already covered above) is enough day-to-day;
+    // this interval is just a safety net for long-idle tabs.
+    const timer = window.setInterval(refresh, 180000);
     return () => { window.removeEventListener("focus", refresh); window.clearInterval(timer); };
   }, []);
 

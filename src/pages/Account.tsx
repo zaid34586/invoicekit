@@ -192,16 +192,22 @@ export default function Account() {
     variant?: "primary" | "danger";
   } | null>(null);
 
-  // Initialize form from profile
+  // Initialize form from profile.
+  // IMPORTANT (fixes Bug-002): only populate once per visit — see the matching
+  // fix/comment in Settings.tsx. Re-running this on every background profile
+  // refresh would wipe unsaved edits (and any just-uploaded avatar/logo) back
+  // to the last-saved values after a short delay.
+  const profileLoadedRef = useRef(false);
   useEffect(() => {
-    if (profile) {
+    if (profile && !profileLoadedRef.current) {
       setFullName(profile.business_name ?? "");
       setBusinessName(profile.business_name ?? "");
       setPhone(profile.phone ?? "");
       setAvatarUrl(profile.logo_url ?? null);
 
       setCountry(profile.country ?? "");
-setTimezone(profile.timezone ?? "UTC");
+      setTimezone(profile.timezone ?? "UTC");
+      profileLoadedRef.current = true;
     }
   }, [profile]);
 

@@ -67,9 +67,16 @@ export default function Settings() {
   const taxSummary = getCountryTaxSummary(businessCountry);
   const statesForCountry = COUNTRIES.find((c) => c.name === businessCountry)?.states ?? [];
 
-  // Load existing profile
+  // Load existing profile.
+  // IMPORTANT (fixes Bug-002): this must only run ONCE per visit, not every
+  // time `profile` changes reference. AuthContext refreshes `profile` in the
+  // background (e.g. on token refresh / tab focus) with a brand-new object
+  // even when nothing changed — if this effect re-ran on every such refresh,
+  // it would silently wipe out whatever the user is mid-typing (and any logo
+  // they just uploaded but haven't saved yet) back to the last-saved values.
+  const profileLoadedRef = useRef(false);
   useEffect(() => {
-    if (profile) {
+    if (profile && !profileLoadedRef.current) {
       setBusinessName(profile.business_name ?? "");
       setBusinessCountry(profile.country ?? "India");
       setGstin(profile.gstin ?? "");
@@ -78,6 +85,7 @@ export default function Settings() {
       setState(profile.state ?? "");
       setAddress(profile.address ?? "");
       setLogoUrl(profile.logo_url ?? null);
+      profileLoadedRef.current = true;
     }
   }, [profile]);
 
