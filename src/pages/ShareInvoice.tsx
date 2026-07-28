@@ -183,6 +183,8 @@ export default function ShareInvoice() {
   "USD";
 
   const isInterState = invoice.igst > 0;
+  const effectiveTaxLabel =
+    invoice.tax_label ?? (invoice.business_country === "India" ? "IGST" : "Tax");
   const baseCurrency =
     invoice.base_currency ?? invoice.business_currency ?? profile?.currency ?? "USD";
   const isForeignCurrency = invoiceCurrency !== baseCurrency;
@@ -380,10 +382,11 @@ export default function ShareInvoice() {
             <div className="flex-1">
               {isInterState ? (
                 <GSTBreakup
-  title="IGST Breakup"
+  title={`${effectiveTaxLabel} Breakup`}
   items={invoice.items}
   type="igst"
   currency={invoiceCurrency}
+  taxLabel={effectiveTaxLabel}
 />
               ) : invoice.cgst > 0 || invoice.sgst > 0 ? (
                 <GSTBreakup
@@ -404,7 +407,7 @@ export default function ShareInvoice() {
               </div>
               {isInterState ? (
                 <div className="flex justify-between">
-                  <span className="text-slate-500">IGST</span>
+                  <span className="text-slate-500">{effectiveTaxLabel}</span>
                   <span className="font-medium text-slate-900">
                     {formatMoney(displayIgst, invoiceCurrency)}
                   </span>
@@ -529,11 +532,13 @@ function GSTBreakup({
   items,
   type,
   currency,
+  taxLabel = "IGST",
 }: {
   title: string;
   items: Invoice["items"];
   type: "igst" | "cgstsgst";
   currency: string;
+  taxLabel?: string;
 }) {
   const merged = new Map<number, { taxable: number; tax: number }>();
   for (const it of items) {
@@ -557,7 +562,7 @@ function GSTBreakup({
             <th className="text-left text-xs font-medium text-slate-500 px-3 py-2">Rate</th>
             <th className="text-right text-xs font-medium text-slate-500 px-3 py-2">Taxable</th>
             {type === "igst" ? (
-              <th className="text-right text-xs font-medium text-slate-500 px-3 py-2">IGST</th>
+              <th className="text-right text-xs font-medium text-slate-500 px-3 py-2">{taxLabel}</th>
             ) : (
               <>
                 <th className="text-right text-xs font-medium text-slate-500 px-3 py-2">CGST</th>

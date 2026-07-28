@@ -644,6 +644,7 @@ invoice.client_country ?? "United States",
                     };
                   })}
                   type="igst"
+                  taxLabel={businessCountry === "India" ? "IGST" : effectiveTaxLabel}
                 />
               ) : (
                 <GSTBreakupTable
@@ -761,11 +762,13 @@ function GSTBreakupTable({
   rows,
   type,
   currency,
+  taxLabel = "IGST",
 }: {
   title: string;
   rows: { rate: number; taxable: number; tax: number }[];
   type: "igst" | "cgstsgst";
   currency: string;
+  taxLabel?: string;
 }) {
   const merged = new Map<number, { taxable: number; tax: number }>();
   for (const r of rows) {
@@ -792,7 +795,7 @@ function GSTBreakupTable({
             </th>
             {type === "igst" ? (
               <th className="text-right text-xs font-medium text-slate-500 px-3 py-2">
-                IGST
+                {taxLabel}
               </th>
             ) : (
               <>
