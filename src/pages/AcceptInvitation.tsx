@@ -62,7 +62,10 @@ export default function AcceptInvitation() {
     if (!passwordIsValid) return setError("Please meet all password requirements.");
     if (password !== confirmPassword) return setError("Passwords do not match.");
     setSaving(true);
-    const { error: passwordError } = await supabase.auth.updateUser({ password });
+    const { error: passwordError } = await supabase.auth.updateUser({
+      password,
+      data: { force_password_change: false },
+    });
     if (passwordError) {
       setError(passwordError.message);
       setSaving(false);
