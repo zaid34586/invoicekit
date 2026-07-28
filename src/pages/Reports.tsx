@@ -596,7 +596,12 @@ function businessNameForExport(): string {
   const lastMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0);
 
   // Revenue analytics
-  const totalRevenue = filteredInvoices.reduce((sum, inv) => sum + invoiceBaseAmount(inv), 0);
+  // NOTE: "Total Revenue" must reflect money actually collected (status === "paid"),
+  // consistent with Dashboard.tsx. Summing all invoices regardless of status
+  // (draft/sent/overdue) was showing unpaid/pending amounts as "revenue".
+  const totalRevenue = filteredInvoices
+    .filter((inv) => inv.status === "paid")
+    .reduce((sum, inv) => sum + invoicePaidBaseAmount(inv), 0);
   const revenueThisMonth = invoices
     .filter((inv) => new Date(inv.created_at) >= monthStart && inv.status === "paid")
     .reduce((sum, inv) => sum + invoicePaidBaseAmount(inv), 0);
