@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabase";
+import { useAuth } from "../context/AuthContext";
 
 type Invitation = {
   email: string;
@@ -21,6 +22,7 @@ const rules = [
 
 export default function AcceptInvitation() {
   const navigate = useNavigate();
+  const { refreshProfile } = useAuth();
   const [invitation, setInvitation] = useState<Invitation | null>(null);
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -77,6 +79,12 @@ export default function AcceptInvitation() {
       setSaving(false);
       return;
     }
+    // claim_workspace_invitation() updates workspace_members.status to 'active'
+    // in the database, but AuthContext already cached the pre-claim status
+    // ("removed") when this page first loaded. Without this refresh, the
+    // dashboard's WorkspaceRoute reads the stale cached status and shows
+    // "Workspace access unavailable" even though access was just granted.
+    await refreshProfile();
     setReady(true);
     setSaving(false);
   }
