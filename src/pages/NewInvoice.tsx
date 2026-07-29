@@ -454,7 +454,7 @@ export default function NewInvoice() {
       return;
     }
 
-    if (!isEditMode) {
+    {
       const { data: existingClient } = await supabase
         .from("clients")
         .select("id")
@@ -462,17 +462,32 @@ export default function NewInvoice() {
         .ilike("name", clientName.trim())
         .maybeSingle();
 
-      if (!existingClient) {
+      const clientFields = {
+        name: clientName.trim(),
+        phone: clientPhone.trim() || null,
+        email: clientEmail.trim() || null,
+        address: clientAddress.trim() || null,
+        state: clientState || null,
+        gstin: clientGstin.trim().toUpperCase() || null,
+        country: clientCountry,
+        country_code: clientCountryCode,
+      };
+
+      if (existingClient) {
+        // Bug fix: previously nothing happened here for an existing client —
+        // any VAT number / tax code / phone / address typed or edited while
+        // creating or editing an invoice was discarded instead of being
+        // saved back, so the same details had to be re-typed every time
+        // this client was selected again on a future invoice.
+        await supabase
+          .from("clients")
+          .update(clientFields)
+          .eq("id", existingClient.id)
+          .eq("user_id", workspaceOwnerId || user.id);
+      } else {
         await supabase.from("clients").insert({
           user_id: workspaceOwnerId || user.id,
-          name: clientName.trim(),
-          phone: clientPhone.trim() || null,
-          email: clientEmail.trim() || null,
-          address: clientAddress.trim() || null,
-          state: clientState || null,
-          gstin: clientGstin.trim().toUpperCase() || null,
-          country: clientCountry,
-          country_code: clientCountryCode,
+          ...clientFields,
         });
       }
     }

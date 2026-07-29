@@ -6,6 +6,7 @@ import { formatDate } from "../lib/constants";
 import { convertCurrency, formatMoney } from "../lib/currency";
 import { lineAmount } from "../lib/gst";
 import { DEFAULT_BRANDING, brandingFont, type WorkspaceBranding } from "../lib/branding";
+import { getTaxLabel } from "../lib/international";
 
 export default function ShareInvoice() {
   const { token } = useParams<{ token: string }>();
@@ -185,6 +186,17 @@ export default function ShareInvoice() {
   const isInterState = invoice.igst > 0;
   const effectiveTaxLabel =
     invoice.tax_label ?? (invoice.business_country === "India" ? "IGST" : "Tax");
+
+  // Country-aware business/client tax-ID labels (GSTIN only for India,
+  // "Tax ID"/"VAT Number"/etc. everywhere else) and the line-item code
+  // column label (HSN/SAC only for India, "Tax Code" everywhere else).
+  // getTaxLabel() covers every country in the catalog via COUNTRY_SETTINGS
+  // with a neutral fallback, so this never needs a per-country special case.
+  const businessCountry = invoice.business_country ?? profile?.country ?? "United States";
+  const clientCountry = invoice.client_country ?? null;
+  const businessTaxLabel = getTaxLabel(businessCountry);
+  const clientTaxLabel = getTaxLabel(clientCountry);
+  const isIndiaLineItemLabels = businessCountry === "India";
   const baseCurrency =
     invoice.base_currency ?? invoice.business_currency ?? profile?.currency ?? "USD";
   const isForeignCurrency = invoiceCurrency !== baseCurrency;
@@ -266,7 +278,7 @@ export default function ShareInvoice() {
                 )}
                 {profile?.gstin && (
                   <p className="text-sm text-slate-500 mt-1">
-                    GSTIN: {profile.gstin}
+                    {businessTaxLabel}: {profile.gstin}
                   </p>
                 )}
                 {profile?.phone && (
@@ -303,7 +315,7 @@ export default function ShareInvoice() {
             </p>
             {invoice.client_gstin && (
               <p className="text-sm text-slate-500 mt-1">
-                GSTIN: {invoice.client_gstin}
+                {clientTaxLabel}: {invoice.client_gstin}
               </p>
             )}
             {invoice.client_address && (
@@ -331,7 +343,7 @@ export default function ShareInvoice() {
                       Description
                     </th>
                     <th className="text-center text-xs font-semibold uppercase tracking-wide px-4 py-3">
-                      HSN/SAC
+                      {isIndiaLineItemLabels ? "HSN/SAC" : "Tax Code"}
                     </th>
                     <th className="text-center text-xs font-semibold uppercase tracking-wide px-4 py-3">
                       Qty
@@ -340,7 +352,7 @@ export default function ShareInvoice() {
                       Rate
                     </th>
                     <th className="text-center text-xs font-semibold uppercase tracking-wide px-4 py-3">
-                      GST
+                      {isIndiaLineItemLabels ? "GST" : "Tax %"}
                     </th>
                     <th className="text-right text-xs font-semibold uppercase tracking-wide px-4 py-3 rounded-r-lg">
                       Amount
