@@ -492,6 +492,32 @@ export default function NewInvoice() {
       }
     }
 
+    if (!isEditMode && data) {
+      try {
+        const { data: deliveryIds } = await supabase.rpc("dispatch_webhook_event", {
+          p_event_type: "invoice.created",
+          p_payload: {
+            id: data.id,
+            invoice_number: data.invoice_number,
+            client_name: data.client_name,
+            total: data.total,
+            currency: data.invoice_currency,
+            status: data.status,
+          },
+        });
+        // Fire the real HTTP delivery immediately for each webhook that
+        // matched, instead of leaving it stuck at "pending" until a human
+        // clicks Retry.
+        for (const deliveryId of (deliveryIds as string[] | null) ?? []) {
+          void supabase.functions.invoke("business-webhooks", {
+            body: { deliveryId },
+          });
+        }
+      } catch {
+        // Webhook delivery is best-effort — never block saving the invoice.
+      }
+    }
+
     if (data) navigate(`/invoice/${data.id}`);
   }
 
