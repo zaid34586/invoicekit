@@ -9,7 +9,7 @@ const roleHelp:{[K in Exclude<Role,"owner">]:string}={manager:"Dashboard, client
 const permissionOptions=[
  ["dashboard.view","View dashboard"],["clients.view","View clients"],["clients.manage","Create and edit clients"],["invoices.view","View invoices"],["invoices.create","Create invoices"],["invoices.edit","Edit invoices"],["invoices.delete","Delete invoices"],["reports.view","View reports"],["support.view","Use support"]
 ] as const;
-const defaults:Record<Exclude<Role,"owner">,string[]>={manager:["dashboard.view","clients.view","clients.manage","invoices.view","invoices.create","invoices.edit","invoices.delete","reports.view","support.view"],accountant:["clients.view","invoices.view","reports.view","support.view"],staff:["clients.view","clients.manage","invoices.view","invoices.create","invoices.edit","support.view"]};
+const defaults:Record<Exclude<Role,"owner">,string[]>={manager:["dashboard.view","clients.view","clients.manage","invoices.view","invoices.create","invoices.edit","invoices.delete","reports.view","support.view"],accountant:["dashboard.view","clients.view","invoices.view","reports.view","support.view"],staff:["dashboard.view","clients.view","clients.manage","invoices.view","invoices.create","invoices.edit","support.view"]};
 
 async function invoke(body:Record<string,unknown>){
  const {data,error}=await supabase.functions.invoke("workspace-team",{body});
