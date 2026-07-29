@@ -289,7 +289,17 @@ Deno.serve(async (req) => {
       const { data: targetMember } = await admin.from("workspace_members")
         .select("user_id,auth_user_id,email,role,status").eq("id", id).eq("workspace_id", workspaceId).neq("role", "owner").maybeSingle();
       const patch: Record<string, unknown> = { updated_at: new Date().toISOString() };
-      if (body.role && ["manager", "accountant", "staff"].includes(body.role)) patch.role = body.role;
+      if (body.role && ["manager", "accountant", "staff"].includes(body.role) && body.role !== targetMember?.role) {
+        patch.role = body.role;
+        // A role change on its own (no explicit new permissions in the same
+        // request) must reset any previously-saved custom permissions/role
+        // name for this member. Otherwise a member who once had custom
+        // permissions saved under their old role kept that exact old array
+        // forever -- the role label in the list updated, but the member's
+        // actual access stayed frozen on the old role's permissions.
+        if (body.permissions === undefined) patch.permissions = null;
+        if (body.customRoleName === undefined) patch.custom_role_name = null;
+      }
       if (body.status && ["active", "disabled"].includes(body.status)) patch.status = body.status;
       if (body.permissions !== undefined || body.customRoleName !== undefined) {
         const plan = (profile?.plan || (profile?.is_pro ? "pro" : "free")) as string;
