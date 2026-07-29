@@ -22,7 +22,7 @@ const STATUS_OPTIONS: { value: InvoiceStatus; label: string }[] = [
 
 export default function InvoicePreview() {
   const { id } = useParams<{ id: string }>();
-  const { user, profile } = useAuth();
+  const { user, profile, workspaceOwnerId } = useAuth();
   const navigate = useNavigate();
   const [invoice, setInvoice] = useState<Invoice | null>(null);
   const [loading, setLoading] = useState(true);
@@ -38,7 +38,7 @@ export default function InvoicePreview() {
         .from("invoices")
         .select("*")
         .eq("id", id)
-        .eq("user_id", user.id)
+        .eq("user_id", workspaceOwnerId || user.id)
         .maybeSingle();
       if (!error && data) {
         setInvoice(data as Invoice);
@@ -53,7 +53,7 @@ export default function InvoicePreview() {
       setLoading(false);
     }
     load();
-  }, [id, user, profile?.plan, profile?.user_id]);
+  }, [id, user, workspaceOwnerId, profile?.plan, profile?.user_id]);
 
   async function updateStatus(newStatus: InvoiceStatus) {
     if (!invoice || !user) return;
@@ -64,7 +64,7 @@ export default function InvoicePreview() {
       .from("invoices")
       .update({ status: newStatus })
       .eq("id", invoice.id)
-      .eq("user_id", user.id)
+      .eq("user_id", workspaceOwnerId || user.id)
       .select("*")
       .single();
 
