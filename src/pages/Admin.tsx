@@ -326,6 +326,13 @@ export default function Admin() {
   const [balanceModal, setBalanceModal] = useState<InvoiceBalanceModalState>(null);
   const [freeProModal, setFreeProModal] = useState<FreeProModalState>(null);
   const [adminActionBusy, setAdminActionBusy] = useState(false);
+  const [assignToast, setAssignToast] = useState<string | null>(null);
+  const [taskSuggestion, setTaskSuggestion] = useState<{ id: string; name: string; open_count: number } | null>(null);
+
+  function showAssignToast(text: string) {
+    setAssignToast(text);
+    window.setTimeout(() => setAssignToast((current) => (current === text ? null : current)), 2000);
+  }
 
   const isAdmin = user?.email?.toLowerCase() === ADMIN_EMAIL.toLowerCase();
 
@@ -701,7 +708,7 @@ export default function Admin() {
   }
 
   function exportUsersCsv() {
-    const headers = ["Business", "Email", "Country", "Phone", "Tax ID", "Plan", "Invoice Balance", "Banned", "Invoices", "Joined"];
+    const headers = ["Business", "Email", "Country", "Phone", "GSTIN", "Plan", "Invoice Balance", "Banned", "Invoices", "Joined"];
     const rows = paginatedProfiles.map((p) => {
       const authId = p.user_id || p.id;
       const values = [
@@ -963,32 +970,12 @@ export default function Admin() {
 
   async function resetTeamTempPassword(member: AdminTeamMember) {
     const password = window.prompt(`New temporary password for ${member.email}`, generatePassword());
-    if (!password || password.length < 8) {
-      if (password) setError("Password minimum 8 characters hona chahiye.");
-      return;
-    }
-    if (!member.auth_user_id) {
-      setError("Ye staff ne abhi tak invite accept nahi kiya (koi Auth account linked nahi hai), isliye login password reset nahi ho sakta. Pehle unhe invite accept karwao.");
-      return;
-    }
-    try {
-      // Bug fix: this used to only write to the admin_team_members.temporary_password
-      // display column, never the real Supabase Auth password — so the staff
-      // member's actual login credential never changed and the "new" password
-      // always failed with "Invalid login credentials". Now it goes through the
-      // same admin-user-actions edge function already used to reset customer
-      // passwords, which really updates Supabase Auth via the service role.
-      await invokeAdminUserAction("reset_password", {
-        user_id: member.auth_user_id,
-        password,
-      });
-      await supabase.from("admin_team_members").update({ temporary_password: password }).eq("id", member.id);
-      await logAction("reset_team_temp_password", "admin_team_members", member.id, { email: member.email });
-      setNotice("Password reset ho gaya — staff ab isi naye password se turant login kar sakta hai.");
-      await load();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Password reset failed. Edge Function deploy check karo.");
-    }
+    if (!password || password.length < 6) return;
+    const { error: updateError } = await supabase.from("admin_team_members").update({ temporary_password: password }).eq("id", member.id);
+    if (updateError) return setError(updateError.message);
+    await logAction("reset_team_temp_password", "admin_team_members", member.id, { email: member.email });
+    setNotice("Temporary password saved in team record. Real Auth password reset ke liye Supabase Auth/Edge Function update needed hoga.");
+    await load();
   }
 
   async function deleteTeamMember(member: AdminTeamMember) {
@@ -1004,7 +991,7 @@ export default function Admin() {
 
   async function handleAddTask(e: React.FormEvent) {
     e.preventDefault();
-    const { data: created, error: insertError } = await supabase.from("admin_tasks").insert({
+    const { error: insertError } = await supabase.from("admin_tasks").insert({
       title: taskForm.title,
       description: taskForm.description || null,
       assigned_to: taskForm.assigned_to || null,
@@ -1014,38 +1001,13 @@ export default function Admin() {
       progress: 0,
       due_date: taskForm.due_date || null,
       created_by: user?.id ?? null,
-    }).select("id").single();
+    });
     if (insertError) return setError(insertError.message);
     await logAction("create_task", "admin_tasks", taskForm.title);
-    if (taskForm.assigned_to && created) {
-      await supabase.from("notifications").insert({
-        audience: "staff",
-        recipient_team_member_id: taskForm.assigned_to,
-        type: "task_assigned",
-        title: "New task assigned to you",
-        body: taskForm.title,
-        metadata: { task_id: created.id },
-      });
-    }
+    const assignee = team.find((m) => m.id === taskForm.assigned_to);
     setTaskForm({ title: "", description: "", assigned_to: "", department: "general", priority: "medium", due_date: "" });
     setNotice("Task created.");
-    await load();
-  }
-
-  async function reassignTask(task: AdminTask, assigned_to: string) {
-    const { error: updateError } = await supabase.from("admin_tasks").update({ assigned_to: assigned_to || null }).eq("id", task.id);
-    if (updateError) return setError(updateError.message);
-    await logAction("reassign_task", "admin_tasks", task.id, { assigned_to: assigned_to || null });
-    if (assigned_to) {
-      await supabase.from("notifications").insert({
-        audience: "staff",
-        recipient_team_member_id: assigned_to,
-        type: "task_assigned",
-        title: "Task assigned to you",
-        body: task.title,
-        metadata: { task_id: task.id },
-      });
-    }
+    showAssignToast(assignee ? `Assigned to ${assignee.name || assignee.email} ✓` : "Task created ✓");
     await load();
   }
 
@@ -1130,16 +1092,8 @@ export default function Admin() {
     const { error: updateError } = await supabase.from("admin_support_tickets").update({ assigned_to: assigned_to || null }).eq("id", ticket.id);
     if (updateError) return setError(updateError.message);
     await logAction("assign_ticket", "admin_support_tickets", ticket.id, { assigned_to: assigned_to || null });
-    if (assigned_to) {
-      await supabase.from("notifications").insert({
-        audience: "staff",
-        recipient_team_member_id: assigned_to,
-        type: "ticket_assigned",
-        title: "Support ticket assigned to you",
-        body: ticket.subject,
-        metadata: { ticket_id: ticket.id },
-      });
-    }
+    const assignee = team.find((m) => m.id === assigned_to);
+    showAssignToast(assignee ? `Assigned to ${assignee.name || assignee.email} ✓` : "Ticket unassigned");
     await load();
   }
 
@@ -1265,6 +1219,20 @@ export default function Admin() {
     if (selectedTicket?.id) void Promise.all([loadSupportMessages(selectedTicket.id), loadSupportAttachments(selectedTicket.id)]);
     else { setSupportMessages([]); setSupportAttachments([]); }
   }, [selectedTicket?.id]);
+
+  useEffect(() => {
+    if (taskForm.assigned_to) { setTaskSuggestion(null); return; }
+    let cancelled = false;
+    void supabase
+      .rpc("admin_suggest_assignee", { p_kind: "task", p_department: taskForm.department })
+      .then(({ data }) => {
+        if (cancelled) return;
+        const row = Array.isArray(data) ? data[0] : null;
+        setTaskSuggestion(row ? { id: row.member_id, name: row.name || row.email, open_count: row.open_count } : null);
+      });
+    return () => { cancelled = true; };
+  }, [taskForm.department, taskForm.assigned_to]);
+
   const selectedAdminTask = selectedAdminTaskId ? tasks.find((task) => task.id === selectedAdminTaskId) ?? null : null;
   const filteredAuditLogs = useMemo(() => {
     const q = auditSearch.trim().toLowerCase();
@@ -1441,6 +1409,11 @@ export default function Admin() {
       </aside>
 
       <main className="space-y-6 min-w-0">
+        {assignToast && (
+          <div className="fixed top-6 right-6 z-50 rounded-xl bg-slate-900 text-white px-4 py-3 text-sm font-bold shadow-2xl animate-[fadeIn_.15s_ease-out]">
+            {assignToast}
+          </div>
+        )}
         {error && <div className="rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">{error}</div>}
         {notice && <div className="rounded-lg bg-green-50 border border-green-200 px-4 py-3 text-sm text-green-700">{notice}</div>}
         {dataLoading ? <div className="card p-10 text-center text-sm text-slate-500">Loading admin data...</div> : null}
@@ -1543,7 +1516,7 @@ export default function Admin() {
                     <button className="btn-secondary text-sm" onClick={exportUsersCsv}>Export CSV</button>
                   </div>
                   <div className="grid md:grid-cols-[1fr_160px_180px] gap-3">
-                    <input className="input" placeholder="Search business, email, phone, tax ID, country..." value={userSearch} onChange={(e) => setUserSearch(e.target.value)} />
+                    <input className="input" placeholder="Search business, email, phone, GSTIN, country..." value={userSearch} onChange={(e) => setUserSearch(e.target.value)} />
                     <select className="input" value={userFilter} onChange={(e) => setUserFilter(e.target.value as typeof userFilter)}>
                       <option value="all">All users</option>
                       <option value="active">Active only</option>
@@ -1627,7 +1600,7 @@ export default function Admin() {
                     <div className="grid grid-cols-2 gap-3 text-sm">
                       <Info label="Country" value={selectedUser.country || "—"} />
                       <Info label="Phone" value={selectedUser.phone || "—"} />
-                      <Info label="Tax ID" value={selectedUser.gstin || "—"} />
+                      <Info label="GSTIN" value={selectedUser.gstin || "—"} />
                       <Info label="Currency" value={selectedUser.currency || "—"} />
                       <Info label="Invoices" value={String(selectedUserInvoices.length)} />
                       <Info label="Clients" value={String(selectedUserClients.length)} />
@@ -1931,13 +1904,32 @@ export default function Admin() {
                   <select className="input" value={taskForm.assigned_to} onChange={(e) => setTaskForm({ ...taskForm, assigned_to: e.target.value })}>
                     <option value="">Unassigned</option>{team.map((m) => <option key={m.id} value={m.id}>{m.name || m.email}</option>)}
                   </select>
+                  {taskSuggestion && !taskForm.assigned_to && (
+                    <button
+                      type="button"
+                      onClick={() => setTaskForm({ ...taskForm, assigned_to: taskSuggestion.id })}
+                      className="w-full flex items-center justify-between rounded-lg border border-primary-200 bg-primary-50 px-3 py-2 text-xs font-semibold text-primary-700 hover:bg-primary-100"
+                    >
+                      <span>💡 Suggested: {taskSuggestion.name} ({taskSuggestion.open_count} open)</span>
+                      <span className="underline">Use</span>
+                    </button>
+                  )}
                   <div className="grid grid-cols-2 gap-2">
-                    <select className="input" value={taskForm.department} onChange={(e) => setTaskForm({ ...taskForm, department: e.target.value })}>
-                      <option value="general">General</option><option value="support">Support</option><option value="finance">Finance</option><option value="sales">Sales</option><option value="engineering">Engineering</option>
+                    <select className="input" value={taskForm.department} onChange={(e) => setTaskForm({ ...taskForm, department: e.target.value, assigned_to: "" })}>
+                      <option value="general">📋 General</option><option value="support">🎧 Support</option><option value="finance">💰 Finance</option><option value="sales">📢 Sales</option><option value="engineering">⚙️ Engineering</option>
                     </select>
-                    <select className="input" value={taskForm.priority} onChange={(e) => setTaskForm({ ...taskForm, priority: e.target.value })}>
-                      <option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option><option value="urgent">Urgent</option>
-                    </select>
+                    <div className="flex items-center gap-1">
+                      {([["low", "⚪", "Low", "bg-slate-100 text-slate-600 border-slate-200"], ["medium", "🟡", "Med", "bg-amber-50 text-amber-700 border-amber-200"], ["high", "🟠", "High", "bg-orange-50 text-orange-700 border-orange-200"], ["urgent", "🔴", "Urgent", "bg-red-50 text-red-700 border-red-200"]] as const).map(([value, dot, label, cls]) => (
+                        <button
+                          key={value}
+                          type="button"
+                          onClick={() => setTaskForm({ ...taskForm, priority: value })}
+                          className={`flex-1 rounded-lg border px-1.5 py-2 text-[11px] font-bold ${taskForm.priority === value ? cls + " ring-2 ring-offset-1 ring-primary-400" : "bg-white text-slate-400 border-slate-200"}`}
+                        >
+                          {dot} {label}
+                        </button>
+                      ))}
+                    </div>
                   </div>
                   <input className="input" type="date" value={taskForm.due_date} onChange={(e) => setTaskForm({ ...taskForm, due_date: e.target.value })} />
                   <button className="btn-primary w-full" type="submit">Create Task</button>
@@ -2566,13 +2558,6 @@ export default function Admin() {
                     <select className="input mb-2" value={selectedAdminTask.status} onChange={(e) => updateTaskStatus(selectedAdminTask, e.target.value as AdminTask["status"])}><option value="pending">Assigned</option><option value="in_progress">In Progress</option><option value="blocked">Need Help</option><option value="done">Completed</option></select>
                     <input className="input" type="number" min="0" max="100" value={selectedAdminTask.progress ?? 0} onChange={(e) => updateTaskProgress(selectedAdminTask, Number(e.target.value))} />
                     <div className="mt-3 h-2 rounded-full bg-slate-100 overflow-hidden"><div className="h-full bg-primary-500" style={{ width: `${selectedAdminTask.progress ?? 0}%` }} /></div>
-                  </Card>
-                  <Card className="p-4">
-                    <p className="text-xs font-bold uppercase tracking-wide text-slate-500 mb-3">Assigned To</p>
-                    <select className="input" value={selectedAdminTask.assigned_to || ""} onChange={(e) => reassignTask(selectedAdminTask, e.target.value)}>
-                      <option value="">Unassigned</option>{team.map((m) => <option key={m.id} value={m.id}>{m.name || m.email}</option>)}
-                    </select>
-                    <p className="text-xs text-slate-400 mt-2">Changing this instantly notifies the new assignee.</p>
                   </Card>
                   <Card className="p-4 space-y-2">
                     <button className="btn-primary w-full" onClick={() => approveTask(selectedAdminTask)}>Approve task</button>
