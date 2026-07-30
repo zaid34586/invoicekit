@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, type ReactNode } from "react";
 import { NavLink, useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
+import LiveChatWidget from "./LiveChatWidget";
 
 function NavItem({
   to,
@@ -259,6 +260,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
 
         <main className="flex-1 min-w-0 p-4 sm:p-6 lg:p-8">{children}</main>
       </div>
+      <LiveChatWidget />
     </div>
   );
 }

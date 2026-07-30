@@ -9,6 +9,8 @@ export interface StaffMember {
   status: "active" | "disabled";
   notes: string | null;
   created_at: string;
+  presence_status?: "online" | "away" | "offline";
+  presence_updated_at?: string | null;
 }
 
 export type StaffPermission =
@@ -38,12 +40,7 @@ export const STAFF_ROLE_PERMISSIONS: Record<StaffRole, StaffPermission[]> = {
   // restricted role than "support": no ticket/support-queue access.
   limited: ["dashboard", "users", "tasks", "communication"],
   support: ["dashboard", "users", "tickets", "tasks", "communication"],
-  // Fix: automation engine (assignment_rules) routes billing/refund tickets
-  // straight to Finance-role staff, but "finance" had no "tickets" permission
-  // -- that staff member got the assignment + notification but the Tickets
-  // page itself said "Access not available". Finance must be able to open
-  // and work the tickets the engine assigns to them.
-  finance: ["dashboard", "finance", "tickets", "reports", "tasks", "communication"],
+  finance: ["dashboard", "finance", "reports", "tasks", "communication"],
   viewer: ["dashboard", "read_only", "reports", "communication"],
 };
 

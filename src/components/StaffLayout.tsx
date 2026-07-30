@@ -38,13 +38,14 @@ export default function StaffLayout({ children }: { children: ReactNode }) {
       const email = user.email?.toLowerCase() ?? "";
       const { data } = await supabase
         .from("admin_team_members")
-        .select("id, auth_user_id, email, name, role, status, notes, created_at")
+        .select("id, auth_user_id, email, name, role, status, notes, created_at, presence_status, presence_updated_at")
         .or(`auth_user_id.eq.${user.id},email.eq.${email}`)
         .maybeSingle();
       if (data?.status !== "active") return;
       const team = data as StaffMember;
       setStaff(team);
       await refreshUnreadCount(team);
+      if (team.presence_status !== "away") await supabase.rpc("update_my_presence", { p_status: "online" });
     }
     loadStaff();
   }, [user]);
@@ -83,6 +84,11 @@ export default function StaffLayout({ children }: { children: ReactNode }) {
     navigate("/staff/login", { replace: true });
   }
 
+  async function setPresence(status: "online" | "away" | "offline") {
+    setStaff((current) => (current ? { ...current, presence_status: status, presence_updated_at: new Date().toISOString() } : current));
+    await supabase.rpc("update_my_presence", { p_status: status });
+  }
+
   const role = staff?.role ?? "viewer";
   const navItems = useMemo(
     () => navBase.filter((item) => ["dashboard", "communication", "notifications", "profile", "settings"].includes(item.key) || hasStaffPermission(role, item.key as any)),
@@ -106,6 +112,25 @@ export default function StaffLayout({ children }: { children: ReactNode }) {
               <div className="mt-2 font-semibold truncate">{staff?.name || user?.email}</div>
               <div className="mt-1 inline-flex rounded-full bg-emerald-400/10 text-emerald-200 border border-emerald-400/20 px-2.5 py-1 text-xs font-semibold">
                 {STAFF_ROLE_LABELS[role]}
+              </div>
+              <div className="mt-3 flex gap-1.5">
+                {(["online", "away", "offline"] as const).map((option) => (
+                  <button
+                    key={option}
+                    onClick={() => void setPresence(option)}
+                    className={`flex-1 rounded-lg px-2 py-1.5 text-[10px] font-bold uppercase tracking-wide transition ${
+                      (staff?.presence_status ?? "offline") === option
+                        ? option === "online"
+                          ? "bg-emerald-500 text-white"
+                          : option === "away"
+                          ? "bg-amber-500 text-white"
+                          : "bg-slate-500 text-white"
+                        : "bg-white/5 text-slate-400 hover:bg-white/10"
+                    }`}
+                  >
+                    {option}
+                  </button>
+                ))}
               </div>
             </div>
           </div>
