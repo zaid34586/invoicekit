@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { supabase } from "../lib/supabase";
+import { deliverPendingWebhooks } from "../lib/webhooks";
 import { useAuth } from "../context/AuthContext";
 import type { Invoice, InvoiceStatus } from "../lib/types";
 import { formatDate, getCountryFlag } from "../lib/constants";
@@ -77,6 +78,7 @@ export default function InvoicePreview() {
 
     if (data) {
       setInvoice(data as Invoice);
+      deliverPendingWebhooks();
     }
   }
 
@@ -140,6 +142,7 @@ export default function InvoicePreview() {
       .delete()
       .eq("id", invoice.id);
     if (!error) {
+      deliverPendingWebhooks();
       navigate("/invoices");
     }
   }

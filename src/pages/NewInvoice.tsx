@@ -2,6 +2,7 @@ import { getExchangeRate } from "../lib/exchangeRate";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { supabase } from "../lib/supabase";
+import { deliverPendingWebhooks } from "../lib/webhooks";
 import { useAuth } from "../context/AuthContext";
 import { useUpgrade } from "../context/UpgradeContext";
 import type { LineItem, Client, InvoiceStatus } from "../lib/types";
@@ -454,7 +455,7 @@ export default function NewInvoice() {
       return;
     }
 
-    {
+    if (!isEditMode) {
       const { data: existingClient } = await supabase
         .from("clients")
         .select("id")
@@ -462,63 +463,25 @@ export default function NewInvoice() {
         .ilike("name", clientName.trim())
         .maybeSingle();
 
-      const clientFields = {
-        name: clientName.trim(),
-        phone: clientPhone.trim() || null,
-        email: clientEmail.trim() || null,
-        address: clientAddress.trim() || null,
-        state: clientState || null,
-        gstin: clientGstin.trim().toUpperCase() || null,
-        country: clientCountry,
-        country_code: clientCountryCode,
-      };
-
-      if (existingClient) {
-        // Bug fix: previously nothing happened here for an existing client —
-        // any VAT number / tax code / phone / address typed or edited while
-        // creating or editing an invoice was discarded instead of being
-        // saved back, so the same details had to be re-typed every time
-        // this client was selected again on a future invoice.
-        await supabase
-          .from("clients")
-          .update(clientFields)
-          .eq("id", existingClient.id)
-          .eq("user_id", workspaceOwnerId || user.id);
-      } else {
+      if (!existingClient) {
         await supabase.from("clients").insert({
           user_id: workspaceOwnerId || user.id,
-          ...clientFields,
+          name: clientName.trim(),
+          phone: clientPhone.trim() || null,
+          email: clientEmail.trim() || null,
+          address: clientAddress.trim() || null,
+          state: clientState || null,
+          gstin: clientGstin.trim().toUpperCase() || null,
+          country: clientCountry,
+          country_code: clientCountryCode,
         });
       }
     }
 
-    if (!isEditMode && data) {
-      try {
-        const { data: deliveryIds } = await supabase.rpc("dispatch_webhook_event", {
-          p_event_type: "invoice.created",
-          p_payload: {
-            id: data.id,
-            invoice_number: data.invoice_number,
-            client_name: data.client_name,
-            total: data.total,
-            currency: data.invoice_currency,
-            status: data.status,
-          },
-        });
-        // Fire the real HTTP delivery immediately for each webhook that
-        // matched, instead of leaving it stuck at "pending" until a human
-        // clicks Retry.
-        for (const deliveryId of (deliveryIds as string[] | null) ?? []) {
-          void supabase.functions.invoke("business-webhooks", {
-            body: { deliveryId },
-          });
-        }
-      } catch {
-        // Webhook delivery is best-effort — never block saving the invoice.
-      }
+    if (data) {
+      deliverPendingWebhooks();
+      navigate(`/invoice/${data.id}`);
     }
-
-    if (data) navigate(`/invoice/${data.id}`);
   }
 
   if (sourceLoading) {

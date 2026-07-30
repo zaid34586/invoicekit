@@ -1,12 +1,12 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { supabase } from "../lib/supabase";
+import { deliverPendingWebhooks } from "../lib/webhooks";
 import { useAuth } from "../context/AuthContext";
 import type { Client, Invoice } from "../lib/types";
 import { INDIAN_STATES, formatDate, COUNTRIES as ALL_COUNTRIES } from "../lib/constants";
 import CountrySelect from "../components/CountrySelect";
 import { formatMoney } from "../lib/currency";
 import StatusBadge from "../components/StatusBadge";
-import { getTaxLabel } from "../lib/international";
 
 // Previously a hand-maintained duplicate of constants.ts's COUNTRIES list —
 // kept its own copy of every name/dial-code pair, so any future edit to the
@@ -333,6 +333,7 @@ export default function Clients() {
       setClients((prev) =>
         prev.map((c) => (c.id === editingId ? (data as Client) : c))
       );
+      deliverPendingWebhooks();
     } else {
       const { data, error } = await supabase
         .from("clients")
@@ -349,6 +350,7 @@ export default function Clients() {
         return;
       }
       setClients((prev) => [data as Client, ...prev]);
+      deliverPendingWebhooks();
     }
     setShowForm(false);
   }
@@ -587,24 +589,19 @@ export default function Clients() {
                 </div>
               </div>
 
-              <div>
-                <label className="label">
-                  {getTaxLabel(form.country)}
-                  {form.country !== "India" && (
-                    <span className="text-slate-400 font-normal"> (optional)</span>
-                  )}
-                </label>
-                <input
-                  value={form.gstin}
-                  onChange={(e) =>
-                    setForm({ ...form, gstin: e.target.value.toUpperCase() })
-                  }
-                  className="input"
-                  placeholder={
-                    form.country === "India" ? "22AAAAA0000A1Z5" : getTaxLabel(form.country)
-                  }
-                />
-              </div>
+              {form.country === "India" && (
+                <div>
+                  <label className="label">GSTIN</label>
+                  <input
+                    value={form.gstin}
+                    onChange={(e) =>
+                      setForm({ ...form, gstin: e.target.value.toUpperCase() })
+                    }
+                    className="input"
+                    placeholder="22AAAAA0000A1Z5"
+                  />
+                </div>
+              )}
 
               <div>
                 <label className="label">Address</label>
@@ -692,7 +689,7 @@ export default function Clients() {
                   )}
                   {client.gstin && (
                     <p className="text-xs text-slate-500 mt-0.5">
-                      {getTaxLabel(client.country)}: {client.gstin}
+                      {client.country === "India" ? "GSTIN" : "Tax ID"}: {client.gstin}
                     </p>
                   )}
                   </div>
