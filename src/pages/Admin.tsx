@@ -73,6 +73,8 @@ type AdminTask = {
   staff_notes?: string | null;
   last_staff_update?: string | null;
   completed_at?: string | null;
+  origin?: "manual" | "auto" | "chat" | null;
+  rule_id?: string | null;
   created_at: string;
 };
 
@@ -1948,7 +1950,7 @@ export default function Admin() {
                         {tasks.filter((t) => t.status === status).map((task) => (
                           <div key={task.id} className="rounded-xl bg-white border border-slate-100 p-3 hover:shadow-md transition">
                             <button className="w-full text-left" onClick={() => { setSelectedAdminTaskId(task.id); setAdminTaskNote(""); }}>
-                              <p className="font-semibold text-sm text-slate-900">{task.title}</p>
+                              <p className="font-semibold text-sm text-slate-900 flex items-center gap-1.5">{task.title}{task.origin === "auto" && <span className="rounded-full bg-indigo-100 px-1.5 py-0.5 text-[9px] font-black text-indigo-600" title="Auto-assigned by the automation engine">⚙️ Auto</span>}</p>
                               <p className="text-xs text-slate-500 mt-1 capitalize">{task.department || "general"} · {task.priority} {task.due_date ? `· Due ${task.due_date}` : ""}</p>
                               {task.staff_notes && <p className="text-xs text-blue-700 bg-blue-50 border border-blue-100 rounded-lg p-2 mt-2 line-clamp-2">Staff update: {task.staff_notes}</p>}
                               <div className="mt-3 h-2 rounded-full bg-slate-100 overflow-hidden"><div className="h-full bg-primary-500" style={{ width: `${task.progress ?? 0}%` }} /></div>
