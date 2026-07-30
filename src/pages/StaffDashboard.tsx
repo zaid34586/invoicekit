@@ -7,7 +7,7 @@ import CommunicationCenter from "../components/CommunicationCenter";
 interface TaskRow { id: string; title: string; description?: string | null; status: string; priority: string; due_date: string | null; progress?: number | null; staff_notes?: string | null; internal_notes?: string | null; department?: string | null; last_staff_update?: string | null; }
 interface TicketRow { id: string; ticket_number?: string | null; subject: string; message?: string | null; status: string; priority: string; created_at: string; staff_notes?: string | null; sla_target_minutes?: number | null; first_admin_reply_at?: string | null; assigned_to?: string | null; }
 interface FinanceRow { id: string; type: string; source: string; amount: number; currency: string; status: string; title: string; }
-interface NotificationRow { id: string; title: string; body: string | null; type: string; read_at: string | null; created_at: string; }
+interface NotificationRow { id: string; title: string; body: string | null; type: string; read_at: string | null; created_at: string; metadata?: { task_id?: string; ticket_id?: string } | null; }
 
 const taskStatuses = ["pending", "in_progress", "blocked", "done"];
 const ticketStatuses = ["open", "in_progress", "waiting_customer", "pending", "resolved", "closed"];
@@ -137,7 +137,7 @@ export default function StaffDashboard() {
 
     const { data: notificationData } = await supabase
       .from("notifications")
-      .select("id, title, body, type, read_at, created_at")
+      .select("id, title, body, type, read_at, created_at, metadata")
       .is("read_at", null)
       .or(`recipient_team_member_id.eq.${team.id},role.eq.${team.role},audience.eq.staff,audience.eq.all`)
       .order("created_at", { ascending: false })
@@ -412,7 +412,7 @@ export default function StaffDashboard() {
 
   function NotificationsPage() {
     return <Section title="Notifications" subtitle="Unread role and task updates." actions={notifications.length > 0 && <button onClick={markAllNotificationsRead} className="rounded-2xl bg-slate-950 text-white px-4 py-2 text-sm font-bold">Mark all read</button>}>
-      <div className="divide-y divide-slate-100">{notifications.length === 0 ? <div className="p-10 text-center text-slate-500">No unread notifications.</div> : notifications.map(n => <div key={n.id} className="p-5 flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4"><div><div className="font-black text-slate-950">{n.title}</div>{n.body && <div className="text-sm text-slate-500 mt-1">{n.body}</div>}<div className="text-xs text-slate-400 mt-2">{new Date(n.created_at).toLocaleString()} • {n.type.replace("_", " ")}</div></div><button onClick={() => markNotificationRead(n.id)} className="rounded-2xl border border-slate-200 px-4 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50">Mark read</button></div>)}</div>
+      <div className="divide-y divide-slate-100">{notifications.length === 0 ? <div className="p-10 text-center text-slate-500">No unread notifications.</div> : notifications.map(n => <div key={n.id} className="p-5 flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4 hover:bg-slate-50 cursor-pointer" onClick={() => { markNotificationRead(n.id); if (n.metadata?.task_id || n.type === "task_assigned") { window.location.hash = "tasks"; } else if (n.metadata?.ticket_id || n.type === "ticket_assigned") { window.location.hash = "tickets"; } }}><div><div className="font-black text-slate-950">{n.title}</div>{n.body && <div className="text-sm text-slate-500 mt-1">{n.body}</div>}<div className="text-xs text-slate-400 mt-2">{new Date(n.created_at).toLocaleString()} • {n.type.replace("_", " ")}</div></div><button onClick={(e) => { e.stopPropagation(); markNotificationRead(n.id); }} className="rounded-2xl border border-slate-200 px-4 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50">Mark read</button></div>)}</div>
     </Section>;
   }
 

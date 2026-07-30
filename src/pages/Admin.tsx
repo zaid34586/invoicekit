@@ -5,7 +5,6 @@ import { useAuth } from "../context/AuthContext";
 import { ADMIN_EMAIL, FREE_PLAN_LIMIT, formatDate } from "../lib/constants";
 import { formatMoney } from "../lib/currency";
 import type { Profile, Invoice, Client } from "../lib/types";
-import { STAFF_ROLE_PERMISSIONS, STAFF_ROLE_LABELS, STAFF_PERMISSION_LABELS } from "../lib/staffPermissions";
 import StatusBadge from "../components/StatusBadge";
 import AdminSubscriptionManager from "../components/AdminSubscriptionManager";
 import CommunicationCenter from "../components/CommunicationCenter";
@@ -191,22 +190,21 @@ function cx(...classes: Array<string | false | null | undefined>) {
 }
 
 
-// Fix: previously this was a hand-written list ("Invoice Balance", "Team",
-// "Invoices", "Analytics", "Audit", "Settings", etc.) that had nothing to do
-// with what the staff portal actually shows for each role — an admin could
-// see "Full Access grants Analytics + Audit + Settings" here while the real
-// staff dashboard only ever exposed Dashboard/Users/Support/Tasks/Finance/
-// Reports/Communication. Deriving both from STAFF_ROLE_PERMISSIONS (the same
-// source src/pages/StaffDashboard.tsx and StaffLayout.tsx read from) means
-// this preview can never drift out of sync with reality again.
-const roleLabels: Record<AdminTeamMember["role"], string> = STAFF_ROLE_LABELS;
+const roleLabels: Record<AdminTeamMember["role"], string> = {
+  full_access: "Full Access",
+  limited: "Limited",
+  support: "Support",
+  finance: "Finance",
+  viewer: "Viewer",
+};
 
-const roleAccess: Record<AdminTeamMember["role"], string[]> = Object.fromEntries(
-  Object.entries(STAFF_ROLE_PERMISSIONS).map(([role, perms]) => [
-    role,
-    perms.map((p) => STAFF_PERMISSION_LABELS[p]),
-  ])
-) as Record<AdminTeamMember["role"], string[]>;
+const roleAccess: Record<AdminTeamMember["role"], string[]> = {
+  full_access: ["Dashboard", "Users", "Invoice Balance", "Team", "Tasks", "Finance", "Invoices", "Analytics", "Support", "Audit", "Settings"],
+  limited: ["Dashboard", "Users", "Tasks"],
+  support: ["Users", "Support", "Tasks"],
+  finance: ["Finance", "Invoices", "Analytics"],
+  viewer: ["Dashboard", "Users", "Invoices", "Analytics"],
+};
 
 function generatePassword() {
   const part = Math.random().toString(36).slice(2, 8);
@@ -703,7 +701,7 @@ export default function Admin() {
   }
 
   function exportUsersCsv() {
-    const headers = ["Business", "Email", "Country", "Phone", "GSTIN", "Plan", "Invoice Balance", "Banned", "Invoices", "Joined"];
+    const headers = ["Business", "Email", "Country", "Phone", "Tax ID", "Plan", "Invoice Balance", "Banned", "Invoices", "Joined"];
     const rows = paginatedProfiles.map((p) => {
       const authId = p.user_id || p.id;
       const values = [
@@ -965,12 +963,32 @@ export default function Admin() {
 
   async function resetTeamTempPassword(member: AdminTeamMember) {
     const password = window.prompt(`New temporary password for ${member.email}`, generatePassword());
-    if (!password || password.length < 6) return;
-    const { error: updateError } = await supabase.from("admin_team_members").update({ temporary_password: password }).eq("id", member.id);
-    if (updateError) return setError(updateError.message);
-    await logAction("reset_team_temp_password", "admin_team_members", member.id, { email: member.email });
-    setNotice("Temporary password saved in team record. Real Auth password reset ke liye Supabase Auth/Edge Function update needed hoga.");
-    await load();
+    if (!password || password.length < 8) {
+      if (password) setError("Password minimum 8 characters hona chahiye.");
+      return;
+    }
+    if (!member.auth_user_id) {
+      setError("Ye staff ne abhi tak invite accept nahi kiya (koi Auth account linked nahi hai), isliye login password reset nahi ho sakta. Pehle unhe invite accept karwao.");
+      return;
+    }
+    try {
+      // Bug fix: this used to only write to the admin_team_members.temporary_password
+      // display column, never the real Supabase Auth password — so the staff
+      // member's actual login credential never changed and the "new" password
+      // always failed with "Invalid login credentials". Now it goes through the
+      // same admin-user-actions edge function already used to reset customer
+      // passwords, which really updates Supabase Auth via the service role.
+      await invokeAdminUserAction("reset_password", {
+        user_id: member.auth_user_id,
+        password,
+      });
+      await supabase.from("admin_team_members").update({ temporary_password: password }).eq("id", member.id);
+      await logAction("reset_team_temp_password", "admin_team_members", member.id, { email: member.email });
+      setNotice("Password reset ho gaya — staff ab isi naye password se turant login kar sakta hai.");
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Password reset failed. Edge Function deploy check karo.");
+    }
   }
 
   async function deleteTeamMember(member: AdminTeamMember) {
@@ -986,7 +1004,7 @@ export default function Admin() {
 
   async function handleAddTask(e: React.FormEvent) {
     e.preventDefault();
-    const { error: insertError } = await supabase.from("admin_tasks").insert({
+    const { data: created, error: insertError } = await supabase.from("admin_tasks").insert({
       title: taskForm.title,
       description: taskForm.description || null,
       assigned_to: taskForm.assigned_to || null,
@@ -996,25 +1014,38 @@ export default function Admin() {
       progress: 0,
       due_date: taskForm.due_date || null,
       created_by: user?.id ?? null,
-    });
+    }).select("id").single();
     if (insertError) return setError(insertError.message);
     await logAction("create_task", "admin_tasks", taskForm.title);
-    // Fix: assigning a task to a staff member never actually notified them —
-    // it silently sat in admin_tasks with no row in `notifications` at all,
-    // so the staff portal (even with realtime+sound now working) had nothing
-    // to alert on. This is the missing piece.
-    if (taskForm.assigned_to) {
+    if (taskForm.assigned_to && created) {
       await supabase.from("notifications").insert({
         audience: "staff",
         recipient_team_member_id: taskForm.assigned_to,
         type: "task_assigned",
         title: "New task assigned to you",
-        body: `${taskForm.title}${taskForm.due_date ? ` — due ${taskForm.due_date}` : ""}`,
-        metadata: { priority: taskForm.priority, department: taskForm.department },
+        body: taskForm.title,
+        metadata: { task_id: created.id },
       });
     }
     setTaskForm({ title: "", description: "", assigned_to: "", department: "general", priority: "medium", due_date: "" });
     setNotice("Task created.");
+    await load();
+  }
+
+  async function reassignTask(task: AdminTask, assigned_to: string) {
+    const { error: updateError } = await supabase.from("admin_tasks").update({ assigned_to: assigned_to || null }).eq("id", task.id);
+    if (updateError) return setError(updateError.message);
+    await logAction("reassign_task", "admin_tasks", task.id, { assigned_to: assigned_to || null });
+    if (assigned_to) {
+      await supabase.from("notifications").insert({
+        audience: "staff",
+        recipient_team_member_id: assigned_to,
+        type: "task_assigned",
+        title: "Task assigned to you",
+        body: task.title,
+        metadata: { task_id: task.id },
+      });
+    }
     await load();
   }
 
@@ -1032,27 +1063,6 @@ export default function Admin() {
     const { error: updateError } = await supabase.from("admin_tasks").update({ progress: cleanProgress, status: nextStatus }).eq("id", task.id);
     if (updateError) return setError(updateError.message);
     await logAction("update_task_progress", "admin_tasks", task.id, { progress: cleanProgress });
-    await load();
-  }
-
-  // Fix: there was previously no way to change who a task is assigned to
-  // once created (tickets already had this via updateTicketAssignment,
-  // tasks didn't) — this was the "task assignment is confusing" gap.
-  async function reassignTask(task: AdminTask, assigned_to: string) {
-    const { error: updateError } = await supabase.from("admin_tasks").update({ assigned_to: assigned_to || null }).eq("id", task.id);
-    if (updateError) return setError(updateError.message);
-    await logAction("reassign_task", "admin_tasks", task.id, { assigned_to: assigned_to || null });
-    if (assigned_to && assigned_to !== task.assigned_to) {
-      await supabase.from("notifications").insert({
-        audience: "staff",
-        recipient_team_member_id: assigned_to,
-        type: "task_assigned",
-        title: "Task assigned to you",
-        body: task.title,
-        metadata: { task_id: task.id, priority: task.priority },
-      });
-    }
-    setNotice("Task reassigned.");
     await load();
   }
 
@@ -1093,7 +1103,7 @@ export default function Admin() {
 
   async function handleCreateSupportTicket(e: React.FormEvent) {
     e.preventDefault();
-    const { data: createdTicket, error: insertError } = await supabase.from("admin_support_tickets").insert({
+    const { error: insertError } = await supabase.from("admin_support_tickets").insert({
       user_id: supportForm.user_id || null,
       subject: supportForm.subject,
       message: supportForm.message || null,
@@ -1101,21 +1111,9 @@ export default function Admin() {
       assigned_to: supportForm.assigned_to || null,
       internal_notes: supportForm.internal_notes || null,
       status: "open",
-    }).select("id").single();
+    });
     if (insertError) return setError(insertError.message);
     await logAction("create_support_ticket", "admin_support_tickets", supportForm.subject, { priority: supportForm.priority });
-    // Fix: same missing-notification gap as tasks — a ticket assigned right
-    // at creation never told the assignee either.
-    if (supportForm.assigned_to) {
-      await supabase.from("notifications").insert({
-        audience: "staff",
-        recipient_team_member_id: supportForm.assigned_to,
-        type: "ticket_assigned",
-        title: "Support ticket assigned to you",
-        body: supportForm.subject,
-        metadata: { ticket_id: createdTicket?.id, priority: supportForm.priority },
-      });
-    }
     setSupportForm({ user_id: "", subject: "", message: "", priority: "medium", assigned_to: "", internal_notes: "" });
     setNotice("Support ticket created.");
     await load();
@@ -1132,18 +1130,14 @@ export default function Admin() {
     const { error: updateError } = await supabase.from("admin_support_tickets").update({ assigned_to: assigned_to || null }).eq("id", ticket.id);
     if (updateError) return setError(updateError.message);
     await logAction("assign_ticket", "admin_support_tickets", ticket.id, { assigned_to: assigned_to || null });
-    // Fix: this is the core "assigning a ticket doesn't do anything" bug —
-    // reassigning an EXISTING ticket updated the database row but never
-    // notified the newly-assigned staff member. Only notify when there's an
-    // actual new assignee and it's different from who had it before.
-    if (assigned_to && assigned_to !== ticket.assigned_to) {
+    if (assigned_to) {
       await supabase.from("notifications").insert({
         audience: "staff",
         recipient_team_member_id: assigned_to,
         type: "ticket_assigned",
         title: "Support ticket assigned to you",
         body: ticket.subject,
-        metadata: { ticket_id: ticket.id, priority: ticket.priority },
+        metadata: { ticket_id: ticket.id },
       });
     }
     await load();
@@ -1549,7 +1543,7 @@ export default function Admin() {
                     <button className="btn-secondary text-sm" onClick={exportUsersCsv}>Export CSV</button>
                   </div>
                   <div className="grid md:grid-cols-[1fr_160px_180px] gap-3">
-                    <input className="input" placeholder="Search business, email, phone, GSTIN, country..." value={userSearch} onChange={(e) => setUserSearch(e.target.value)} />
+                    <input className="input" placeholder="Search business, email, phone, tax ID, country..." value={userSearch} onChange={(e) => setUserSearch(e.target.value)} />
                     <select className="input" value={userFilter} onChange={(e) => setUserFilter(e.target.value as typeof userFilter)}>
                       <option value="all">All users</option>
                       <option value="active">Active only</option>
@@ -1633,7 +1627,7 @@ export default function Admin() {
                     <div className="grid grid-cols-2 gap-3 text-sm">
                       <Info label="Country" value={selectedUser.country || "—"} />
                       <Info label="Phone" value={selectedUser.phone || "—"} />
-                      <Info label="GSTIN" value={selectedUser.gstin || "—"} />
+                      <Info label="Tax ID" value={selectedUser.gstin || "—"} />
                       <Info label="Currency" value={selectedUser.currency || "—"} />
                       <Info label="Invoices" value={String(selectedUserInvoices.length)} />
                       <Info label="Clients" value={String(selectedUserClients.length)} />
@@ -2576,10 +2570,9 @@ export default function Admin() {
                   <Card className="p-4">
                     <p className="text-xs font-bold uppercase tracking-wide text-slate-500 mb-3">Assigned To</p>
                     <select className="input" value={selectedAdminTask.assigned_to || ""} onChange={(e) => reassignTask(selectedAdminTask, e.target.value)}>
-                      <option value="">Unassigned</option>
-                      {team.map((m) => <option key={m.id} value={m.id}>{m.name || m.email}</option>)}
+                      <option value="">Unassigned</option>{team.map((m) => <option key={m.id} value={m.id}>{m.name || m.email}</option>)}
                     </select>
-                    <p className="text-xs text-slate-400 mt-2">Reassigning notifies the new staff member instantly.</p>
+                    <p className="text-xs text-slate-400 mt-2">Changing this instantly notifies the new assignee.</p>
                   </Card>
                   <Card className="p-4 space-y-2">
                     <button className="btn-primary w-full" onClick={() => approveTask(selectedAdminTask)}>Approve task</button>
