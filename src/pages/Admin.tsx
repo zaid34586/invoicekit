@@ -999,6 +999,20 @@ export default function Admin() {
     });
     if (insertError) return setError(insertError.message);
     await logAction("create_task", "admin_tasks", taskForm.title);
+    // Fix: assigning a task to a staff member never actually notified them —
+    // it silently sat in admin_tasks with no row in `notifications` at all,
+    // so the staff portal (even with realtime+sound now working) had nothing
+    // to alert on. This is the missing piece.
+    if (taskForm.assigned_to) {
+      await supabase.from("notifications").insert({
+        audience: "staff",
+        recipient_team_member_id: taskForm.assigned_to,
+        type: "task_assigned",
+        title: "New task assigned to you",
+        body: `${taskForm.title}${taskForm.due_date ? ` — due ${taskForm.due_date}` : ""}`,
+        metadata: { priority: taskForm.priority, department: taskForm.department },
+      });
+    }
     setTaskForm({ title: "", description: "", assigned_to: "", department: "general", priority: "medium", due_date: "" });
     setNotice("Task created.");
     await load();
@@ -1018,6 +1032,27 @@ export default function Admin() {
     const { error: updateError } = await supabase.from("admin_tasks").update({ progress: cleanProgress, status: nextStatus }).eq("id", task.id);
     if (updateError) return setError(updateError.message);
     await logAction("update_task_progress", "admin_tasks", task.id, { progress: cleanProgress });
+    await load();
+  }
+
+  // Fix: there was previously no way to change who a task is assigned to
+  // once created (tickets already had this via updateTicketAssignment,
+  // tasks didn't) — this was the "task assignment is confusing" gap.
+  async function reassignTask(task: AdminTask, assigned_to: string) {
+    const { error: updateError } = await supabase.from("admin_tasks").update({ assigned_to: assigned_to || null }).eq("id", task.id);
+    if (updateError) return setError(updateError.message);
+    await logAction("reassign_task", "admin_tasks", task.id, { assigned_to: assigned_to || null });
+    if (assigned_to && assigned_to !== task.assigned_to) {
+      await supabase.from("notifications").insert({
+        audience: "staff",
+        recipient_team_member_id: assigned_to,
+        type: "task_assigned",
+        title: "Task assigned to you",
+        body: task.title,
+        metadata: { task_id: task.id, priority: task.priority },
+      });
+    }
+    setNotice("Task reassigned.");
     await load();
   }
 
@@ -1058,7 +1093,7 @@ export default function Admin() {
 
   async function handleCreateSupportTicket(e: React.FormEvent) {
     e.preventDefault();
-    const { error: insertError } = await supabase.from("admin_support_tickets").insert({
+    const { data: createdTicket, error: insertError } = await supabase.from("admin_support_tickets").insert({
       user_id: supportForm.user_id || null,
       subject: supportForm.subject,
       message: supportForm.message || null,
@@ -1066,9 +1101,21 @@ export default function Admin() {
       assigned_to: supportForm.assigned_to || null,
       internal_notes: supportForm.internal_notes || null,
       status: "open",
-    });
+    }).select("id").single();
     if (insertError) return setError(insertError.message);
     await logAction("create_support_ticket", "admin_support_tickets", supportForm.subject, { priority: supportForm.priority });
+    // Fix: same missing-notification gap as tasks — a ticket assigned right
+    // at creation never told the assignee either.
+    if (supportForm.assigned_to) {
+      await supabase.from("notifications").insert({
+        audience: "staff",
+        recipient_team_member_id: supportForm.assigned_to,
+        type: "ticket_assigned",
+        title: "Support ticket assigned to you",
+        body: supportForm.subject,
+        metadata: { ticket_id: createdTicket?.id, priority: supportForm.priority },
+      });
+    }
     setSupportForm({ user_id: "", subject: "", message: "", priority: "medium", assigned_to: "", internal_notes: "" });
     setNotice("Support ticket created.");
     await load();
@@ -1085,6 +1132,20 @@ export default function Admin() {
     const { error: updateError } = await supabase.from("admin_support_tickets").update({ assigned_to: assigned_to || null }).eq("id", ticket.id);
     if (updateError) return setError(updateError.message);
     await logAction("assign_ticket", "admin_support_tickets", ticket.id, { assigned_to: assigned_to || null });
+    // Fix: this is the core "assigning a ticket doesn't do anything" bug —
+    // reassigning an EXISTING ticket updated the database row but never
+    // notified the newly-assigned staff member. Only notify when there's an
+    // actual new assignee and it's different from who had it before.
+    if (assigned_to && assigned_to !== ticket.assigned_to) {
+      await supabase.from("notifications").insert({
+        audience: "staff",
+        recipient_team_member_id: assigned_to,
+        type: "ticket_assigned",
+        title: "Support ticket assigned to you",
+        body: ticket.subject,
+        metadata: { ticket_id: ticket.id, priority: ticket.priority },
+      });
+    }
     await load();
   }
 
@@ -2511,6 +2572,14 @@ export default function Admin() {
                     <select className="input mb-2" value={selectedAdminTask.status} onChange={(e) => updateTaskStatus(selectedAdminTask, e.target.value as AdminTask["status"])}><option value="pending">Assigned</option><option value="in_progress">In Progress</option><option value="blocked">Need Help</option><option value="done">Completed</option></select>
                     <input className="input" type="number" min="0" max="100" value={selectedAdminTask.progress ?? 0} onChange={(e) => updateTaskProgress(selectedAdminTask, Number(e.target.value))} />
                     <div className="mt-3 h-2 rounded-full bg-slate-100 overflow-hidden"><div className="h-full bg-primary-500" style={{ width: `${selectedAdminTask.progress ?? 0}%` }} /></div>
+                  </Card>
+                  <Card className="p-4">
+                    <p className="text-xs font-bold uppercase tracking-wide text-slate-500 mb-3">Assigned To</p>
+                    <select className="input" value={selectedAdminTask.assigned_to || ""} onChange={(e) => reassignTask(selectedAdminTask, e.target.value)}>
+                      <option value="">Unassigned</option>
+                      {team.map((m) => <option key={m.id} value={m.id}>{m.name || m.email}</option>)}
+                    </select>
+                    <p className="text-xs text-slate-400 mt-2">Reassigning notifies the new staff member instantly.</p>
                   </Card>
                   <Card className="p-4 space-y-2">
                     <button className="btn-primary w-full" onClick={() => approveTask(selectedAdminTask)}>Approve task</button>
