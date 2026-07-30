@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { supabase } from "../lib/supabase";
 import { hasStaffPermission, STAFF_ROLE_LABELS, type StaffMember } from "../lib/staffPermissions";
+import { playNotificationSound } from "../lib/notifySound";
 import RivoxLogo from "./RivoxLogo";
 
 const navBase = [
@@ -23,6 +24,7 @@ export default function StaffLayout({ children }: { children: ReactNode }) {
   const navigate = useNavigate();
   const [staff, setStaff] = useState<StaffMember | null>(null);
   const [unreadCount, setUnreadCount] = useState(0);
+  const [bellPulse, setBellPulse] = useState(false);
   const [active, setActive] = useState(() => window.location.hash.replace("#", "") || "dashboard");
 
   useEffect(() => {
@@ -53,6 +55,37 @@ export default function StaffLayout({ children }: { children: ReactNode }) {
     }
     loadStaff();
   }, [user]);
+
+  // Fix: notifications previously only ever loaded once (on page load) with
+  // no live updates and no sound — a new task/ticket assignment sat invisible
+  // until the staff member manually refreshed. This subscribes to inserts on
+  // the notifications table (same Realtime approach already used for chat in
+  // CommunicationCenter.tsx) so the badge updates instantly and plays a sound.
+  useEffect(() => {
+    if (!staff) return;
+    const matchesStaff = (row: any) =>
+      row.recipient_team_member_id === staff.id ||
+      row.role === staff.role ||
+      row.audience === "staff" ||
+      row.audience === "all";
+
+    const realtime = supabase
+      .channel(`rivox-staff-notifications:${staff.id}`)
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "notifications" },
+        (payload) => {
+          const row = payload.new as any;
+          if (!matchesStaff(row)) return;
+          setUnreadCount((current) => current + 1);
+          playNotificationSound();
+          setBellPulse(true);
+          window.setTimeout(() => setBellPulse(false), 1200);
+        },
+      )
+      .subscribe();
+    return () => { void supabase.removeChannel(realtime); };
+  }, [staff]);
 
   async function handleSignOut() {
     await signOut();
@@ -116,7 +149,7 @@ export default function StaffLayout({ children }: { children: ReactNode }) {
                 <div className="font-semibold text-slate-950 capitalize">{active.replace("_", " ")}</div>
               </div>
               <div className="flex items-center gap-3">
-                <a href="#notifications" className="relative rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">
+                <a href="#notifications" className={`relative rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 transition ${bellPulse ? "animate-bounce ring-2 ring-amber-400" : ""}`}>
                   🔔
                   {unreadCount > 0 && <span className="absolute -top-2 -right-2 rounded-full bg-red-500 text-white text-[10px] min-w-5 h-5 flex items-center justify-center px-1">{unreadCount}</span>}
                 </a>

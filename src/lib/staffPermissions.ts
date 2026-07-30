@@ -31,10 +31,26 @@ export const STAFF_ROLE_LABELS: Record<StaffRole, string> = {
 
 export const STAFF_ROLE_PERMISSIONS: Record<StaffRole, StaffPermission[]> = {
   full_access: ["dashboard", "users", "tickets", "tasks", "finance", "reports", "communication"],
-  limited: ["dashboard", "users", "tickets", "tasks", "communication"],
+  // Fix: "limited" previously had the exact same permissions as "support"
+  // (dashboard, users, tickets, tasks, communication) — the two roles looked
+  // and behaved identically in the staff portal, which is what looked like a
+  // bug to a tester comparing them side by side. "limited" should be a more
+  // restricted role than "support": no ticket/support-queue access.
+  limited: ["dashboard", "users", "tasks", "communication"],
   support: ["dashboard", "users", "tickets", "tasks", "communication"],
   finance: ["dashboard", "finance", "reports", "tasks", "communication"],
   viewer: ["dashboard", "read_only", "reports", "communication"],
+};
+
+export const STAFF_PERMISSION_LABELS: Record<StaffPermission, string> = {
+  dashboard: "Dashboard",
+  users: "Users",
+  tickets: "Support Tickets",
+  tasks: "Tasks",
+  finance: "Finance",
+  reports: "Reports",
+  communication: "Communication",
+  read_only: "Read-only Access",
 };
 
 export function hasStaffPermission(role: StaffRole | null | undefined, permission: StaffPermission) {

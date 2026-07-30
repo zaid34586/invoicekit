@@ -5,6 +5,7 @@ import { useAuth } from "../context/AuthContext";
 import { ADMIN_EMAIL, FREE_PLAN_LIMIT, formatDate } from "../lib/constants";
 import { formatMoney } from "../lib/currency";
 import type { Profile, Invoice, Client } from "../lib/types";
+import { STAFF_ROLE_PERMISSIONS, STAFF_ROLE_LABELS, STAFF_PERMISSION_LABELS } from "../lib/staffPermissions";
 import StatusBadge from "../components/StatusBadge";
 import AdminSubscriptionManager from "../components/AdminSubscriptionManager";
 import CommunicationCenter from "../components/CommunicationCenter";
@@ -190,21 +191,22 @@ function cx(...classes: Array<string | false | null | undefined>) {
 }
 
 
-const roleLabels: Record<AdminTeamMember["role"], string> = {
-  full_access: "Full Access",
-  limited: "Limited",
-  support: "Support",
-  finance: "Finance",
-  viewer: "Viewer",
-};
+// Fix: previously this was a hand-written list ("Invoice Balance", "Team",
+// "Invoices", "Analytics", "Audit", "Settings", etc.) that had nothing to do
+// with what the staff portal actually shows for each role — an admin could
+// see "Full Access grants Analytics + Audit + Settings" here while the real
+// staff dashboard only ever exposed Dashboard/Users/Support/Tasks/Finance/
+// Reports/Communication. Deriving both from STAFF_ROLE_PERMISSIONS (the same
+// source src/pages/StaffDashboard.tsx and StaffLayout.tsx read from) means
+// this preview can never drift out of sync with reality again.
+const roleLabels: Record<AdminTeamMember["role"], string> = STAFF_ROLE_LABELS;
 
-const roleAccess: Record<AdminTeamMember["role"], string[]> = {
-  full_access: ["Dashboard", "Users", "Invoice Balance", "Team", "Tasks", "Finance", "Invoices", "Analytics", "Support", "Audit", "Settings"],
-  limited: ["Dashboard", "Users", "Tasks"],
-  support: ["Users", "Support", "Tasks"],
-  finance: ["Finance", "Invoices", "Analytics"],
-  viewer: ["Dashboard", "Users", "Invoices", "Analytics"],
-};
+const roleAccess: Record<AdminTeamMember["role"], string[]> = Object.fromEntries(
+  Object.entries(STAFF_ROLE_PERMISSIONS).map(([role, perms]) => [
+    role,
+    perms.map((p) => STAFF_PERMISSION_LABELS[p]),
+  ])
+) as Record<AdminTeamMember["role"], string[]>;
 
 function generatePassword() {
   const part = Math.random().toString(36).slice(2, 8);
@@ -701,7 +703,7 @@ export default function Admin() {
   }
 
   function exportUsersCsv() {
-    const headers = ["Business", "Email", "Country", "Phone", "Tax ID", "Plan", "Invoice Balance", "Banned", "Invoices", "Joined"];
+    const headers = ["Business", "Email", "Country", "Phone", "GSTIN", "Plan", "Invoice Balance", "Banned", "Invoices", "Joined"];
     const rows = paginatedProfiles.map((p) => {
       const authId = p.user_id || p.id;
       const values = [
@@ -1486,7 +1488,7 @@ export default function Admin() {
                     <button className="btn-secondary text-sm" onClick={exportUsersCsv}>Export CSV</button>
                   </div>
                   <div className="grid md:grid-cols-[1fr_160px_180px] gap-3">
-                    <input className="input" placeholder="Search business, email, phone, tax ID, country..." value={userSearch} onChange={(e) => setUserSearch(e.target.value)} />
+                    <input className="input" placeholder="Search business, email, phone, GSTIN, country..." value={userSearch} onChange={(e) => setUserSearch(e.target.value)} />
                     <select className="input" value={userFilter} onChange={(e) => setUserFilter(e.target.value as typeof userFilter)}>
                       <option value="all">All users</option>
                       <option value="active">Active only</option>
@@ -1570,7 +1572,7 @@ export default function Admin() {
                     <div className="grid grid-cols-2 gap-3 text-sm">
                       <Info label="Country" value={selectedUser.country || "—"} />
                       <Info label="Phone" value={selectedUser.phone || "—"} />
-                      <Info label="Tax ID" value={selectedUser.gstin || "—"} />
+                      <Info label="GSTIN" value={selectedUser.gstin || "—"} />
                       <Info label="Currency" value={selectedUser.currency || "—"} />
                       <Info label="Invoices" value={String(selectedUserInvoices.length)} />
                       <Info label="Clients" value={String(selectedUserClients.length)} />

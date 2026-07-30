@@ -154,6 +154,34 @@ export default function StaffDashboard() {
 
   useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [user]);
 
+  // Fix: this list previously only ever loaded once per page visit — a task
+  // or ticket update created a notification row in the database, but nobody
+  // saw it here until they manually reloaded. Sound is intentionally NOT
+  // played here (StaffLayout.tsx already plays it once, globally, for every
+  // page in the staff portal) — this effect only keeps this list itself live.
+  useEffect(() => {
+    if (!staff) return;
+    const matchesStaff = (row: any) =>
+      row.recipient_team_member_id === staff.id ||
+      row.role === staff.role ||
+      row.audience === "staff" ||
+      row.audience === "all";
+
+    const realtime = supabase
+      .channel(`rivox-staff-notifications-list:${staff.id}`)
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "notifications" },
+        (payload) => {
+          const row = payload.new as NotificationRow & Record<string, unknown>;
+          if (!matchesStaff(row)) return;
+          setNotifications((current) => current.some((item) => item.id === row.id) ? current : [row, ...current]);
+        },
+      )
+      .subscribe();
+    return () => { void supabase.removeChannel(realtime); };
+  }, [staff]);
+
   const role = staff?.role as StaffRole | undefined;
   const todayIso = new Date().toISOString().slice(0, 10);
   const openTaskCount = tasks.filter((t) => t.status !== "done").length;
