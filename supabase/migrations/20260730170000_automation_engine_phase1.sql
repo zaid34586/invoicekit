@@ -3,7 +3,7 @@
 -- Context: admin_suggest_assignee() (2026-07-29) already does keyword/department
 -- routing + load-balance, but only as a *suggestion* the admin has to click.
 -- Tickets can still sit unassigned until someone opens them. This migration:
---   1. Adds automation_rules as a real data table (keyword + department rules),
+--   1. Adds assignment_rules as a real data table (keyword + department rules),
 --      matching the design doc's "rule: {trigger_type, match, target_role,
 --      fallback_role, priority}" shape.
 --   2. Adds origin + rule_id to admin_tasks / admin_support_tickets so every
@@ -22,8 +22,8 @@
 --   5. Every auto decision is written to admin_audit_logs (already existed),
 --      action = 'ticket.auto_assigned' / 'task.auto_assigned' / '*.auto_escalated'.
 
--- 1. automation_rules -------------------------------------------------------
-CREATE TABLE IF NOT EXISTS automation_rules (
+-- 1. assignment_rules -------------------------------------------------------
+CREATE TABLE IF NOT EXISTS assignment_rules (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   name text NOT NULL,
   is_active boolean NOT NULL DEFAULT true,
@@ -37,17 +37,17 @@ CREATE TABLE IF NOT EXISTS automation_rules (
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
-ALTER TABLE automation_rules ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS "admin_read_all_automation_rules" ON automation_rules;
-DROP POLICY IF EXISTS "admin_manage_automation_rules" ON automation_rules;
-CREATE POLICY "admin_read_all_automation_rules" ON automation_rules FOR SELECT
+ALTER TABLE assignment_rules ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "admin_read_all_assignment_rules" ON assignment_rules;
+DROP POLICY IF EXISTS "admin_manage_assignment_rules" ON assignment_rules;
+CREATE POLICY "admin_read_all_assignment_rules" ON assignment_rules FOR SELECT
   TO authenticated USING (lower(auth.jwt() ->> 'email') = 'mz7123272@gmail.com');
-CREATE POLICY "admin_manage_automation_rules" ON automation_rules FOR ALL
+CREATE POLICY "admin_manage_assignment_rules" ON assignment_rules FOR ALL
   TO authenticated USING (lower(auth.jwt() ->> 'email') = 'mz7123272@gmail.com')
   WITH CHECK (lower(auth.jwt() ->> 'email') = 'mz7123272@gmail.com');
 
 -- Seed the same routing admin_suggest_assignee() already used, now as data.
-INSERT INTO automation_rules (name, trigger_type, match_value, target_role, fallback_role, priority)
+INSERT INTO assignment_rules (name, trigger_type, match_value, target_role, fallback_role, priority)
 SELECT * FROM (VALUES
   ('Billing/refund keywords -> Finance', 'keyword', 'refund,billing,payment,charge,invoice,subscription,price,receipt', 'finance', 'full_access', 'high'),
   ('Default ticket keywords -> Support', 'keyword', 'login,error,bug,not working,how to,help,issue,broken', 'support', 'full_access', 'medium'),
@@ -57,15 +57,15 @@ SELECT * FROM (VALUES
   ('Engineering department -> Full Access', 'department', 'engineering', 'full_access', 'limited', 'medium'),
   ('General department -> Full Access', 'department', 'general', 'full_access', 'limited', 'low')
 ) AS seed(name, trigger_type, match_value, target_role, fallback_role, priority)
-WHERE NOT EXISTS (SELECT 1 FROM automation_rules);
+WHERE NOT EXISTS (SELECT 1 FROM assignment_rules);
 
-CREATE INDEX IF NOT EXISTS idx_automation_rules_active_type ON automation_rules(is_active, trigger_type);
+CREATE INDEX IF NOT EXISTS idx_assignment_rules_active_type ON assignment_rules(is_active, trigger_type);
 
 -- 2. Traceability columns -----------------------------------------------------
 ALTER TABLE admin_support_tickets ADD COLUMN IF NOT EXISTS origin text NOT NULL DEFAULT 'manual' CHECK (origin IN ('manual','auto','chat'));
-ALTER TABLE admin_support_tickets ADD COLUMN IF NOT EXISTS rule_id uuid REFERENCES automation_rules(id) ON DELETE SET NULL;
+ALTER TABLE admin_support_tickets ADD COLUMN IF NOT EXISTS rule_id uuid REFERENCES assignment_rules(id) ON DELETE SET NULL;
 ALTER TABLE admin_tasks ADD COLUMN IF NOT EXISTS origin text NOT NULL DEFAULT 'manual' CHECK (origin IN ('manual','auto','chat'));
-ALTER TABLE admin_tasks ADD COLUMN IF NOT EXISTS rule_id uuid REFERENCES automation_rules(id) ON DELETE SET NULL;
+ALTER TABLE admin_tasks ADD COLUMN IF NOT EXISTS rule_id uuid REFERENCES assignment_rules(id) ON DELETE SET NULL;
 
 -- Round-robin tie-breaker: "assigned longest ago wins" when open-item counts tie.
 ALTER TABLE admin_team_members ADD COLUMN IF NOT EXISTS last_assigned_at timestamptz;
@@ -100,10 +100,10 @@ END;
 $$;
 GRANT EXECUTE ON FUNCTION public.pick_assignee(text[]) TO authenticated;
 
--- Keyword match against active automation_rules (replaces the hardcoded regex
+-- Keyword match against active assignment_rules (replaces the hardcoded regex
 -- that used to live inside admin_suggest_assignee -- rules are data now).
 CREATE OR REPLACE FUNCTION public.resolve_ticket_rule(p_text text)
-RETURNS automation_rules
+RETURNS assignment_rules
 LANGUAGE plpgsql
 STABLE
 SECURITY DEFINER
@@ -111,10 +111,10 @@ SET search_path = public
 AS $$
 DECLARE
   v_haystack text := lower(coalesce(p_text, ''));
-  v_rule automation_rules%ROWTYPE;
+  v_rule assignment_rules%ROWTYPE;
 BEGIN
   FOR v_rule IN
-    SELECT * FROM automation_rules
+    SELECT * FROM assignment_rules
     WHERE is_active AND trigger_type = 'keyword'
     ORDER BY created_at ASC
   LOOP
@@ -126,7 +126,7 @@ BEGIN
     END IF;
   END LOOP;
   -- No keyword rule matched -> fall back to the default Support rule if seeded.
-  SELECT * INTO v_rule FROM automation_rules
+  SELECT * INTO v_rule FROM assignment_rules
     WHERE is_active AND trigger_type = 'keyword' AND target_role = 'support'
     ORDER BY created_at ASC LIMIT 1;
   RETURN v_rule;
@@ -135,13 +135,13 @@ $$;
 GRANT EXECUTE ON FUNCTION public.resolve_ticket_rule(text) TO authenticated;
 
 CREATE OR REPLACE FUNCTION public.resolve_department_rule(p_department text)
-RETURNS automation_rules
+RETURNS assignment_rules
 LANGUAGE sql
 STABLE
 SECURITY DEFINER
 SET search_path = public
 AS $$
-  SELECT * FROM automation_rules
+  SELECT * FROM assignment_rules
   WHERE is_active AND trigger_type = 'department' AND match_value = coalesce(p_department, 'general')
   ORDER BY created_at ASC LIMIT 1;
 $$;
@@ -155,7 +155,7 @@ SECURITY DEFINER
 SET search_path = public
 AS $$
 DECLARE
-  v_rule automation_rules;
+  v_rule assignment_rules;
   v_pick uuid;
 BEGIN
   IF NEW.assigned_to IS NOT NULL THEN
@@ -205,7 +205,7 @@ SECURITY DEFINER
 SET search_path = public
 AS $$
 DECLARE
-  v_rule automation_rules;
+  v_rule assignment_rules;
   v_pick uuid;
 BEGIN
   IF NEW.assigned_to IS NOT NULL THEN
