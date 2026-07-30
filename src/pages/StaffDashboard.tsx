@@ -115,13 +115,15 @@ export default function StaffDashboard() {
     const team = staffData as StaffMember;
     setStaff(team);
 
-    const { data: taskData } = await supabase
-      .from("admin_tasks")
-      .select("id, title, description, status, priority, due_date, progress, staff_notes, internal_notes, department, last_staff_update")
-      .or(`assigned_to.eq.${team.id},assigned_to.is.null`)
-      .order("created_at", { ascending: false })
-      .limit(40);
-    setTasks((taskData as TaskRow[]) ?? []);
+    if (hasStaffPermission(team.role, "tasks")) {
+      const { data: taskData } = await supabase
+        .from("admin_tasks")
+        .select("id, title, description, status, priority, due_date, progress, staff_notes, internal_notes, department, last_staff_update")
+        .or(`assigned_to.eq.${team.id},assigned_to.is.null`)
+        .order("created_at", { ascending: false })
+        .limit(40);
+      setTasks((taskData as TaskRow[]) ?? []);
+    }
 
     if (hasStaffPermission(team.role, "tickets")) {
       const { data: ticketData } = await supabase
@@ -153,34 +155,6 @@ export default function StaffDashboard() {
   }
 
   useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [user]);
-
-  // Fix: this list previously only ever loaded once per page visit — a task
-  // or ticket update created a notification row in the database, but nobody
-  // saw it here until they manually reloaded. Sound is intentionally NOT
-  // played here (StaffLayout.tsx already plays it once, globally, for every
-  // page in the staff portal) — this effect only keeps this list itself live.
-  useEffect(() => {
-    if (!staff) return;
-    const matchesStaff = (row: any) =>
-      row.recipient_team_member_id === staff.id ||
-      row.role === staff.role ||
-      row.audience === "staff" ||
-      row.audience === "all";
-
-    const realtime = supabase
-      .channel(`rivox-staff-notifications-list:${staff.id}`)
-      .on(
-        "postgres_changes",
-        { event: "INSERT", schema: "public", table: "notifications" },
-        (payload) => {
-          const row = payload.new as NotificationRow & Record<string, unknown>;
-          if (!matchesStaff(row)) return;
-          setNotifications((current) => current.some((item) => item.id === row.id) ? current : [row, ...current]);
-        },
-      )
-      .subscribe();
-    return () => { void supabase.removeChannel(realtime); };
-  }, [staff]);
 
   const role = staff?.role as StaffRole | undefined;
   const todayIso = new Date().toISOString().slice(0, 10);
@@ -302,6 +276,7 @@ export default function StaffDashboard() {
   }
 
   function TasksPage() {
+    if (!hasStaffPermission(role, "tasks")) return <Blocked />;
     return (
       <div className="space-y-6">
         <Section
@@ -417,6 +392,7 @@ export default function StaffDashboard() {
   }
 
   function TicketsPage() {
+    if (!hasStaffPermission(role, "tickets")) return <Blocked />;
     return <Section title="Support Tickets" subtitle="Handle assigned customer issues." actions={<div className="flex flex-col sm:flex-row gap-2"><input value={ticketSearch} onChange={(e) => setTicketSearch(e.target.value)} placeholder="Search tickets..." className="rounded-2xl border border-slate-200 px-4 py-2 text-sm"/><select value={ticketFilter} onChange={(e) => setTicketFilter(e.target.value)} className="rounded-2xl border border-slate-200 px-4 py-2 text-sm"><option value="open">Open</option><option value="urgent">Urgent</option><option value="pending">Pending</option><option value="resolved">Resolved</option><option value="closed">Closed</option><option value="all">All</option></select></div>}>
       <div className="divide-y divide-slate-100">{filteredTickets.length === 0 ? <div className="p-10 text-center text-slate-500">No support tickets found.</div> : filteredTickets.map(ticket => <div key={ticket.id} className="p-5 space-y-4"><div className="flex flex-col xl:flex-row xl:items-start xl:justify-between gap-4"><div><div className="flex flex-wrap gap-2 mb-2"><Badge tone={ticket.priority === "urgent" || ticket.priority === "high" ? "red" : ticket.priority === "medium" ? "amber" : "slate"}>{ticket.priority}</Badge><Badge tone={ticket.status === "resolved" || ticket.status === "closed" ? "green" : "blue"}>{ticket.status.replaceAll("_", " ")}</Badge><Badge tone={ticket.first_admin_reply_at ? "green" : ticketSla(ticket).includes("breached") ? "red" : "amber"}>{ticketSla(ticket)}</Badge></div><div className="text-xs font-bold text-indigo-600">{ticket.ticket_number || ticket.id.slice(0,8)}</div><div className="font-black text-slate-950">{ticket.subject}</div>{ticket.message && <div className="text-sm text-slate-500 mt-1">{ticket.message}</div>}<div className="text-xs text-slate-400 mt-2">Created {new Date(ticket.created_at).toLocaleString()}</div></div><div className="flex gap-2 flex-wrap"><select value={ticket.status} onChange={(e) => updateTicket(ticket.id, { status: e.target.value })} disabled={savingId === ticket.id} className="rounded-2xl border border-slate-200 px-3 py-2 text-sm">{ticketStatuses.map(status => <option key={status} value={status}>{status.replaceAll("_", " ")}</option>)}</select>{ticket.status !== "resolved" && ticket.status !== "closed" && <button onClick={() => updateTicket(ticket.id, { status: "in_progress" })} disabled={savingId === ticket.id} className="rounded-2xl bg-indigo-600 text-white px-4 py-2 text-sm font-bold">Start work</button>}</div></div><textarea defaultValue={ticket.staff_notes ?? ""} placeholder="Support note / resolution summary..." className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm min-h-[90px]" onBlur={(e) => { if (e.target.value !== (ticket.staff_notes ?? "")) updateTicket(ticket.id, { staff_notes: e.target.value }); }} /></div>)}</div>
     </Section>;
