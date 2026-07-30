@@ -52,7 +52,7 @@ export default function AdminSupportCenter({ profiles, team }: { profiles: Profi
     window.setTimeout(() => setToast((current) => (current === text ? null : current)), 2000);
   }
 
-  const agents = team.filter((member) => member.status === "active" && ["full_access", "support", "limited"].includes(member.role));
+  const agents = team.filter((member) => member.status === "active" && ["full_access", "support", "limited", "finance"].includes(member.role));
 
   async function load() {
     const { data, error } = await supabase.from("admin_support_tickets").select("*").order("updated_at", { ascending: false }).limit(200);

@@ -1206,7 +1206,7 @@ export default function Admin() {
     return acc;
   }, {});
 
-  const supportAgents = team.filter((m) => m.status === "active" && ["full_access", "support", "limited"].includes(m.role));
+  const supportAgents = team.filter((m) => m.status === "active" && ["full_access", "support", "limited", "finance"].includes(m.role));
   const filteredSupportTickets = useMemo(() => {
     const q = supportSearch.trim().toLowerCase();
     return supportTickets.filter((ticket) => {
