@@ -104,3 +104,9 @@ enabled = true
 verify_jwt = true
 import_map = "./functions/business-webhooks/deno.json"
 entrypoint = "./functions/business-webhooks/index.ts"
+
+[functions.github-sync]
+enabled = true
+verify_jwt = false
+import_map = "./functions/github-sync/deno.json"
+entrypoint = "./functions/github-sync/index.ts"
