@@ -12,12 +12,12 @@ import AdminPaddleSettings from "../components/AdminPaddleSettings";
 import AdminGrowthCenter from "../components/AdminGrowthCenter";
 import AdminSubscriptionAutomation from "../components/AdminSubscriptionAutomation";
 import AdminSupportCenter from "../components/AdminSupportCenter";
-import AdminAssignmentRules from "../components/AdminAssignmentRules";
 import AdminBillingRecovery from "../components/AdminBillingRecovery";
 import AdminSystemMonitor from "../components/AdminSystemMonitor";
 import AdminSecurityCenter from "../components/AdminSecurityCenter";
 import AdminProductionQA from "../components/AdminProductionQA";
 import AdminOperationsCommand from "../components/AdminOperationsCommand";
+import AdminUnifiedKPI from "../components/AdminUnifiedKPI";
 import AdminTeamWorkload from "../components/AdminTeamWorkload";
 import AdminRevenueIntelligence from "../components/AdminRevenueIntelligence";
 import AdminCustomerSuccess from "../components/AdminCustomerSuccess";
@@ -39,7 +39,6 @@ type AdminSection =
   | "invoices"
   | "analytics"
   | "support"
-  | "assignmentRules"
   | "audit"
   | "system"
   | "qa"
@@ -183,7 +182,6 @@ const sections: { id: AdminSection; label: string; icon: string; group: string }
   { id: "invoices", label: "All Invoices", icon: "📄", group: "Money" },
   { id: "analytics", label: "Analytics", icon: "📈", group: "Insights" },
   { id: "support", label: "Support Tickets", icon: "🎫", group: "Insights" },
-  { id: "assignmentRules", label: "Assignment Rules", icon: "🧭", group: "Insights" },
   { id: "audit", label: "Audit Logs", icon: "📝", group: "Security" },
   { id: "system", label: "System Center", icon: "🛡️", group: "Security" },
   { id: "qa", label: "Production QA", icon: "✅", group: "Security" },
@@ -1426,6 +1424,7 @@ export default function Admin() {
         {active === "dashboard" && (
           <section className="space-y-6">
             <AdminOperationsCommand onNavigate={(section) => setActive(section)} />
+            <AdminUnifiedKPI onNavigate={(section) => setActive(section)} />
             <SectionHeader title="Admin Dashboard" subtitle="Overview of users, plans, invoices, team work, and revenue" />
             <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
               {[
@@ -2245,7 +2244,6 @@ export default function Admin() {
           </section>
         )}
         {active === "support" && <AdminSupportCenter profiles={profiles} team={team} />}
-        {active === "assignmentRules" && <AdminAssignmentRules />}
         {false && active === "support" && (
           <section className="space-y-6">
             <SectionHeader title="Support Center" subtitle="Tickets create, assign, resolve aur track karo" />
