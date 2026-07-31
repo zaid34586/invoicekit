@@ -131,7 +131,11 @@ export default function AdminSupportCenter({ profiles, team }: { profiles: Profi
       await supabase.from("admin_audit_logs").insert({ actor_user_id: auth.user?.id, action: internal ? "support_internal_note" : "support_reply", target_type: "support_ticket", target_id: selected.id, details: { ticket_number: selected.ticket_number } });
     }
     setBusy(false); setNotice(error?.message || (internal ? "Internal note added." : "Reply sent to customer."));
-    if (!error) { setReply(""); setInternal(false); await Promise.all([load(), loadDetail(selected.id)]); }
+    if (!error) {
+      setReply(""); setInternal(false);
+      if (!internal) void supabase.functions.invoke("ticket-notify", { body: { ticket_id: selected.id, kind: "reply" } });
+      await Promise.all([load(), loadDetail(selected.id)]);
+    }
   }
 
   async function resolve() {
@@ -139,6 +143,7 @@ export default function AdminSupportCenter({ profiles, team }: { profiles: Profi
     if (selectedIsFinal) { setNotice("This ticket is already finalised. Reopen it before resolving again."); return; }
     if (!resolution.trim()) { setNotice("Resolution summary is required before resolving a ticket."); return; }
     await patchTicket({ status: "resolved", resolution_summary: resolution.trim() }, "Ticket resolved.");
+    if (selected) void supabase.functions.invoke("ticket-notify", { body: { ticket_id: selected.id, kind: "resolved" } });
     setResolution("");
   }
 
