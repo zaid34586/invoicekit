@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { supabase } from "../lib/supabase";
 import { hasStaffPermission, STAFF_ROLE_LABELS, type StaffMember } from "../lib/staffPermissions";
+import { playNotificationSound } from "../lib/notifySound";
 import RivoxLogo from "./RivoxLogo";
 
 const navBase = [
@@ -55,7 +56,7 @@ export default function StaffLayout({ children }: { children: ReactNode }) {
       .from("notifications")
       .select("id", { count: "exact", head: true })
       .is("read_at", null)
-      .or(`recipient_team_member_id.eq.${team.id},role.eq.${team.role},audience.eq.staff,audience.eq.all`);
+      .or(`recipient_team_member_id.eq.${team.id},and(recipient_team_member_id.is.null,role.eq.${team.role}),and(recipient_team_member_id.is.null,role.is.null,audience.eq.staff),and(recipient_team_member_id.is.null,role.is.null,audience.eq.all)`);
     setUnreadCount(count ?? 0);
   }
 
@@ -72,7 +73,17 @@ export default function StaffLayout({ children }: { children: ReactNode }) {
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "notifications" },
-        () => { void refreshUnreadCount(staff); }
+        (payload) => {
+          void refreshUnreadCount(staff);
+          if (payload.eventType === "INSERT") {
+            const row = payload.new as { recipient_team_member_id?: string | null; role?: string | null; audience?: string | null };
+            const isForMe =
+              row.recipient_team_member_id === staff.id ||
+              (!row.recipient_team_member_id && row.role === staff.role) ||
+              (!row.recipient_team_member_id && !row.role && (row.audience === "staff" || row.audience === "all"));
+            if (isForMe) playNotificationSound();
+          }
+        }
       )
       .subscribe();
     return () => { void supabase.removeChannel(channel); };

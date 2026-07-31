@@ -139,7 +139,7 @@ export default function StaffDashboard() {
       .from("notifications")
       .select("id, title, body, type, read_at, created_at, metadata")
       .is("read_at", null)
-      .or(`recipient_team_member_id.eq.${team.id},role.eq.${team.role},audience.eq.staff,audience.eq.all`)
+      .or(`recipient_team_member_id.eq.${team.id},and(recipient_team_member_id.is.null,role.eq.${team.role}),and(recipient_team_member_id.is.null,role.is.null,audience.eq.staff),and(recipient_team_member_id.is.null,role.is.null,audience.eq.all)`)
       .order("created_at", { ascending: false })
       .limit(20);
     setNotifications((notificationData as NotificationRow[]) ?? []);
@@ -155,6 +155,18 @@ export default function StaffDashboard() {
   }
 
   useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [user]);
+
+  useEffect(() => {
+    if (!staff) return;
+    const channel = supabase
+      .channel(`staff-live-data-${staff.id}`)
+      .on("postgres_changes", { event: "*", schema: "public", table: "admin_tasks" }, () => { void load(); })
+      .on("postgres_changes", { event: "*", schema: "public", table: "admin_support_tickets" }, () => { void load(); })
+      .on("postgres_changes", { event: "*", schema: "public", table: "notifications" }, () => { void load(); })
+      .subscribe();
+    return () => { void supabase.removeChannel(channel); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [staff?.id]);
 
   const role = staff?.role as StaffRole | undefined;
   const todayIso = new Date().toISOString().slice(0, 10);
@@ -193,7 +205,7 @@ export default function StaffDashboard() {
   }
   async function markAllNotificationsRead() {
     if (!staff) return;
-    await supabase.from("notifications").update({ read_at: new Date().toISOString() }).is("read_at", null).or(`recipient_team_member_id.eq.${staff.id},role.eq.${staff.role},audience.eq.staff,audience.eq.all`);
+    await supabase.from("notifications").update({ read_at: new Date().toISOString() }).is("read_at", null).or(`recipient_team_member_id.eq.${staff.id},and(recipient_team_member_id.is.null,role.eq.${staff.role}),and(recipient_team_member_id.is.null,role.is.null,audience.eq.staff),and(recipient_team_member_id.is.null,role.is.null,audience.eq.all)`);
     await load();
   }
 
@@ -436,14 +448,14 @@ export default function StaffDashboard() {
   function UsersPage() { return hasStaffPermission(role, "users") ? <Section title="Users" subtitle="Assigned customer support workspace."><div className="p-10 text-center text-slate-500">User support tools will show assigned customers here.</div></Section> : <Blocked />; }
   function Blocked() { return <div className="rounded-3xl bg-white border border-slate-200 p-10 text-center"><div className="text-4xl mb-3">🔒</div><h2 className="text-xl font-black text-slate-950">Access not available</h2><p className="text-slate-500 mt-2">This section is hidden for your role.</p></div>; }
 
-  if (active === "tasks") return <TasksPage />;
-  if (active === "tickets") return <TicketsPage />;
-  if (active === "users") return <UsersPage />;
-  if (active === "finance") return <FinancePage />;
-  if (active === "reports") return <ReportsPage />;
-  if (active === "communication") return <CommunicationPage />;
-  if (active === "notifications") return <NotificationsPage />;
-  if (active === "profile") return <ProfilePage />;
-  if (active === "settings") return <SettingsPage />;
-  return <DashboardPage />;
+  if (active === "tasks") return TasksPage();
+  if (active === "tickets") return TicketsPage();
+  if (active === "users") return UsersPage();
+  if (active === "finance") return FinancePage();
+  if (active === "reports") return ReportsPage();
+  if (active === "communication") return CommunicationPage();
+  if (active === "notifications") return NotificationsPage();
+  if (active === "profile") return ProfilePage();
+  if (active === "settings") return SettingsPage();
+  return DashboardPage();
 }
