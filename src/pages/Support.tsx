@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { supabase } from "../lib/supabase";
 
@@ -316,7 +317,7 @@ export default function Support() {
             <p className="mt-3 max-w-2xl text-sm sm:text-base text-slate-300">Create a ticket, attach screenshots, track every response and keep your workspace issue history in one secure place.</p>
             <div className={`mt-4 inline-flex rounded-xl border px-4 py-3 ${supportLevel.color}`}><div><p className="text-sm font-bold">{supportLevel.name}</p><p className="mt-0.5 text-xs opacity-90">{supportLevel.detail}</p></div></div>
           </div>
-          <button onClick={() => setShowCreate(true)} className="rounded-xl bg-white px-5 py-3 text-sm font-semibold text-slate-950 hover:bg-slate-100 transition shadow-lg">+ Create support ticket</button>
+          <div className="flex flex-col gap-2 sm:flex-row"><Link to="/support/knowledge-base" className="rounded-xl border border-white/20 bg-white/10 px-5 py-3 text-center text-sm font-semibold text-white hover:bg-white/20 transition">📚 Browse Knowledge Base</Link><button onClick={() => setShowCreate(true)} className="rounded-xl bg-white px-5 py-3 text-sm font-semibold text-slate-950 hover:bg-slate-100 transition shadow-lg">+ Create support ticket</button></div>
         </div>
       </section>
 

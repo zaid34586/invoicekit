@@ -23,6 +23,7 @@ import Reports from "./pages/Reports";
 import Settings from "./pages/Settings";
 import TeamMembers from "./pages/TeamMembers";
 import Support from "./pages/Support";
+import KnowledgeBase from "./pages/KnowledgeBase";
 import Business from "./pages/Business";
 import AcceptInvitation from "./pages/AcceptInvitation";
 import ChangeTemporaryPassword from "./pages/ChangeTemporaryPassword";
@@ -358,6 +359,7 @@ export default function App() {
         }
       />
       <Route path="/support" element={<ProtectedRoute><WorkspaceRoute allow={["owner","manager","accountant","staff"]}><AppLayout><Support /></AppLayout></WorkspaceRoute></ProtectedRoute>} />
+      <Route path="/support/knowledge-base" element={<ProtectedRoute><WorkspaceRoute allow={["owner","manager","accountant","staff"]}><AppLayout><KnowledgeBase /></AppLayout></WorkspaceRoute></ProtectedRoute>} />
       <Route path="/business" element={<ProtectedRoute><WorkspaceRoute allow={["owner"]}><AppLayout><Business /></AppLayout></WorkspaceRoute></ProtectedRoute>} />
       <Route
         path="/admin"
