@@ -22,6 +22,7 @@ type SupportTicket = {
   sla_target_minutes?: number | null;
   first_admin_reply_at?: string | null;
   resolution_summary?: string | null;
+  csat_rating?: "up" | "down" | null;
 };
 
 type TicketAttachment = {
@@ -260,6 +261,14 @@ export default function Support() {
     setSaving(false);
   }
 
+  async function submitCsat(rating: "up" | "down") {
+    if (!selectedTicket) return;
+    const { error: csatError } = await supabase.rpc("submit_ticket_csat", { p_ticket_id: selectedTicket.id, p_rating: rating });
+    if (!csatError) {
+      setTickets((current) => current.map((t) => (t.id === selectedTicket.id ? { ...t, csat_rating: rating } : t)));
+    }
+  }
+
   async function sendReply(event: React.FormEvent) {
     event.preventDefault();
     if (!user || !selectedTicket || !reply.trim()) return;
@@ -368,6 +377,11 @@ export default function Support() {
                 {selectedTicket.status === "closed" ? <p className="rounded-xl bg-slate-100 p-3 text-center text-sm text-slate-600">This ticket is closed. Create a new ticket if you need more help.</p> : <div className="flex flex-col sm:flex-row gap-3"><textarea className="input min-h-24 flex-1" placeholder="Write a reply..." value={reply} onChange={(e) => setReply(e.target.value)} /><button disabled={saving || !reply.trim()} className="btn-primary self-end disabled:opacity-50">{saving ? "Sending..." : "Send reply"}</button></div>}
               </form>
               {selectedTicket.resolution_summary && <div className="border-t border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800"><b>Resolution:</b> {selectedTicket.resolution_summary}</div>}
+              {["resolved", "closed"].includes(selectedTicket.status) && (
+                selectedTicket.csat_rating
+                  ? <div className="border-t border-slate-200 p-4 text-center text-sm text-slate-500">Thanks for your feedback {selectedTicket.csat_rating === "up" ? "👍" : "👎"}</div>
+                  : <div className="flex items-center justify-center gap-4 border-t border-slate-200 p-4"><span className="text-sm font-semibold text-slate-600">Was this helpful?</span><button onClick={() => submitCsat("up")} className="rounded-full border border-slate-200 px-3 py-1.5 text-lg hover:bg-slate-50" aria-label="Yes, helpful">👍</button><button onClick={() => submitCsat("down")} className="rounded-full border border-slate-200 px-3 py-1.5 text-lg hover:bg-slate-50" aria-label="Not helpful">👎</button></div>
+              )}
             </>
           )}
         </div>
