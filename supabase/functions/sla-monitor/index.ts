@@ -33,10 +33,13 @@ Deno.serve(async (req) => {
       if ((user.email || "").toLowerCase() !== ownerEmail) throw new Error("Owner access required");
     }
 
-    const { data, error } = await admin.rpc("run_sla_check");
-    if (error) throw error;
+    const { data: slaData, error: slaError } = await admin.rpc("run_sla_check");
+    if (slaError) throw slaError;
 
-    return new Response(JSON.stringify({ ok: true, result: data?.[0] || data }), {
+    const { data: recurringData, error: recurringError } = await admin.rpc("run_recurring_tasks");
+    if (recurringError) throw recurringError;
+
+    return new Response(JSON.stringify({ ok: true, sla: slaData?.[0] || slaData, recurring: recurringData?.[0] || recurringData }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (error) {
