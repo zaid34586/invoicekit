@@ -3,6 +3,7 @@ import { useAuth } from "../context/AuthContext";
 import { supabase } from "../lib/supabase";
 import { hasStaffPermission, STAFF_ROLE_LABELS, type StaffMember, type StaffRole } from "../lib/staffPermissions";
 import CommunicationCenter from "../components/CommunicationCenter";
+import WorkspaceTools from "../components/WorkspaceTools";
 
 interface TaskRow { id: string; title: string; description?: string | null; status: string; priority: string; due_date: string | null; progress?: number | null; staff_notes?: string | null; internal_notes?: string | null; department?: string | null; last_staff_update?: string | null; }
 interface TicketRow { id: string; ticket_number?: string | null; subject: string; message?: string | null; status: string; priority: string; created_at: string; staff_notes?: string | null; sla_target_minutes?: number | null; first_admin_reply_at?: string | null; assigned_to?: string | null; resolution_summary?: string | null; }
@@ -448,6 +449,7 @@ export default function StaffDashboard() {
                       <button onClick={() => quickTaskAction(selectedTask, "done", 100)} disabled={savingId === selectedTask.id} className="rounded-2xl bg-emerald-600 text-white px-4 py-3 text-sm font-bold">Submit for review</button>
                     </div>
                   </div>
+                  <WorkspaceTools itemType="task" itemId={selectedTask.id} performedBy={staff?.id} />
                   <div className="rounded-2xl bg-emerald-50 border border-emerald-100 p-4 text-xs text-emerald-800">
                     <div className="font-black uppercase tracking-wide mb-2">Before submit checklist</div>
                     <ul className="space-y-1 list-disc pl-4">
@@ -555,6 +557,7 @@ export default function StaffDashboard() {
                 <div className="rounded-2xl bg-emerald-50 border border-emerald-100 p-4 text-sm text-emerald-800"><b>Resolved.</b><br/>{ticket.resolution_summary}</div>
               )}
               <div className="rounded-2xl bg-slate-50 border border-slate-100 p-4 text-xs text-slate-500">SLA target: {ticket.sla_target_minutes ? `${ticket.sla_target_minutes} min` : "default"}. Customer gets an email on every reply and on resolve.</div>
+              <WorkspaceTools itemType="ticket" itemId={ticket.id} performedBy={staff?.id} />
             </div>
           </div>
         </div>
