@@ -11,7 +11,6 @@ interface FinanceRow { id: string; type: string; source: string; amount: number;
 interface NotificationRow { id: string; title: string; body: string | null; type: string; read_at: string | null; created_at: string; metadata?: { task_id?: string; ticket_id?: string } | null; }
 
 const taskStatuses = ["pending", "in_progress", "blocked", "done"];
-const ticketStatuses = ["open", "in_progress", "waiting_customer", "pending", "resolved", "closed"];
 
 function ticketSla(ticket: TicketRow) {
   if (ticket.first_admin_reply_at) return "First response sent";

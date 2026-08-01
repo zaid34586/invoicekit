@@ -956,7 +956,7 @@ export default function Admin() {
       }
 
       await logAction("create_team_member", "admin_team_members", teamForm.email, { role: teamForm.role });
-      setTeamForm({ name: "", email: "", password: "", role: "limited", notes: "" });
+      setTeamForm({ name: "", email: "", password: "", role: "limited", department: "", notes: "" });
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to create team member");
