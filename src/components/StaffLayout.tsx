@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { supabase } from "../lib/supabase";
 import { hasStaffPermission, STAFF_ROLE_LABELS, type StaffMember } from "../lib/staffPermissions";
-import { playNotificationSound } from "../lib/notifySound";
+import { playNotificationSound, unlockAudio } from "../lib/notifySound";
 import RivoxLogo from "./RivoxLogo";
 
 const navBase = [
@@ -25,6 +25,13 @@ export default function StaffLayout({ children }: { children: ReactNode }) {
   const [staff, setStaff] = useState<StaffMember | null>(null);
   const [unreadCount, setUnreadCount] = useState(0);
   const [active, setActive] = useState(() => window.location.hash.replace("#", "") || "dashboard");
+
+  useEffect(() => {
+    const onFirstGesture = () => { unlockAudio(); window.removeEventListener("pointerdown", onFirstGesture); window.removeEventListener("keydown", onFirstGesture); };
+    window.addEventListener("pointerdown", onFirstGesture, { once: true });
+    window.addEventListener("keydown", onFirstGesture, { once: true });
+    return () => { window.removeEventListener("pointerdown", onFirstGesture); window.removeEventListener("keydown", onFirstGesture); };
+  }, []);
 
   useEffect(() => {
     const onHash = () => setActive(window.location.hash.replace("#", "") || "dashboard");

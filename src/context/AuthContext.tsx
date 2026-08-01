@@ -299,9 +299,36 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return null;
     }
 
-    const { data, error } = await supabase.auth.getUser();
+    let { data, error } = await supabase.auth.getUser();
 
-    if (error || !data.user) {
+    // Bug fix: a refresh used to log staff/customers out instantly on ANY
+    // getUser() hiccup (a cold network request, a brief Supabase blip right
+    // after a token refresh, etc). That's not proof the session is invalid --
+    // only an explicit auth error (expired/invalid JWT) is. For anything
+    // else, retry once before giving up, and otherwise trust the session we
+    // already have from localStorage rather than force-signing-out.
+    if (error) {
+      const authInvalid = error.status === 401 || /invalid|expired|revoked/i.test(error.message || "");
+      if (authInvalid) {
+        await supabase.auth.signOut();
+        clearSupabaseStorage();
+        clearAuthState();
+        return null;
+      }
+      // Transient error (network blip, cold start) -- retry once.
+      await new Promise((resolve) => setTimeout(resolve, 600));
+      const retry = await supabase.auth.getUser();
+      data = retry.data;
+      error = retry.error;
+      if (error || !data.user) {
+        // Still failing, but not a confirmed-invalid session -- keep the
+        // person signed in on the session we have rather than bouncing them.
+        setSession(nextSession);
+        return null;
+      }
+    }
+
+    if (!data.user) {
       await supabase.auth.signOut();
       clearSupabaseStorage();
       clearAuthState();
@@ -405,7 +432,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         await supabase.auth.signOut({ scope: "local" });
         clearSupabaseStorage();
         clearAuthState();
-        window.location.replace("/login?session=revoked");
+        window.location.replace(isStaffPortalRoute() ? "/staff/login?session=revoked" : "/login?session=revoked");
         return;
       }
       await supabase.from("admin_active_sessions").update({

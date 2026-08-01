@@ -4,6 +4,27 @@
 // app already runs.
 let ctx: AudioContext | null = null;
 
+// Bug fix: browsers refuse to actually produce sound from an AudioContext
+// that was created/resumed without a genuine user gesture (click/keydown).
+// Since the very first notification often arrives via a realtime event (no
+// gesture involved), the sound would silently never play. Call this once on
+// the very first click/keydown anywhere in the staff portal to "warm up"
+// the context ahead of time, so by the time a real notification arrives the
+// context is already running.
+let unlocked = false;
+export function unlockAudio() {
+  if (unlocked) return;
+  try {
+    const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+    if (!AudioCtx) return;
+    if (!ctx) ctx = new AudioCtx();
+    void ctx.resume();
+    unlocked = true;
+  } catch {
+    // ignore
+  }
+}
+
 export function playNotificationSound() {
   try {
     if (!ctx) {

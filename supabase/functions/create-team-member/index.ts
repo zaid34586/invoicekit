@@ -162,6 +162,7 @@ serve(async (req) => {
   const password = String(body.password ?? "");
   const name = String(body.name ?? "").trim() || null;
   const role = String(body.role ?? "limited");
+  const department = body.department ? String(body.department).trim() : null;
   const notes = String(body.notes ?? "").trim() || null;
   const staffPortalUrl = String(body.staffPortalUrl ?? Deno.env.get("STAFF_PORTAL_URL") ?? DEFAULT_STAFF_PORTAL_URL).trim();
   const adminPortalUrl = String(body.adminPortalUrl ?? Deno.env.get("ADMIN_PORTAL_URL") ?? DEFAULT_ADMIN_PORTAL_URL).trim();
@@ -198,6 +199,7 @@ serve(async (req) => {
     email,
     name,
     role,
+    department,
     status: "active",
     temporary_password: password,
     notes,

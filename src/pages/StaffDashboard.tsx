@@ -5,7 +5,8 @@ import { hasStaffPermission, STAFF_ROLE_LABELS, type StaffMember, type StaffRole
 import CommunicationCenter from "../components/CommunicationCenter";
 
 interface TaskRow { id: string; title: string; description?: string | null; status: string; priority: string; due_date: string | null; progress?: number | null; staff_notes?: string | null; internal_notes?: string | null; department?: string | null; last_staff_update?: string | null; }
-interface TicketRow { id: string; ticket_number?: string | null; subject: string; message?: string | null; status: string; priority: string; created_at: string; staff_notes?: string | null; sla_target_minutes?: number | null; first_admin_reply_at?: string | null; assigned_to?: string | null; }
+interface TicketRow { id: string; ticket_number?: string | null; subject: string; message?: string | null; status: string; priority: string; created_at: string; staff_notes?: string | null; sla_target_minutes?: number | null; first_admin_reply_at?: string | null; assigned_to?: string | null; resolution_summary?: string | null; }
+interface TicketMessage { id: string; author_type: string; message: string; is_internal: boolean; created_at: string; }
 interface FinanceRow { id: string; type: string; source: string; amount: number; currency: string; status: string; title: string; }
 interface NotificationRow { id: string; title: string; body: string | null; type: string; read_at: string | null; created_at: string; metadata?: { task_id?: string; ticket_id?: string } | null; }
 
@@ -95,6 +96,11 @@ export default function StaffDashboard() {
   const [active, setActive] = useState(() => window.location.hash.replace("#", "") || "dashboard");
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [taskComment, setTaskComment] = useState("");
+  const [selectedTicketId, setSelectedTicketId] = useState<string | null>(null);
+  const [ticketMessages, setTicketMessages] = useState<TicketMessage[]>([]);
+  const [ticketReply, setTicketReply] = useState("");
+  const [resolutionNote, setResolutionNote] = useState("");
+  const [ticketBusy, setTicketBusy] = useState(false);
 
   useEffect(() => {
     const onHash = () => setActive(window.location.hash.replace("#", "") || "dashboard");
@@ -125,11 +131,12 @@ export default function StaffDashboard() {
       setTasks((taskData as TaskRow[]) ?? []);
     }
 
-    if (hasStaffPermission(team.role, "tickets")) {
+    {
+      const canBrowseQueue = hasStaffPermission(team.role, "tickets");
       const { data: ticketData } = await supabase
         .from("admin_support_tickets")
-        .select("id, ticket_number, subject, message, status, priority, created_at, staff_notes, sla_target_minutes, first_admin_reply_at, assigned_to")
-        .or(`assigned_to.eq.${team.id},assigned_to.is.null`)
+        .select("id, ticket_number, subject, message, status, priority, created_at, staff_notes, sla_target_minutes, first_admin_reply_at, assigned_to, resolution_summary")
+        .or(canBrowseQueue ? `assigned_to.eq.${team.id},assigned_to.is.null` : `assigned_to.eq.${team.id}`)
         .order("created_at", { ascending: false })
         .limit(40);
       setTickets((ticketData as TicketRow[]) ?? []);
@@ -217,7 +224,7 @@ export default function StaffDashboard() {
     setSavingId(null);
     if (error) { setMessage(`Task update failed: ${error.message}`); return; }
     await supabase.from("admin_audit_logs").insert({ actor_user_id: user?.id, action: "staff_task_update", target_type: "task", target_id: taskId, details: { changes, staff_email: user?.email } });
-    await supabase.from("notifications").insert({ audience: "admin", type: "task_update", title: "Task updated by staff", body: `${user?.email ?? "Staff"} updated a task.`, metadata: { task_id: taskId, changes } });
+    await supabase.rpc("notify_admin", { p_type: "task_update", p_title: "Task updated by staff", p_body: `${user?.email ?? "Staff"} updated a task.`, p_metadata: { task_id: taskId, changes } });
     setMessage("Task updated successfully."); await load();
   }
 
@@ -239,8 +246,54 @@ export default function StaffDashboard() {
     setSavingId(null);
     if (error) { setMessage(`Ticket update failed: ${error.message}`); return; }
     await supabase.from("admin_audit_logs").insert({ actor_user_id: user?.id, action: "staff_ticket_update", target_type: "support_ticket", target_id: ticketId, details: { changes, staff_email: user?.email } });
-    await supabase.from("notifications").insert({ audience: "admin", type: "ticket_update", title: "Ticket updated by staff", body: `${user?.email ?? "Staff"} updated a support ticket.`, metadata: { ticket_id: ticketId, changes } });
+    await supabase.rpc("notify_admin", { p_type: "ticket_update", p_title: "Ticket updated by staff", p_body: `${user?.email ?? "Staff"} updated a support ticket.`, p_metadata: { ticket_id: ticketId, changes } });
     setMessage("Ticket updated successfully."); await load();
+  }
+
+  const selectedTicket = selectedTicketId ? tickets.find((t) => t.id === selectedTicketId) ?? null : null;
+
+  useEffect(() => {
+    if (!selectedTicketId) { setTicketMessages([]); return; }
+    void loadTicketMessages(selectedTicketId);
+    const channel = supabase
+      .channel(`staff-ticket-thread-${selectedTicketId}`)
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "support_ticket_messages", filter: `ticket_id=eq.${selectedTicketId}` }, () => { void loadTicketMessages(selectedTicketId); })
+      .subscribe();
+    return () => { void supabase.removeChannel(channel); };
+  }, [selectedTicketId]);
+
+  async function loadTicketMessages(ticketId: string) {
+    const { data } = await supabase.from("support_ticket_messages").select("id,author_type,message,is_internal,created_at").eq("ticket_id", ticketId).order("created_at");
+    setTicketMessages((data as TicketMessage[]) ?? []);
+  }
+
+  async function openTicket(ticket: TicketRow) {
+    if (ticket.status === "open" || ticket.status === "pending") await updateTicket(ticket.id, { status: "in_progress" });
+  }
+
+  async function sendTicketReply(ticket: TicketRow) {
+    if (!ticketReply.trim()) return;
+    setTicketBusy(true);
+    const { error } = await supabase.from("support_ticket_messages").insert({
+      ticket_id: ticket.id, author_user_id: user?.id, author_type: "staff", message: ticketReply.trim(), is_internal: false,
+    });
+    if (error) { setMessage(`Reply failed: ${error.message}`); setTicketBusy(false); return; }
+    const now = new Date().toISOString();
+    await supabase.from("admin_support_tickets").update({
+      last_reply_at: now, last_admin_reply_at: now,
+      ...(ticket.first_admin_reply_at ? {} : { first_admin_reply_at: now }),
+      status: ticket.status === "open" || ticket.status === "pending" ? "in_progress" : ticket.status,
+    }).eq("id", ticket.id);
+    void supabase.functions.invoke("ticket-notify", { body: { ticket_id: ticket.id, kind: "reply" } });
+    setTicketReply(""); setTicketBusy(false);
+    await Promise.all([load(), loadTicketMessages(ticket.id)]);
+  }
+
+  async function resolveTicket(ticket: TicketRow) {
+    setTicketBusy(true);
+    await updateTicket(ticket.id, { status: "resolved", resolution_summary: resolutionNote.trim() || ticket.resolution_summary || "Resolved." });
+    void supabase.functions.invoke("ticket-notify", { body: { ticket_id: ticket.id, kind: "resolved" } });
+    setResolutionNote(""); setTicketBusy(false);
   }
 
   async function changePassword() {
@@ -330,6 +383,32 @@ export default function StaffDashboard() {
           </div>
         </Section>
 
+        {tickets.length > 0 && (
+          <Section title="🎫 Support Tickets" subtitle="Customer tickets assigned to you — open one to reply and resolve.">
+            <div className="divide-y divide-slate-100">
+              {tickets.filter(t => t.status !== "resolved" && t.status !== "closed").length === 0 ? (
+                <div className="p-10 text-center text-slate-500">No open support tickets.</div>
+              ) : tickets.filter(t => t.status !== "resolved" && t.status !== "closed").map(ticket => (
+                <button key={ticket.id} onClick={() => setSelectedTicketId(ticket.id)} className="w-full text-left p-5 hover:bg-slate-50 transition">
+                  <div className="flex flex-col xl:flex-row xl:items-start xl:justify-between gap-4">
+                    <div>
+                      <div className="flex flex-wrap gap-2 mb-2">
+                        <Badge tone="purple">Ticket</Badge>
+                        <Badge tone={ticket.priority === "urgent" || ticket.priority === "high" ? "red" : ticket.priority === "medium" ? "amber" : "slate"}>{ticket.priority}</Badge>
+                        <Badge tone={ticket.status === "in_progress" ? "blue" : "amber"}>{ticket.status.replaceAll("_", " ")}</Badge>
+                        <Badge tone={ticketSla(ticket).includes("breached") ? "red" : "amber"}>{ticketSla(ticket)}</Badge>
+                      </div>
+                      <div className="font-black text-slate-950">{ticket.subject}</div>
+                      {ticket.message && <div className="text-sm text-slate-500 mt-1 line-clamp-2">{ticket.message}</div>}
+                    </div>
+                    <div className="text-xs text-primary-700 font-bold">Open &amp; reply →</div>
+                  </div>
+                </button>
+              ))}
+            </div>
+          </Section>
+        )}
+
         {selectedTask && (
           <div className="fixed inset-0 z-50 bg-slate-950/50 backdrop-blur-sm p-4 flex items-center justify-center">
             <div className="w-full max-w-4xl max-h-[92vh] overflow-y-auto rounded-3xl bg-white shadow-2xl border border-slate-200">
@@ -406,8 +485,86 @@ export default function StaffDashboard() {
   function TicketsPage() {
     if (!hasStaffPermission(role, "tickets")) return <Blocked />;
     return <Section title="Support Tickets" subtitle="Handle assigned customer issues." actions={<div className="flex flex-col sm:flex-row gap-2"><input value={ticketSearch} onChange={(e) => setTicketSearch(e.target.value)} placeholder="Search tickets..." className="rounded-2xl border border-slate-200 px-4 py-2 text-sm"/><select value={ticketFilter} onChange={(e) => setTicketFilter(e.target.value)} className="rounded-2xl border border-slate-200 px-4 py-2 text-sm"><option value="open">Open</option><option value="urgent">Urgent</option><option value="pending">Pending</option><option value="resolved">Resolved</option><option value="closed">Closed</option><option value="all">All</option></select></div>}>
-      <div className="divide-y divide-slate-100">{filteredTickets.length === 0 ? <div className="p-10 text-center text-slate-500">No support tickets found.</div> : filteredTickets.map(ticket => <div key={ticket.id} className="p-5 space-y-4"><div className="flex flex-col xl:flex-row xl:items-start xl:justify-between gap-4"><div><div className="flex flex-wrap gap-2 mb-2"><Badge tone={ticket.priority === "urgent" || ticket.priority === "high" ? "red" : ticket.priority === "medium" ? "amber" : "slate"}>{ticket.priority}</Badge><Badge tone={ticket.status === "resolved" || ticket.status === "closed" ? "green" : "blue"}>{ticket.status.replaceAll("_", " ")}</Badge><Badge tone={ticket.first_admin_reply_at ? "green" : ticketSla(ticket).includes("breached") ? "red" : "amber"}>{ticketSla(ticket)}</Badge></div><div className="text-xs font-bold text-indigo-600">{ticket.ticket_number || ticket.id.slice(0,8)}</div><div className="font-black text-slate-950">{ticket.subject}</div>{ticket.message && <div className="text-sm text-slate-500 mt-1">{ticket.message}</div>}<div className="text-xs text-slate-400 mt-2">Created {new Date(ticket.created_at).toLocaleString()}</div></div><div className="flex gap-2 flex-wrap"><select value={ticket.status} onChange={(e) => updateTicket(ticket.id, { status: e.target.value })} disabled={savingId === ticket.id} className="rounded-2xl border border-slate-200 px-3 py-2 text-sm">{ticketStatuses.map(status => <option key={status} value={status}>{status.replaceAll("_", " ")}</option>)}</select>{ticket.status !== "resolved" && ticket.status !== "closed" && <button onClick={() => updateTicket(ticket.id, { status: "in_progress" })} disabled={savingId === ticket.id} className="rounded-2xl bg-indigo-600 text-white px-4 py-2 text-sm font-bold">Start work</button>}</div></div><textarea defaultValue={ticket.staff_notes ?? ""} placeholder="Support note / resolution summary..." className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm min-h-[90px]" onBlur={(e) => { if (e.target.value !== (ticket.staff_notes ?? "")) updateTicket(ticket.id, { staff_notes: e.target.value }); }} /></div>)}</div>
+      <div className="divide-y divide-slate-100">{filteredTickets.length === 0 ? <div className="p-10 text-center text-slate-500">No support tickets found.</div> : filteredTickets.map(ticket => (
+        <button key={ticket.id} onClick={() => setSelectedTicketId(ticket.id)} className="w-full text-left p-5 hover:bg-slate-50 transition">
+          <div className="flex flex-col xl:flex-row xl:items-start xl:justify-between gap-4">
+            <div>
+              <div className="flex flex-wrap gap-2 mb-2">
+                <Badge tone={ticket.priority === "urgent" || ticket.priority === "high" ? "red" : ticket.priority === "medium" ? "amber" : "slate"}>{ticket.priority}</Badge>
+                <Badge tone={ticket.status === "resolved" || ticket.status === "closed" ? "green" : "blue"}>{ticket.status.replaceAll("_", " ")}</Badge>
+                <Badge tone={ticket.first_admin_reply_at ? "green" : ticketSla(ticket).includes("breached") ? "red" : "amber"}>{ticketSla(ticket)}</Badge>
+              </div>
+              <div className="text-xs font-bold text-indigo-600">{ticket.ticket_number || ticket.id.slice(0,8)}</div>
+              <div className="font-black text-slate-950">{ticket.subject}</div>
+              {ticket.message && <div className="text-sm text-slate-500 mt-1 line-clamp-2">{ticket.message}</div>}
+              <div className="text-xs text-slate-400 mt-2">Created {new Date(ticket.created_at).toLocaleString()}</div>
+            </div>
+            <div className="text-xs text-primary-700 font-bold">Open ticket →</div>
+          </div>
+        </button>
+      ))}</div>
     </Section>;
+  }
+
+  function TicketWorkspace() {
+    if (!selectedTicket) return null;
+    const ticket = selectedTicket;
+    const closed = ticket.status === "resolved" || ticket.status === "closed";
+    return (
+      <div className="fixed inset-0 z-50 bg-slate-950/50 backdrop-blur-sm p-4 flex items-center justify-center">
+        <div className="w-full max-w-4xl max-h-[92vh] overflow-y-auto rounded-3xl bg-white shadow-2xl border border-slate-200">
+          <div className="p-6 border-b border-slate-100 flex items-start justify-between gap-4">
+            <div>
+              <div className="flex flex-wrap gap-2 mb-3">
+                <Badge tone={ticket.priority === "urgent" || ticket.priority === "high" ? "red" : ticket.priority === "medium" ? "amber" : "slate"}>{ticket.priority}</Badge>
+                <Badge tone={closed ? "green" : "blue"}>{ticket.status.replaceAll("_", " ")}</Badge>
+                <Badge tone={ticketSla(ticket).includes("breached") ? "red" : "amber"}>{ticketSla(ticket)}</Badge>
+              </div>
+              <h2 className="text-2xl font-black text-slate-950">{ticket.subject}</h2>
+              <p className="text-sm text-slate-500 mt-1">{ticket.ticket_number || ticket.id.slice(0,8)} · Created {new Date(ticket.created_at).toLocaleString()}</p>
+            </div>
+            <button onClick={() => setSelectedTicketId(null)} className="rounded-2xl border border-slate-200 px-4 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50">Close</button>
+          </div>
+
+          <div className="p-6 grid lg:grid-cols-[1fr_260px] gap-6">
+            <div className="space-y-4">
+              <div className="rounded-2xl bg-slate-50 border border-slate-100 p-4 max-h-[360px] overflow-y-auto space-y-3">
+                <div className="rounded-2xl bg-white border border-slate-200 p-3 text-sm"><span className="font-bold text-slate-950">Customer: </span>{ticket.message || ticket.subject}</div>
+                {ticketMessages.filter(m => !m.is_internal).map(m => (
+                  <div key={m.id} className={`rounded-2xl p-3 text-sm max-w-[85%] ${m.author_type === "customer" ? "bg-white border border-slate-200" : m.author_type === "bot" ? "bg-purple-50 border border-purple-100 ml-auto italic" : "bg-indigo-600 text-white ml-auto"}`}>
+                    <div className="text-[10px] uppercase font-bold opacity-70 mb-1">{m.author_type}</div>
+                    {m.message}
+                  </div>
+                ))}
+                {ticketMessages.length === 0 && <p className="text-center text-xs text-slate-400 py-4">No replies yet.</p>}
+              </div>
+              {!closed && (
+                <div className="space-y-2">
+                  <textarea value={ticketReply} onChange={(e) => setTicketReply(e.target.value)} placeholder="Reply to customer..." className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm min-h-[90px]" />
+                  <div className="flex gap-2">
+                    <button onClick={() => void sendTicketReply(ticket)} disabled={ticketBusy || !ticketReply.trim()} className="rounded-2xl bg-indigo-600 text-white px-4 py-2 text-sm font-bold disabled:opacity-50">Send reply</button>
+                    {(ticket.status === "open" || ticket.status === "pending") && <button onClick={() => void openTicket(ticket)} disabled={ticketBusy} className="rounded-2xl bg-blue-600 text-white px-4 py-2 text-sm font-bold">Start work</button>}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="space-y-4">
+              {!closed ? (
+                <div className="rounded-2xl border border-slate-200 p-4">
+                  <div className="text-xs font-bold uppercase tracking-wide text-slate-500 mb-3">Resolve &amp; close</div>
+                  <textarea value={resolutionNote} onChange={(e) => setResolutionNote(e.target.value)} placeholder="Resolution summary (sent to customer)..." className="w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm min-h-[80px] mb-2" />
+                  <button onClick={() => void resolveTicket(ticket)} disabled={ticketBusy} className="w-full rounded-2xl bg-emerald-600 text-white px-4 py-3 text-sm font-bold disabled:opacity-50">Submit &amp; close</button>
+                </div>
+              ) : (
+                <div className="rounded-2xl bg-emerald-50 border border-emerald-100 p-4 text-sm text-emerald-800"><b>Resolved.</b><br/>{ticket.resolution_summary}</div>
+              )}
+              <div className="rounded-2xl bg-slate-50 border border-slate-100 p-4 text-xs text-slate-500">SLA target: {ticket.sla_target_minutes ? `${ticket.sla_target_minutes} min` : "default"}. Customer gets an email on every reply and on resolve.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
   }
 
 
@@ -424,7 +581,7 @@ export default function StaffDashboard() {
 
   function NotificationsPage() {
     return <Section title="Notifications" subtitle="Unread role and task updates." actions={notifications.length > 0 && <button onClick={markAllNotificationsRead} className="rounded-2xl bg-slate-950 text-white px-4 py-2 text-sm font-bold">Mark all read</button>}>
-      <div className="divide-y divide-slate-100">{notifications.length === 0 ? <div className="p-10 text-center text-slate-500">No unread notifications.</div> : notifications.map(n => <div key={n.id} className="p-5 flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4 hover:bg-slate-50 cursor-pointer" onClick={() => { markNotificationRead(n.id); if (n.metadata?.task_id || n.type === "task_assigned") { window.location.hash = "tasks"; } else if (n.metadata?.ticket_id || n.type === "ticket_assigned") { window.location.hash = "tickets"; } }}><div><div className="font-black text-slate-950">{n.title}</div>{n.body && <div className="text-sm text-slate-500 mt-1">{n.body}</div>}<div className="text-xs text-slate-400 mt-2">{new Date(n.created_at).toLocaleString()} • {n.type.replace("_", " ")}</div></div><button onClick={(e) => { e.stopPropagation(); markNotificationRead(n.id); }} className="rounded-2xl border border-slate-200 px-4 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50">Mark read</button></div>)}</div>
+      <div className="divide-y divide-slate-100">{notifications.length === 0 ? <div className="p-10 text-center text-slate-500">No unread notifications.</div> : notifications.map(n => <div key={n.id} className="p-5 flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4 hover:bg-slate-50 cursor-pointer" onClick={() => { markNotificationRead(n.id); if (n.metadata?.ticket_id || n.type.includes("ticket")) { setSelectedTicketId(n.metadata!.ticket_id as string); window.location.hash = "tasks"; } else if (n.metadata?.task_id || n.type.includes("task")) { setSelectedTaskId(n.metadata!.task_id as string); window.location.hash = "tasks"; } }}><div><div className="font-black text-slate-950">{n.title}</div>{n.body && <div className="text-sm text-slate-500 mt-1">{n.body}</div>}<div className="text-xs text-slate-400 mt-2">{new Date(n.created_at).toLocaleString()} • {n.type.replace("_", " ")}</div></div><button onClick={(e) => { e.stopPropagation(); markNotificationRead(n.id); }} className="rounded-2xl border border-slate-200 px-4 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50">Mark read</button></div>)}</div>
     </Section>;
   }
 
@@ -448,14 +605,23 @@ export default function StaffDashboard() {
   function UsersPage() { return hasStaffPermission(role, "users") ? <Section title="Users" subtitle="Assigned customer support workspace."><div className="p-10 text-center text-slate-500">User support tools will show assigned customers here.</div></Section> : <Blocked />; }
   function Blocked() { return <div className="rounded-3xl bg-white border border-slate-200 p-10 text-center"><div className="text-4xl mb-3">🔒</div><h2 className="text-xl font-black text-slate-950">Access not available</h2><p className="text-slate-500 mt-2">This section is hidden for your role.</p></div>; }
 
-  if (active === "tasks") return TasksPage();
-  if (active === "tickets") return TicketsPage();
-  if (active === "users") return UsersPage();
-  if (active === "finance") return FinancePage();
-  if (active === "reports") return ReportsPage();
-  if (active === "communication") return CommunicationPage();
-  if (active === "notifications") return NotificationsPage();
-  if (active === "profile") return ProfilePage();
-  if (active === "settings") return SettingsPage();
-  return DashboardPage();
+  function ActivePage() {
+    if (active === "tasks") return TasksPage();
+    if (active === "tickets") return TicketsPage();
+    if (active === "users") return UsersPage();
+    if (active === "finance") return FinancePage();
+    if (active === "reports") return ReportsPage();
+    if (active === "communication") return CommunicationPage();
+    if (active === "notifications") return NotificationsPage();
+    if (active === "profile") return ProfilePage();
+    if (active === "settings") return SettingsPage();
+    return DashboardPage();
+  }
+
+  return (
+    <>
+      {ActivePage()}
+      <TicketWorkspace />
+    </>
+  );
 }

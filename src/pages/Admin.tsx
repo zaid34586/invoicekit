@@ -49,7 +49,8 @@ type AdminTeamMember = {
   auth_user_id: string | null;
   email: string;
   name: string | null;
-  role: "full_access" | "limited" | "support" | "finance" | "viewer";
+  role: "full_access" | "standard" | "limited" | "support" | "finance" | "viewer";
+  department?: string | null;
   status: "active" | "disabled";
   temporary_password: string | null;
   notes: string | null;
@@ -65,7 +66,7 @@ type AdminTask = {
   title: string;
   description: string | null;
   assigned_to: string | null;
-  department: "general" | "support" | "finance" | "sales" | "engineering";
+  department: "general" | "support" | "finance" | "sales" | "engineering" | "marketing" | "hr" | "legal";
   priority: "low" | "medium" | "high" | "urgent";
   status: "pending" | "in_progress" | "done" | "blocked";
   progress: number;
@@ -195,6 +196,7 @@ function cx(...classes: Array<string | false | null | undefined>) {
 
 const roleLabels: Record<AdminTeamMember["role"], string> = {
   full_access: "Full Access",
+  standard: "Standard",
   limited: "Limited",
   support: "Support",
   finance: "Finance",
@@ -203,6 +205,7 @@ const roleLabels: Record<AdminTeamMember["role"], string> = {
 
 const roleAccess: Record<AdminTeamMember["role"], string[]> = {
   full_access: ["Dashboard", "Users", "Invoice Balance", "Team", "Tasks", "Finance", "Invoices", "Analytics", "Support", "Audit", "Settings"],
+  standard: ["Dashboard", "Tasks (own department)", "Support (if assigned)", "Communication"],
   limited: ["Dashboard", "Users", "Tasks"],
   support: ["Users", "Support", "Tasks"],
   finance: ["Finance", "Invoices", "Analytics"],
@@ -303,7 +306,8 @@ export default function Admin() {
   const [userSort, setUserSort] = useState<"newest" | "oldest" | "credits_high" | "invoices_high">("newest");
   const [adminNotesDraft, setAdminNotesDraft] = useState("");
   const [invoiceSearch, setInvoiceSearch] = useState("");
-  const [teamForm, setTeamForm] = useState({ name: "", email: "", password: "", role: "limited", notes: "" });
+  const [teamForm, setTeamForm] = useState({ name: "", email: "", password: "", role: "limited", department: "", notes: "" });
+  const [departments, setDepartments] = useState<{ slug: string; name: string; icon: string }[]>([]);
   const [teamSearch, setTeamSearch] = useState("");
   const [teamStatusFilter, setTeamStatusFilter] = useState<"all" | "active" | "disabled">("all");
   const [selectedTeamId, setSelectedTeamId] = useState<string | null>(null);
@@ -447,6 +451,10 @@ export default function Admin() {
         )
         .slice(0, 8)
     : [];
+
+  useEffect(() => {
+    void supabase.from("departments").select("slug,name,icon").eq("is_active", true).order("name").then(({ data }) => setDepartments(data ?? []));
+  }, []);
 
   useEffect(() => {
     setAdminNotesDraft(String((selectedUser as unknown as { admin_notes?: string | null })?.admin_notes ?? ""));
@@ -930,6 +938,7 @@ export default function Admin() {
           email: teamForm.email.toLowerCase(),
           name: teamForm.name || null,
           role: teamForm.role,
+          department: teamForm.department || null,
           temporary_password: teamForm.password,
           notes: teamForm.notes || "Edge Function not deployed yet. Deploy create-team-member for real Auth login.",
           created_by: user?.id ?? null,
@@ -1770,10 +1779,15 @@ export default function Admin() {
                   </div>
                   <select className="input" value={teamForm.role} onChange={(e) => setTeamForm({ ...teamForm, role: e.target.value })}>
                     <option value="limited">Limited</option>
+                    <option value="standard">Standard (department staff)</option>
                     <option value="full_access">Full Access</option>
-                    <option value="support">Support</option>
-                    <option value="finance">Finance</option>
+                    <option value="support">Support (legacy)</option>
+                    <option value="finance">Finance (legacy)</option>
                     <option value="viewer">Viewer</option>
+                  </select>
+                  <select className="input" value={teamForm.department} onChange={(e) => setTeamForm({ ...teamForm, department: e.target.value })}>
+                    <option value="">No department (cross-team / Full Access)</option>
+                    {departments.map((d) => <option key={d.slug} value={d.slug}>{d.icon} {d.name}</option>)}
                   </select>
                   <div className="rounded-xl bg-slate-50 border border-slate-100 p-3">
                     <p className="text-xs font-semibold text-slate-500 uppercase mb-2">Role Access Preview</p>
@@ -1920,7 +1934,7 @@ export default function Admin() {
                   )}
                   <div className="grid grid-cols-2 gap-2">
                     <select className="input" value={taskForm.department} onChange={(e) => setTaskForm({ ...taskForm, department: e.target.value, assigned_to: "" })}>
-                      <option value="general">📋 General</option><option value="support">🎧 Support</option><option value="finance">💰 Finance</option><option value="sales">📢 Sales</option><option value="engineering">⚙️ Engineering</option>
+                      <option value="general">📋 General</option><option value="support">🎧 Support</option><option value="finance">💰 Finance</option><option value="sales">📢 Sales</option><option value="engineering">⚙️ Engineering</option><option value="marketing">📣 Marketing</option><option value="hr">👤 HR</option><option value="legal">⚖️ Legal</option>
                     </select>
                     <div className="flex items-center gap-1">
                       {([["low", "⚪", "Low", "bg-slate-100 text-slate-600 border-slate-200"], ["medium", "🟡", "Med", "bg-amber-50 text-amber-700 border-amber-200"], ["high", "🟠", "High", "bg-orange-50 text-orange-700 border-orange-200"], ["urgent", "🔴", "Urgent", "bg-red-50 text-red-700 border-red-200"]] as const).map(([value, dot, label, cls]) => (
