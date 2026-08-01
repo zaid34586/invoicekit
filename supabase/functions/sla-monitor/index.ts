@@ -39,7 +39,10 @@ Deno.serve(async (req) => {
     const { data: recurringData, error: recurringError } = await admin.rpc("run_recurring_tasks");
     if (recurringError) throw recurringError;
 
-    return new Response(JSON.stringify({ ok: true, sla: slaData?.[0] || slaData, recurring: recurringData?.[0] || recurringData }), {
+    const { data: closeData, error: closeError } = await admin.rpc("run_auto_close");
+    if (closeError) throw closeError;
+
+    return new Response(JSON.stringify({ ok: true, sla: slaData?.[0] || slaData, recurring: recurringData?.[0] || recurringData, closed: closeData?.[0] || closeData }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (error) {

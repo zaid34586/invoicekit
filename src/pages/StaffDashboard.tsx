@@ -277,12 +277,8 @@ export default function StaffDashboard() {
       ticket_id: ticket.id, author_user_id: user?.id, author_type: "staff", message: ticketReply.trim(), is_internal: false,
     });
     if (error) { setMessage(`Reply failed: ${error.message}`); setTicketBusy(false); return; }
-    const now = new Date().toISOString();
-    await supabase.from("admin_support_tickets").update({
-      last_reply_at: now, last_admin_reply_at: now,
-      ...(ticket.first_admin_reply_at ? {} : { first_admin_reply_at: now }),
-      status: ticket.status === "open" || ticket.status === "pending" ? "in_progress" : ticket.status,
-    }).eq("id", ticket.id);
+    // Status (-> waiting_customer), last_reply_at, first_admin_reply_at are
+    // now all set automatically by the ticket_message_transition DB trigger.
     void supabase.functions.invoke("ticket-notify", { body: { ticket_id: ticket.id, kind: "reply" } });
     setTicketReply(""); setTicketBusy(false);
     await Promise.all([load(), loadTicketMessages(ticket.id)]);
@@ -516,7 +512,7 @@ export default function StaffDashboard() {
             <div>
               <div className="flex flex-wrap gap-2 mb-3">
                 <Badge tone={ticket.priority === "urgent" || ticket.priority === "high" ? "red" : ticket.priority === "medium" ? "amber" : "slate"}>{ticket.priority}</Badge>
-                <Badge tone={closed ? "green" : "blue"}>{ticket.status.replaceAll("_", " ")}</Badge>
+                <Badge tone={ticket.status === "reopened" ? "red" : closed ? "green" : "blue"}>{ticket.status.replaceAll("_", " ")}</Badge>
                 <Badge tone={ticketSla(ticket).includes("breached") ? "red" : "amber"}>{ticketSla(ticket)}</Badge>
               </div>
               <h2 className="text-2xl font-black text-slate-950">{ticket.subject}</h2>
