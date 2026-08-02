@@ -6,8 +6,10 @@ import CommunicationCenter from "../components/CommunicationCenter";
 import WorkspaceTools from "../components/WorkspaceTools";
 
 interface TaskRow { id: string; title: string; description?: string | null; status: string; priority: string; due_date: string | null; progress?: number | null; staff_notes?: string | null; internal_notes?: string | null; department?: string | null; last_staff_update?: string | null; }
-interface TicketRow { id: string; ticket_number?: string | null; subject: string; message?: string | null; status: string; priority: string; created_at: string; staff_notes?: string | null; sla_target_minutes?: number | null; first_admin_reply_at?: string | null; assigned_to?: string | null; resolution_summary?: string | null; }
+interface TicketRow { id: string; user_id?: string | null; ticket_number?: string | null; subject: string; message?: string | null; status: string; priority: string; created_at: string; staff_notes?: string | null; sla_target_minutes?: number | null; first_admin_reply_at?: string | null; assigned_to?: string | null; resolution_summary?: string | null; category?: string | null; }
 interface TicketMessage { id: string; author_type: string; message: string; is_internal: boolean; created_at: string; }
+interface CustomerContext { email: string | null; business_name: string | null; pastTicketCount: number; invoiceCount: number; invoiceTotal: number }
+interface CannedResponse { id: string; title: string; body: string }
 interface FinanceRow { id: string; type: string; source: string; amount: number; currency: string; status: string; title: string; }
 interface NotificationRow { id: string; title: string; body: string | null; type: string; read_at: string | null; created_at: string; metadata?: { task_id?: string; ticket_id?: string } | null; }
 
@@ -102,6 +104,9 @@ export default function StaffDashboard() {
   const [resolutionNote, setResolutionNote] = useState("");
   const [ticketBusy, setTicketBusy] = useState(false);
   const [ticketViewFilter, setTicketViewFilter] = useState<"open" | "resolved">("open");
+  const [customerContext, setCustomerContext] = useState<CustomerContext | null>(null);
+  const [cannedResponses, setCannedResponses] = useState<CannedResponse[]>([]);
+  const [internalNote, setInternalNote] = useState("");
 
   useEffect(() => {
     const onHash = () => setActive(window.location.hash.replace("#", "") || "dashboard");
@@ -136,7 +141,7 @@ export default function StaffDashboard() {
       const canBrowseQueue = hasStaffPermission(team.role, "tickets");
       const { data: ticketData } = await supabase
         .from("admin_support_tickets")
-        .select("id, ticket_number, subject, message, status, priority, created_at, staff_notes, sla_target_minutes, first_admin_reply_at, assigned_to, resolution_summary")
+        .select("id, user_id, ticket_number, subject, message, status, priority, created_at, staff_notes, sla_target_minutes, first_admin_reply_at, assigned_to, resolution_summary, category")
         .or(canBrowseQueue ? `assigned_to.eq.${team.id},assigned_to.is.null` : `assigned_to.eq.${team.id}`)
         .order("created_at", { ascending: false })
         .limit(40);
@@ -256,7 +261,7 @@ export default function StaffDashboard() {
   const selectedTicket = selectedTicketId ? tickets.find((t) => t.id === selectedTicketId) ?? null : null;
 
   useEffect(() => {
-    if (!selectedTicketId) { setTicketMessages([]); return; }
+    if (!selectedTicketId) { setTicketMessages([]); setCustomerContext(null); return; }
     void loadTicketMessages(selectedTicketId);
     const channel = supabase
       .channel(`staff-ticket-thread-${selectedTicketId}`)
@@ -265,9 +270,43 @@ export default function StaffDashboard() {
     return () => { void supabase.removeChannel(channel); };
   }, [selectedTicketId]);
 
+  useEffect(() => {
+    const userId = selectedTicket?.user_id;
+    if (!userId) { setCustomerContext(null); return; }
+    void (async () => {
+      const [profileRes, ticketCountRes, invoiceRes] = await Promise.all([
+        supabase.from("profiles").select("email,business_name").eq("user_id", userId).maybeSingle(),
+        supabase.from("admin_support_tickets").select("id", { count: "exact", head: true }).eq("user_id", userId).neq("id", selectedTicketId as string),
+        supabase.from("invoices").select("invoice_total").eq("user_id", userId),
+      ]);
+      const invoices = (invoiceRes.data as { invoice_total?: number }[] | null) ?? [];
+      setCustomerContext({
+        email: profileRes.data?.email ?? null,
+        business_name: profileRes.data?.business_name ?? null,
+        pastTicketCount: ticketCountRes.count ?? 0,
+        invoiceCount: invoices.length,
+        invoiceTotal: invoices.reduce((sum, i) => sum + (Number(i.invoice_total) || 0), 0),
+      });
+    })();
+  }, [selectedTicket?.user_id, selectedTicketId]);
+
+  useEffect(() => {
+    void supabase.from("canned_responses").select("id,title,body").order("created_at").then(({ data }) => setCannedResponses((data as CannedResponse[]) ?? []));
+  }, []);
+
   async function loadTicketMessages(ticketId: string) {
     const { data } = await supabase.from("support_ticket_messages").select("id,author_type,message,is_internal,created_at").eq("ticket_id", ticketId).order("created_at");
     setTicketMessages((data as TicketMessage[]) ?? []);
+  }
+
+  async function addInternalNote(ticket: TicketRow) {
+    if (!internalNote.trim()) return;
+    setTicketBusy(true);
+    await supabase.from("support_ticket_messages").insert({
+      ticket_id: ticket.id, author_user_id: user?.id, author_type: "staff", message: internalNote.trim(), is_internal: true,
+    });
+    setInternalNote(""); setTicketBusy(false);
+    await loadTicketMessages(ticket.id);
   }
 
   async function openTicket(ticket: TicketRow) {
@@ -518,58 +557,94 @@ export default function StaffDashboard() {
     if (!selectedTicket) return null;
     const ticket = selectedTicket;
     const closed = ticket.status === "resolved" || ticket.status === "closed";
+    const timeline = [
+      ...ticketMessages.map(m => ({ kind: "message" as const, at: m.created_at, data: m })),
+    ].sort((a, b) => new Date(a.at).getTime() - new Date(b.at).getTime());
+
     return (
-      <div className="fixed inset-0 z-50 bg-slate-950/50 backdrop-blur-sm p-4 flex items-center justify-center">
-        <div className="w-full max-w-4xl max-h-[92vh] overflow-y-auto rounded-3xl bg-white shadow-2xl border border-slate-200">
-          <div className="p-6 border-b border-slate-100 flex items-start justify-between gap-4">
-            <div>
-              <div className="flex flex-wrap gap-2 mb-3">
-                <Badge tone={ticket.priority === "urgent" || ticket.priority === "high" ? "red" : ticket.priority === "medium" ? "amber" : "slate"}>{ticket.priority}</Badge>
-                <Badge tone={ticket.status === "reopened" ? "red" : closed ? "green" : "blue"}>{ticket.status.replaceAll("_", " ")}</Badge>
-                <Badge tone={ticketSla(ticket).includes("breached") ? "red" : "amber"}>{ticketSla(ticket)}</Badge>
-              </div>
-              <h2 className="text-2xl font-black text-slate-950">{ticket.subject}</h2>
-              <p className="text-sm text-slate-500 mt-1">{ticket.ticket_number || ticket.id.slice(0,8)} · Created {new Date(ticket.created_at).toLocaleString()}</p>
+      <div className="fixed inset-0 z-50 bg-white flex flex-col">
+        {/* Header */}
+        <div className="flex items-start justify-between gap-4 border-b border-slate-100 px-6 py-4">
+          <div>
+            <div className="flex flex-wrap gap-2 mb-2">
+              <Badge tone={ticket.priority === "urgent" || ticket.priority === "high" ? "red" : ticket.priority === "medium" ? "amber" : "slate"}>{ticket.priority}</Badge>
+              <Badge tone={ticket.status === "reopened" ? "red" : closed ? "green" : "blue"}>{ticket.status.replaceAll("_", " ")}</Badge>
+              {!closed && <Badge tone={ticketSla(ticket).includes("breached") ? "red" : "amber"}>⏱ {ticketSla(ticket)}</Badge>}
             </div>
-            <button onClick={() => setSelectedTicketId(null)} className="rounded-2xl border border-slate-200 px-4 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50">Close</button>
+            <h2 className="text-xl font-black text-slate-950">{ticket.subject}</h2>
+            <p className="text-xs text-slate-500 mt-1">{ticket.ticket_number || ticket.id.slice(0, 8)} · Created {new Date(ticket.created_at).toLocaleString()}</p>
+          </div>
+          <button onClick={() => setSelectedTicketId(null)} className="rounded-2xl border border-slate-200 px-4 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50">✕ Close</button>
+        </div>
+
+        {/* 3-column body */}
+        <div className="flex-1 overflow-hidden grid lg:grid-cols-[240px_1fr_300px]">
+          {/* LEFT: customer context */}
+          <div className="hidden lg:block overflow-y-auto border-r border-slate-100 p-4 space-y-4 bg-slate-50">
+            <div className="text-xs font-black uppercase tracking-wide text-slate-400">Customer</div>
+            <div>
+              <div className="font-bold text-slate-900 text-sm">{customerContext?.business_name || "—"}</div>
+              <div className="text-xs text-slate-500 break-all">{customerContext?.email || "—"}</div>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div className="rounded-xl bg-white border border-slate-200 p-2.5"><div className="text-[10px] font-bold uppercase text-slate-400">Past tickets</div><div className="text-lg font-black text-slate-950">{customerContext?.pastTicketCount ?? "—"}</div></div>
+              <div className="rounded-xl bg-white border border-slate-200 p-2.5"><div className="text-[10px] font-bold uppercase text-slate-400">Invoices</div><div className="text-lg font-black text-slate-950">{customerContext?.invoiceCount ?? "—"}</div></div>
+            </div>
+            <div className="rounded-xl bg-white border border-slate-200 p-2.5"><div className="text-[10px] font-bold uppercase text-slate-400">Category</div><div className="text-sm font-bold text-slate-800 capitalize">{ticket.category || "general"}</div></div>
           </div>
 
-          <div className="p-6 grid lg:grid-cols-[1fr_260px] gap-6">
-            <div className="space-y-4">
-              <div className="rounded-2xl bg-slate-50 border border-slate-100 p-4 max-h-[360px] overflow-y-auto space-y-3">
-                <div className="rounded-2xl bg-white border border-slate-200 p-3 text-sm"><span className="font-bold text-slate-950">Customer: </span>{ticket.message || ticket.subject}</div>
-                {ticketMessages.filter(m => !m.is_internal).map(m => (
+          {/* CENTER: timeline + reply */}
+          <div className="flex flex-col overflow-hidden">
+            <div className="flex-1 overflow-y-auto p-5 space-y-3">
+              <div className="rounded-2xl bg-slate-50 border border-slate-200 p-3 text-sm"><span className="font-bold text-slate-950">Customer: </span>{ticket.message || ticket.subject}</div>
+              {timeline.length === 0 && <p className="text-center text-xs text-slate-400 py-6">No replies yet.</p>}
+              {timeline.map(item => {
+                const m = item.data;
+                if (m.is_internal) {
+                  return <div key={m.id} className="rounded-2xl bg-amber-50 border border-amber-200 p-3 text-sm max-w-[85%]"><div className="text-[10px] uppercase font-bold text-amber-600 mb-1">🔒 Internal note — {m.author_type}</div>{m.message}</div>;
+                }
+                return (
                   <div key={m.id} className={`rounded-2xl p-3 text-sm max-w-[85%] ${m.author_type === "customer" ? "bg-white border border-slate-200" : m.author_type === "bot" ? "bg-purple-50 border border-purple-100 ml-auto italic" : "bg-indigo-600 text-white ml-auto"}`}>
-                    <div className="text-[10px] uppercase font-bold opacity-70 mb-1">{m.author_type}</div>
+                    <div className="text-[10px] uppercase font-bold opacity-70 mb-1">{m.author_type} · {new Date(m.created_at).toLocaleTimeString()}</div>
                     {m.message}
                   </div>
-                ))}
-                {ticketMessages.length === 0 && <p className="text-center text-xs text-slate-400 py-4">No replies yet.</p>}
+                );
+              })}
+            </div>
+            {!closed && (
+              <div className="border-t border-slate-100 p-4 space-y-2">
+                {cannedResponses.length > 0 && (
+                  <select className="w-full rounded-xl border border-slate-200 px-3 py-2 text-xs" value="" onChange={(e) => { const picked = cannedResponses.find(c => c.id === e.target.value); if (picked) setTicketReply((cur) => cur ? `${cur}\n\n${picked.body}` : picked.body); }}>
+                    <option value="">💬 Insert canned response...</option>
+                    {cannedResponses.map(c => <option key={c.id} value={c.id}>{c.title}</option>)}
+                  </select>
+                )}
+                <textarea value={ticketReply} onChange={(e) => setTicketReply(e.target.value)} placeholder="Reply to customer..." className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm min-h-[70px]" />
+                <div className="flex flex-wrap gap-2">
+                  <button onClick={() => void sendTicketReply(ticket)} disabled={ticketBusy || !ticketReply.trim()} className="rounded-2xl bg-indigo-600 text-white px-4 py-2 text-sm font-bold disabled:opacity-50">Send reply</button>
+                  {(ticket.status === "open" || ticket.status === "pending") && <button onClick={() => void openTicket(ticket)} disabled={ticketBusy} className="rounded-2xl bg-blue-600 text-white px-4 py-2 text-sm font-bold">Start work</button>}
+                </div>
+                <div className="flex gap-2 pt-2 border-t border-slate-100">
+                  <input value={internalNote} onChange={(e) => setInternalNote(e.target.value)} placeholder="🔒 Internal note (staff only, customer never sees this)..." className="flex-1 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs" />
+                  <button onClick={() => void addInternalNote(ticket)} disabled={ticketBusy || !internalNote.trim()} className="rounded-xl bg-amber-500 text-white px-3 py-2 text-xs font-bold disabled:opacity-50">Add note</button>
+                </div>
               </div>
-              {!closed && (
-                <div className="space-y-2">
-                  <textarea value={ticketReply} onChange={(e) => setTicketReply(e.target.value)} placeholder="Reply to customer..." className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm min-h-[90px]" />
-                  <div className="flex gap-2">
-                    <button onClick={() => void sendTicketReply(ticket)} disabled={ticketBusy || !ticketReply.trim()} className="rounded-2xl bg-indigo-600 text-white px-4 py-2 text-sm font-bold disabled:opacity-50">Send reply</button>
-                    {(ticket.status === "open" || ticket.status === "pending") && <button onClick={() => void openTicket(ticket)} disabled={ticketBusy} className="rounded-2xl bg-blue-600 text-white px-4 py-2 text-sm font-bold">Start work</button>}
-                  </div>
-                </div>
-              )}
-            </div>
+            )}
+          </div>
 
-            <div className="space-y-4">
-              {!closed ? (
-                <div className="rounded-2xl border border-slate-200 p-4">
-                  <div className="text-xs font-bold uppercase tracking-wide text-slate-500 mb-3">Resolve &amp; close</div>
-                  <textarea value={resolutionNote} onChange={(e) => setResolutionNote(e.target.value)} placeholder="Resolution summary (sent to customer)..." className="w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm min-h-[80px] mb-2" />
-                  <button onClick={() => void resolveTicket(ticket)} disabled={ticketBusy} className="w-full rounded-2xl bg-emerald-600 text-white px-4 py-3 text-sm font-bold disabled:opacity-50">Submit &amp; close</button>
-                </div>
-              ) : (
-                <div className="rounded-2xl bg-emerald-50 border border-emerald-100 p-4 text-sm text-emerald-800"><b>Resolved.</b><br/>{ticket.resolution_summary}</div>
-              )}
-              <div className="rounded-2xl bg-slate-50 border border-slate-100 p-4 text-xs text-slate-500">SLA target: {ticket.sla_target_minutes ? `${ticket.sla_target_minutes} min` : "default"}. Customer gets an email on every reply and on resolve.</div>
-              <WorkspaceTools itemType="ticket" itemId={ticket.id} performedBy={staff?.id} />
-            </div>
+          {/* RIGHT: actions + tools */}
+          <div className="overflow-y-auto border-l border-slate-100 p-4 space-y-4">
+            {!closed ? (
+              <div className="rounded-2xl border border-slate-200 p-4">
+                <div className="text-xs font-bold uppercase tracking-wide text-slate-500 mb-3">Resolve &amp; close</div>
+                <textarea value={resolutionNote} onChange={(e) => setResolutionNote(e.target.value)} placeholder="Resolution summary (sent to customer)..." className="w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm min-h-[80px] mb-2" />
+                <button onClick={() => void resolveTicket(ticket)} disabled={ticketBusy} className="w-full rounded-2xl bg-emerald-600 text-white px-4 py-3 text-sm font-bold disabled:opacity-50">Submit &amp; close</button>
+              </div>
+            ) : (
+              <div className="rounded-2xl bg-emerald-50 border border-emerald-100 p-4 text-sm text-emerald-800"><b>Resolved.</b><br/>{ticket.resolution_summary}</div>
+            )}
+            <div className="rounded-2xl bg-slate-50 border border-slate-100 p-4 text-xs text-slate-500">SLA target: {ticket.sla_target_minutes ? `${ticket.sla_target_minutes} min` : "default"}. Customer gets an email on every reply and on resolve.</div>
+            <WorkspaceTools itemType="ticket" itemId={ticket.id} performedBy={staff?.id} />
           </div>
         </div>
       </div>
