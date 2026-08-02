@@ -112,6 +112,22 @@ export default function LiveChatWidget() {
 
     if (inserted) setMessages((current) => [...current, inserted as ChatMessage]);
     setSending(false);
+
+    // Safety net: the bot's FAQ/escalation reply is inserted by a DB trigger
+    // as part of the same transaction as the customer's message, so it's
+    // already committed by now — refetch shortly after in case the realtime
+    // push was missed (e.g. a brief reconnect), so the bot's answer never
+    // silently fails to appear.
+    const ticketIdForRefetch = currentTicketId;
+    window.setTimeout(() => {
+      void supabase
+        .from("support_ticket_messages")
+        .select("id, ticket_id, author_type, message, created_at")
+        .eq("ticket_id", ticketIdForRefetch)
+        .eq("is_internal", false)
+        .order("created_at", { ascending: true })
+        .then(({ data }) => { if (data) setMessages(data as ChatMessage[]); });
+    }, 1200);
   }
 
   if (!user) return null;
