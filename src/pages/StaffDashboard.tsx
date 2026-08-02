@@ -569,7 +569,7 @@ export default function StaffDashboard() {
             <div className="flex flex-wrap gap-2 mb-2">
               <Badge tone={ticket.priority === "urgent" || ticket.priority === "high" ? "red" : ticket.priority === "medium" ? "amber" : "slate"}>{ticket.priority}</Badge>
               <Badge tone={ticket.status === "reopened" ? "red" : closed ? "green" : "blue"}>{ticket.status.replaceAll("_", " ")}</Badge>
-              {!closed && <Badge tone={ticketSla(ticket).includes("breached") ? "red" : "amber"}>⏱ {ticketSla(ticket)}</Badge>}
+              {!closed && <Badge tone={ticketSla(ticket).includes("breached") ? "red" : "amber"}>{`⏱ ${ticketSla(ticket)}`}</Badge>}
             </div>
             <h2 className="text-xl font-black text-slate-950">{ticket.subject}</h2>
             <p className="text-xs text-slate-500 mt-1">{ticket.ticket_number || ticket.id.slice(0, 8)} · Created {new Date(ticket.created_at).toLocaleString()}</p>
