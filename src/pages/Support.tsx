@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { supabase } from "../lib/supabase";
 
-type TicketStatus = "open" | "in_progress" | "waiting_customer" | "pending" | "resolved" | "closed";
+type TicketStatus = "open" | "in_progress" | "waiting_customer" | "pending" | "resolved" | "closed" | "reopened";
 type TicketPriority = "low" | "medium" | "high" | "urgent";
 
 type SupportTicket = {
@@ -54,15 +54,31 @@ const statusStyles: Record<TicketStatus, string> = {
   pending: "bg-amber-50 text-amber-700 border-amber-200",
   resolved: "bg-emerald-50 text-emerald-700 border-emerald-200",
   closed: "bg-slate-100 text-slate-600 border-slate-200",
+  reopened: "bg-orange-50 text-orange-700 border-orange-200",
+};
+
+// Bug fix: this used to show raw internal status text (e.g. "waiting
+// customer", "WAITING_CUSTOMER") straight from the DB -- accurate for staff,
+// confusing for a customer reading their own ticket. These are what the
+// customer actually sees instead.
+const customerStatusLabels: Record<TicketStatus, string> = {
+  open: "Received",
+  pending: "Received",
+  in_progress: "Being worked on",
+  waiting_customer: "Waiting for your reply",
+  resolved: "Resolved",
+  closed: "Closed",
+  reopened: "Reopened",
 };
 
 function supportSla(ticket: SupportTicket) {
-  if (ticket.first_admin_reply_at) return "First response sent";
+  if (["resolved", "closed"].includes(ticket.status)) return "";
+  if (ticket.first_admin_reply_at) return "Our team has replied";
   const due = new Date(ticket.created_at).getTime() + Number(ticket.sla_target_minutes || 1440) * 60000;
   const minutes = Math.ceil((due - Date.now()) / 60000);
-  if (minutes <= 0) return "Response SLA escalated";
-  if (minutes < 60) return `Target response in ${minutes} minutes`;
-  return `Target response in ${Math.ceil(minutes / 60)} hours`;
+  if (minutes <= 0) return "We're on it";
+  if (minutes < 60) return `Expected reply in ${minutes} minutes`;
+  return `Expected reply in ${Math.ceil(minutes / 60)} hours`;
 }
 
 function formatDate(value: string) {
@@ -346,7 +362,7 @@ export default function Support() {
               <div className="p-8 text-center"><div className="text-4xl">🎫</div><p className="mt-3 font-semibold text-slate-800">No tickets found</p><p className="mt-1 text-sm text-slate-500">Create a ticket whenever you need help.</p></div>
             ) : filteredTickets.map((ticket) => (
               <button key={ticket.id} onClick={() => setSelectedId(ticket.id)} className={`w-full p-4 text-left hover:bg-slate-50 transition ${selectedId === ticket.id ? "bg-primary-50/70 border-l-4 border-primary-600" : "border-l-4 border-transparent"}`}>
-                <div className="flex items-start justify-between gap-3"><p className="font-semibold text-slate-900 line-clamp-2">{ticket.subject}</p><span className={`text-[10px] uppercase font-bold rounded-full border px-2 py-1 ${statusStyles[ticket.status]}`}>{ticket.status}</span></div>
+                <div className="flex items-start justify-between gap-3"><p className="font-semibold text-slate-900 line-clamp-2">{ticket.subject}</p><span className={`text-[10px] uppercase font-bold rounded-full border px-2 py-1 ${statusStyles[ticket.status]}`}>{customerStatusLabels[ticket.status]}</span></div>
                 <p className="mt-2 text-xs text-slate-500">{ticket.ticket_number || `#${ticket.id.slice(0, 8).toUpperCase()}`} · {formatDate(ticket.updated_at)}</p>
               </button>
             ))}
@@ -361,7 +377,7 @@ export default function Support() {
               <div className="border-b border-slate-200 p-5 sm:p-6">
                 <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
                   <div><p className="text-xs font-semibold uppercase tracking-wider text-primary-600">{selectedTicket.ticket_number || `Ticket #${selectedTicket.id.slice(0, 8).toUpperCase()}`}</p><h2 className="mt-2 text-xl font-bold text-slate-900">{selectedTicket.subject}</h2><p className="mt-2 text-sm text-slate-500">Category: <span className="capitalize">{selectedTicket.category || "general"}</span> · Created {formatDate(selectedTicket.created_at)}</p></div>
-                  <div className="flex flex-wrap gap-2"><span className={`rounded-full border px-3 py-1 text-xs font-semibold capitalize ${statusStyles[selectedTicket.status]}`}>{selectedTicket.status.replaceAll("_", " ")}</span><span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold text-slate-600">{supportSla(selectedTicket)}</span></div>
+                  <div className="flex flex-wrap gap-2"><span className={`rounded-full border px-3 py-1 text-xs font-semibold capitalize ${statusStyles[selectedTicket.status]}`}>{customerStatusLabels[selectedTicket.status]}</span>{supportSla(selectedTicket) && <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold text-slate-600">{supportSla(selectedTicket)}</span>}</div>
                 </div>
               </div>
 

@@ -619,7 +619,7 @@ export default function StaffDashboard() {
   return (
     <>
       {ActivePage()}
-      <TicketWorkspace />
+      {TicketWorkspace()}
     </>
   );
 }
