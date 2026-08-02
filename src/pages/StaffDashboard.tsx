@@ -101,6 +101,7 @@ export default function StaffDashboard() {
   const [ticketReply, setTicketReply] = useState("");
   const [resolutionNote, setResolutionNote] = useState("");
   const [ticketBusy, setTicketBusy] = useState(false);
+  const [ticketViewFilter, setTicketViewFilter] = useState<"open" | "resolved">("open");
 
   useEffect(() => {
     const onHash = () => setActive(window.location.hash.replace("#", "") || "dashboard");
@@ -179,6 +180,8 @@ export default function StaffDashboard() {
   const todayIso = new Date().toISOString().slice(0, 10);
   const openTaskCount = tasks.filter((t) => t.status !== "done").length;
   const completedTaskCount = tasks.filter((t) => t.status === "done").length;
+  const completedTicketCount = tickets.filter((t) => t.status === "resolved" || t.status === "closed").length;
+  const completedCount = completedTaskCount + completedTicketCount;
   const dueTodayTasks = tasks.filter((t) => t.due_date === todayIso && t.status !== "done").length;
   const openTicketCount = tickets.filter((t) => t.status !== "resolved" && t.status !== "closed").length;
   const urgentTickets = tickets.filter((t) => t.priority === "urgent" && t.status !== "closed" && t.status !== "resolved").length;
@@ -315,7 +318,7 @@ export default function StaffDashboard() {
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
           <StatCard label="Open Tasks" value={openTaskCount} icon="✅" note={`${dueTodayTasks} due today`} />
           <StatCard label="Open Tickets" value={openTicketCount} icon="🎧" note={`${urgentTickets} urgent`} />
-          <StatCard label="Completed" value={completedTaskCount} icon="🏁" note="Tasks completed" />
+          <StatCard label="Completed" value={completedCount} icon="🏁" note="Tasks + tickets" />
           <StatCard label="Role" value={role ? STAFF_ROLE_LABELS[role] : "Staff"} icon="🔐" />
         </div>
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
@@ -380,27 +383,35 @@ export default function StaffDashboard() {
         </Section>
 
         {tickets.length > 0 && (
-          <Section title="🎫 Support Tickets" subtitle="Customer tickets assigned to you — open one to reply and resolve.">
+          <Section title="🎫 Support Tickets" subtitle="Customer tickets assigned to you — open one to reply and resolve." actions={
+            <div className="flex rounded-2xl border border-slate-200 p-1">
+              <button onClick={() => setTicketViewFilter("open")} className={`rounded-xl px-3 py-1.5 text-xs font-bold ${ticketViewFilter === "open" ? "bg-slate-950 text-white" : "text-slate-500"}`}>Open</button>
+              <button onClick={() => setTicketViewFilter("resolved")} className={`rounded-xl px-3 py-1.5 text-xs font-bold ${ticketViewFilter === "resolved" ? "bg-slate-950 text-white" : "text-slate-500"}`}>Resolved</button>
+            </div>
+          }>
             <div className="divide-y divide-slate-100">
-              {tickets.filter(t => t.status !== "resolved" && t.status !== "closed").length === 0 ? (
-                <div className="p-10 text-center text-slate-500">No open support tickets.</div>
-              ) : tickets.filter(t => t.status !== "resolved" && t.status !== "closed").map(ticket => (
+              {(() => {
+                const shown = tickets.filter(t => ticketViewFilter === "open" ? (t.status !== "resolved" && t.status !== "closed") : (t.status === "resolved" || t.status === "closed"));
+                if (shown.length === 0) return <div className="p-10 text-center text-slate-500">{ticketViewFilter === "open" ? "No open support tickets." : "No resolved tickets yet."}</div>;
+                return shown.map(ticket => (
                 <button key={ticket.id} onClick={() => setSelectedTicketId(ticket.id)} className="w-full text-left p-5 hover:bg-slate-50 transition">
                   <div className="flex flex-col xl:flex-row xl:items-start xl:justify-between gap-4">
                     <div>
                       <div className="flex flex-wrap gap-2 mb-2">
                         <Badge tone="purple">Ticket</Badge>
                         <Badge tone={ticket.priority === "urgent" || ticket.priority === "high" ? "red" : ticket.priority === "medium" ? "amber" : "slate"}>{ticket.priority}</Badge>
-                        <Badge tone={ticket.status === "in_progress" ? "blue" : "amber"}>{ticket.status.replaceAll("_", " ")}</Badge>
-                        <Badge tone={ticketSla(ticket).includes("breached") ? "red" : "amber"}>{ticketSla(ticket)}</Badge>
+                        <Badge tone={ticket.status === "resolved" || ticket.status === "closed" ? "green" : ticket.status === "reopened" ? "red" : ticket.status === "in_progress" ? "blue" : "amber"}>{ticket.status.replaceAll("_", " ")}</Badge>
+                        {ticketViewFilter === "open" && <Badge tone={ticketSla(ticket).includes("breached") ? "red" : "amber"}>{ticketSla(ticket)}</Badge>}
                       </div>
                       <div className="font-black text-slate-950">{ticket.subject}</div>
-                      {ticket.message && <div className="text-sm text-slate-500 mt-1 line-clamp-2">{ticket.message}</div>}
+                      {ticket.status === "resolved" && ticket.resolution_summary && <div className="text-sm text-emerald-700 mt-1 line-clamp-2">✓ {ticket.resolution_summary}</div>}
+                      {ticket.status !== "resolved" && ticket.message && <div className="text-sm text-slate-500 mt-1 line-clamp-2">{ticket.message}</div>}
                     </div>
-                    <div className="text-xs text-primary-700 font-bold">Open &amp; reply →</div>
+                    <div className="text-xs text-primary-700 font-bold">{ticketViewFilter === "open" ? "Open & reply →" : "View →"}</div>
                   </div>
                 </button>
-              ))}
+                ));
+              })()}
             </div>
           </Section>
         )}

@@ -9,7 +9,6 @@ import RivoxLogo from "./RivoxLogo";
 const navBase = [
   { key: "dashboard", label: "Dashboard", icon: "📊" },
   { key: "tasks", label: "My Tasks", icon: "✅" },
-  { key: "tickets", label: "Support", icon: "🎧" },
   { key: "users", label: "Users", icon: "👥" },
   { key: "finance", label: "Finance", icon: "💰" },
   { key: "reports", label: "Reports", icon: "📈" },

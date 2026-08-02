@@ -207,6 +207,16 @@ export default function Support() {
     else { setMessages([]); setAttachments([]); }
   }, [selectedId]);
 
+  useEffect(() => {
+    if (!selectedId) return;
+    const channel = supabase
+      .channel(`customer-ticket-thread-${selectedId}`)
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "support_ticket_messages", filter: `ticket_id=eq.${selectedId}` }, () => { void loadMessages(selectedId); })
+      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "admin_support_tickets", filter: `id=eq.${selectedId}` }, () => { void loadTickets(true); })
+      .subscribe();
+    return () => { void supabase.removeChannel(channel); };
+  }, [selectedId]);
+
   const filteredTickets = useMemo(() => {
     const q = search.trim().toLowerCase();
     return tickets.filter((ticket) => {
