@@ -47,11 +47,11 @@ export default function WorkspaceTools({ itemType, itemId, performedBy }: { item
       </div>
 
       <div className="space-y-2 border-t border-slate-100 pt-3">
-        <div className="flex gap-2">
-          <select value={channel} onChange={(e) => setChannel(e.target.value)} className="rounded-xl border border-slate-200 px-2 py-2 text-xs">
+        <div className="space-y-2">
+          <select value={channel} onChange={(e) => setChannel(e.target.value)} className="w-full rounded-xl border border-slate-200 px-2 py-2 text-xs">
             {CHANNELS.map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}
           </select>
-          <input value={contactNote} onChange={(e) => setContactNote(e.target.value)} placeholder="What happened..." className="flex-1 rounded-xl border border-slate-200 px-3 py-2 text-xs" />
+          <input value={contactNote} onChange={(e) => setContactNote(e.target.value)} placeholder="What happened..." className="w-full rounded-xl border border-slate-200 px-3 py-2 text-xs" />
         </div>
         <button
           disabled={busy || !contactNote.trim()}
