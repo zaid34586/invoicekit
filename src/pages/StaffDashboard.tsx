@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "../context/AuthContext";
 import { supabase } from "../lib/supabase";
 import { hasStaffPermission, STAFF_ROLE_LABELS, type StaffMember, type StaffRole } from "../lib/staffPermissions";
@@ -107,6 +107,8 @@ export default function StaffDashboard() {
   const [customerContext, setCustomerContext] = useState<CustomerContext | null>(null);
   const [cannedResponses, setCannedResponses] = useState<CannedResponse[]>([]);
   const [internalNote, setInternalNote] = useState("");
+  const [customerTyping, setCustomerTyping] = useState(false);
+  const ticketTypingChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
 
   useEffect(() => {
     const onHash = () => setActive(window.location.hash.replace("#", "") || "dashboard");
@@ -269,6 +271,24 @@ export default function StaffDashboard() {
       .subscribe();
     return () => { void supabase.removeChannel(channel); };
   }, [selectedTicketId]);
+
+  useEffect(() => {
+    if (!selectedTicketId) { setCustomerTyping(false); return; }
+    let clearTimer: number | undefined;
+    const typingChannel = supabase.channel(`ticket-typing-${selectedTicketId}`, { config: { broadcast: { self: false } } });
+    typingChannel.on("broadcast", { event: "typing" }, ({ payload }) => {
+      if (payload?.from !== "customer") return;
+      setCustomerTyping(true);
+      window.clearTimeout(clearTimer);
+      clearTimer = window.setTimeout(() => setCustomerTyping(false), 3000);
+    }).subscribe();
+    ticketTypingChannelRef.current = typingChannel;
+    return () => { window.clearTimeout(clearTimer); void supabase.removeChannel(typingChannel); ticketTypingChannelRef.current = null; setCustomerTyping(false); };
+  }, [selectedTicketId]);
+
+  function broadcastStaffTyping() {
+    void ticketTypingChannelRef.current?.send({ type: "broadcast", event: "typing", payload: { from: "staff" } });
+  }
 
   useEffect(() => {
     const userId = selectedTicket?.user_id;
@@ -610,6 +630,7 @@ export default function StaffDashboard() {
                   </div>
                 );
               })}
+              {customerTyping && <div className="text-xs text-slate-400 italic px-1">Customer is typing...</div>}
             </div>
             {!closed && (
               <div className="border-t border-slate-100 p-4 space-y-2">
@@ -619,7 +640,7 @@ export default function StaffDashboard() {
                     {cannedResponses.map(c => <option key={c.id} value={c.id}>{c.title}</option>)}
                   </select>
                 )}
-                <textarea value={ticketReply} onChange={(e) => setTicketReply(e.target.value)} placeholder="Reply to customer..." className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm min-h-[70px]" />
+                <textarea value={ticketReply} onChange={(e) => { setTicketReply(e.target.value); broadcastStaffTyping(); }} placeholder="Reply to customer..." className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm min-h-[70px]" />
                 <div className="flex flex-wrap gap-2">
                   <button onClick={() => void sendTicketReply(ticket)} disabled={ticketBusy || !ticketReply.trim()} className="rounded-2xl bg-indigo-600 text-white px-4 py-2 text-sm font-bold disabled:opacity-50">Send reply</button>
                   {(ticket.status === "open" || ticket.status === "pending") && <button onClick={() => void openTicket(ticket)} disabled={ticketBusy} className="rounded-2xl bg-blue-600 text-white px-4 py-2 text-sm font-bold">Start work</button>}

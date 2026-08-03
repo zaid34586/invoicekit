@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { supabase } from "../lib/supabase";
@@ -98,6 +98,8 @@ export default function Support() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState("");
+  const [staffTyping, setStaffTyping] = useState(false);
+  const ticketTypingChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | TicketStatus>("all");
@@ -216,6 +218,24 @@ export default function Support() {
       .subscribe();
     return () => { void supabase.removeChannel(channel); };
   }, [selectedId]);
+
+  useEffect(() => {
+    if (!selectedId) { setStaffTyping(false); return; }
+    let clearTimer: number | undefined;
+    const typingChannel = supabase.channel(`ticket-typing-${selectedId}`, { config: { broadcast: { self: false } } });
+    typingChannel.on("broadcast", { event: "typing" }, ({ payload }) => {
+      if (payload?.from !== "staff") return;
+      setStaffTyping(true);
+      window.clearTimeout(clearTimer);
+      clearTimer = window.setTimeout(() => setStaffTyping(false), 3000);
+    }).subscribe();
+    ticketTypingChannelRef.current = typingChannel;
+    return () => { window.clearTimeout(clearTimer); void supabase.removeChannel(typingChannel); ticketTypingChannelRef.current = null; setStaffTyping(false); };
+  }, [selectedId]);
+
+  function broadcastCustomerTyping() {
+    void ticketTypingChannelRef.current?.send({ type: "broadcast", event: "typing", payload: { from: "customer" } });
+  }
 
   const filteredTickets = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -401,7 +421,7 @@ export default function Support() {
               {attachments.length > 0 && <div className="border-t border-slate-200 p-4 sm:p-5"><p className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-500">Screenshots</p><div className="grid grid-cols-2 sm:grid-cols-3 gap-3">{attachments.map((item) => <a key={item.id} href={item.signed_url} target="_blank" rel="noreferrer" className="group overflow-hidden rounded-xl border border-slate-200 bg-white"><img src={item.signed_url} alt={item.file_name} className="h-28 w-full object-cover group-hover:scale-105 transition"/><p className="truncate p-2 text-xs text-slate-600">{item.file_name}</p></a>)}</div></div>}
 
               <form onSubmit={sendReply} className="border-t border-slate-200 p-4 sm:p-5">
-                {selectedTicket.status === "closed" ? <p className="rounded-xl bg-slate-100 p-3 text-center text-sm text-slate-600">This ticket is closed. Create a new ticket if you need more help.</p> : <div className="flex flex-col sm:flex-row gap-3"><textarea className="input min-h-24 flex-1" placeholder="Write a reply..." value={reply} onChange={(e) => setReply(e.target.value)} /><button disabled={saving || !reply.trim()} className="btn-primary self-end disabled:opacity-50">{saving ? "Sending..." : "Send reply"}</button></div>}
+                {selectedTicket.status === "closed" ? <p className="rounded-xl bg-slate-100 p-3 text-center text-sm text-slate-600">This ticket is closed. Create a new ticket if you need more help.</p> : <div><div className="flex flex-col sm:flex-row gap-3"><textarea className="input min-h-24 flex-1" placeholder="Write a reply..." value={reply} onChange={(e) => { setReply(e.target.value); broadcastCustomerTyping(); }} /><button disabled={saving || !reply.trim()} className="btn-primary self-end disabled:opacity-50">{saving ? "Sending..." : "Send reply"}</button></div>{staffTyping && <p className="mt-2 text-xs text-slate-400 italic">Support is typing...</p>}</div>}
               </form>
               {selectedTicket.resolution_summary && <div className="border-t border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800"><b>Resolution:</b> {selectedTicket.resolution_summary}</div>}
               {["resolved", "closed"].includes(selectedTicket.status) && (
