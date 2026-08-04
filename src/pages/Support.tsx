@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { supabase } from "../lib/supabase";
+import { playNotificationSound, unlockAudio } from "../lib/notifySound";
 
 type TicketStatus = "open" | "in_progress" | "waiting_customer" | "pending" | "resolved" | "closed" | "reopened";
 type TicketPriority = "low" | "medium" | "high" | "urgent";
@@ -91,6 +92,8 @@ function formatDate(value: string) {
 export default function Support() {
   const { user, profile, workspaceOwnerId, workspaceName } = useAuth();
   const [tickets, setTickets] = useState<SupportTicket[]>([]);
+  const ticketsRef = useRef<SupportTicket[]>([]);
+  useEffect(() => { ticketsRef.current = tickets; }, [tickets]);
   const [messages, setMessages] = useState<TicketMessage[]>([]);
   const [attachments, setAttachments] = useState<TicketAttachment[]>([]);
   const [attachmentFile, setAttachmentFile] = useState<File | null>(null);
@@ -201,6 +204,27 @@ export default function Support() {
   }
 
   useEffect(() => {
+    const onFirstGesture = () => { unlockAudio(); window.removeEventListener("pointerdown", onFirstGesture); };
+    window.addEventListener("pointerdown", onFirstGesture, { once: true });
+    return () => window.removeEventListener("pointerdown", onFirstGesture);
+  }, []);
+
+  useEffect(() => {
+    // Sound for a reply on ANY of my tickets, not just the one currently
+    // open — otherwise I'd only hear it if I happened to already be viewing
+    // that exact ticket.
+    const channel = supabase
+      .channel("customer-any-ticket-reply-sound")
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "support_ticket_messages" }, (payload) => {
+        const msg = payload.new as { ticket_id?: string; author_type?: string };
+        if (msg.author_type === "customer") return;
+        if (ticketsRef.current.some((t) => t.id === msg.ticket_id)) playNotificationSound();
+      })
+      .subscribe();
+    return () => { void supabase.removeChannel(channel); };
+  }, []);
+
+  useEffect(() => {
     void loadTickets(true);
   }, [user?.id, workspaceOwnerId]);
 
@@ -213,7 +237,10 @@ export default function Support() {
     if (!selectedId) return;
     const channel = supabase
       .channel(`customer-ticket-thread-${selectedId}`)
-      .on("postgres_changes", { event: "INSERT", schema: "public", table: "support_ticket_messages", filter: `ticket_id=eq.${selectedId}` }, () => { void loadMessages(selectedId); })
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "support_ticket_messages", filter: `ticket_id=eq.${selectedId}` }, (payload) => {
+        void loadMessages(selectedId);
+        if ((payload.new as { author_type?: string }).author_type !== "customer") playNotificationSound();
+      })
       .on("postgres_changes", { event: "UPDATE", schema: "public", table: "admin_support_tickets", filter: `id=eq.${selectedId}` }, () => { void loadTickets(true); })
       .subscribe();
     return () => { void supabase.removeChannel(channel); };
