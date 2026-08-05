@@ -4,6 +4,7 @@ import { supabase } from "../lib/supabase";
 type PlanRow = {
   id: string;
   plan_key: "free" | "pro" | "business";
+  region: "global" | "india";
   name: string;
   currency: string;
   monthly_price: number;
@@ -109,7 +110,7 @@ export default function AdminSubscriptionManager() {
           {plans.map((plan, index) => (
             <div key={plan.id} className={`rounded-3xl border p-5 ${plan.popular ? "border-violet-300 bg-violet-50/50 ring-4 ring-violet-100" : "border-slate-200"}`}>
               <div className="flex items-start justify-between gap-3">
-                <div><p className="text-xs font-black uppercase tracking-wide text-violet-600">{plan.plan_key}</p><input value={plan.name} onChange={(e) => setPlans((rows) => rows.map((row, i) => i === index ? { ...row, name: e.target.value } : row))} className="mt-1 w-full bg-transparent text-xl font-black text-slate-950 outline-none" /></div>
+                <div><p className="text-xs font-black uppercase tracking-wide text-violet-600">{plan.plan_key} · {plan.region === "india" ? "🇮🇳 India (INR)" : "🌍 Global (USD)"}</p><input value={plan.name} onChange={(e) => setPlans((rows) => rows.map((row, i) => i === index ? { ...row, name: e.target.value } : row))} className="mt-1 w-full bg-transparent text-xl font-black text-slate-950 outline-none" /></div>
                 <label className="text-xs font-bold text-slate-500"><input type="checkbox" checked={plan.active} onChange={(e) => setPlans((rows) => rows.map((row, i) => i === index ? { ...row, active: e.target.checked } : row))} className="mr-2" />Active</label>
               </div>
               <div className="mt-5 grid grid-cols-2 gap-3">

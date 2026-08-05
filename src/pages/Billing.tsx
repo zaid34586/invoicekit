@@ -10,6 +10,7 @@ import {
   PricingPlan,
   formatPlanPrice,
   getAnnualTotal,
+  getPlanPrice,
   getPlanLimitLabel,
 } from "../lib/pricing";
 import { supabase } from "../lib/supabase";
@@ -122,8 +123,18 @@ function PlanCard({
       </div>
 
       <div className="mt-5">
-        <span className="text-4xl font-black text-slate-950">{formatPlanPrice(plan, cycle)}</span>
-        {!isFree && <span className="ml-1 text-sm text-slate-500">/month</span>}
+        {offer && !isFree ? (
+          <>
+            <span className="text-lg font-bold text-slate-400 line-through">{formatPlanPrice(plan, cycle)}</span>
+            <span className="ml-2 text-4xl font-black text-emerald-600">{plan.symbol}{Math.max(0, getPlanPrice(plan, cycle) - (offer.discountType === "percentage" ? Math.round(getPlanPrice(plan, cycle) * offer.discountValue / 100) : offer.discountValue)).toLocaleString("en-US")}</span>
+            <span className="ml-1 text-sm text-slate-500">/month</span>
+          </>
+        ) : (
+          <>
+            <span className="text-4xl font-black text-slate-950">{formatPlanPrice(plan, cycle)}</span>
+            {!isFree && <span className="ml-1 text-sm text-slate-500">/month</span>}
+          </>
+        )}
         {cycle === "yearly" && !isFree && (
           <p className="mt-1 text-xs font-semibold text-emerald-600">
             {plan.symbol}{getAnnualTotal(plan).toLocaleString("en-US")}/year billed yearly
@@ -178,6 +189,7 @@ export default function Billing() {
   const [invoicesThisMonth, setInvoicesThisMonth] = useState(0);
   const [promoCode, setPromoCode] = useState("");
   const [promoMessage, setPromoMessage] = useState<string | null>(null);
+  const [appliedCode, setAppliedCode] = useState<string | null>(null);
   const [offers, setOffers] = useState<MarketingOffer[]>([]);
   const [checkoutLoading, setCheckoutLoading] = useState<Plan | null>(null);
   const [checkoutError, setCheckoutError] = useState<string | null>(null);
@@ -195,7 +207,41 @@ export default function Billing() {
   // to know something was actually wrong. Now it has real states.
   const [activationStatus, setActivationStatus] = useState<"idle" | "waiting" | "success" | "timeout">("idle");
 
-  const plans = region === "india" ? INDIA_PLANS : GLOBAL_PLANS;
+  const [priceOverrides, setPriceOverrides] = useState<Record<string, { monthly_price: number; yearly_price: number; invoice_limit: number | null; client_limit: number | null; team_limit: number | null }>>({});
+
+  useEffect(() => {
+    void supabase.from("admin_pricing_plans").select("plan_key,region,monthly_price,yearly_price,invoice_limit,client_limit,team_limit").eq("active", true).then(({ data }) => {
+      const map: typeof priceOverrides = {};
+      for (const row of (data as Array<{ plan_key: string; region: string; monthly_price: number; yearly_price: number; invoice_limit: number | null; client_limit: number | null; team_limit: number | null }>) ?? []) {
+        map[`${row.plan_key}:${row.region}`] = row;
+      }
+      setPriceOverrides(map);
+    });
+  }, []);
+
+  const plans = useMemo(() => {
+    // Admin's Plans & Pricing editor writes to admin_pricing_plans -- this
+    // was previously never read anywhere, so price changes there silently
+    // never reached customers. This overlays those live numbers onto the
+    // static plan data (features/description/etc stay from the static file,
+    // since the DB table doesn't store those).
+    const base = region === "india" ? INDIA_PLANS : GLOBAL_PLANS;
+    const regionKey = region === "india" ? "india" : "global";
+    const merged = { ...base };
+    (Object.keys(merged) as Plan[]).forEach((key) => {
+      const override = priceOverrides[`${key}:${regionKey}`];
+      if (!override) return;
+      merged[key] = {
+        ...merged[key],
+        monthlyPrice: Number(override.monthly_price),
+        yearlyMonthlyPrice: Number(override.yearly_price),
+        invoiceLimit: override.invoice_limit === null ? "unlimited" : override.invoice_limit,
+        clientLimit: override.client_limit === null ? "unlimited" : override.client_limit,
+        teamMembers: override.team_limit === null ? "unlimited" : override.team_limit,
+      };
+    });
+    return merged;
+  }, [region, priceOverrides]);
   const planId: Plan = profile?.plan === "business" ? "business" : profile?.plan === "pro" || profile?.is_pro ? "pro" : "free";
   const current = plans[planId];
   const invoiceBalance = Number(profile?.credits ?? 0);
@@ -482,10 +528,12 @@ export default function Billing() {
     const code = promoCode.trim().toUpperCase();
     const offer = offers.find((item) => item.code.toUpperCase() === code);
     if (!offer) {
-      setPromoMessage("This offer is not active or is not available from Rivox Admin.");
+      setAppliedCode(null);
+      setPromoMessage("This code is not active or not available for your account. Check for typos, or it may have expired.");
       return;
     }
-    setPromoMessage(`${offer.code}: ${formatOfferDiscount(offer)} on ${offer.appliesTo.join("/")} ${offer.billingScope === "all" ? "monthly and yearly" : offer.billingScope} plans.`);
+    setAppliedCode(offer.code);
+    setPromoMessage(`${offer.code} applied: ${formatOfferDiscount(offer)} on ${offer.appliesTo.join(" & ")} (${offer.billingScope === "all" ? "monthly and yearly" : offer.billingScope}). See it on the matching plan card below.`);
   }
 
   return (
@@ -600,7 +648,7 @@ export default function Billing() {
         {promoMessage && <p className="mb-4 rounded-xl bg-primary-50 p-3 text-sm font-medium text-primary-700">{promoMessage}</p>}
         <div className="grid gap-6 lg:grid-cols-3">
           {(["free", "pro", "business"] as Plan[]).map((id) => (
-            <PlanCard key={id} plan={plans[id]} cycle={cycle} currentPlan={planId} onUpgrade={handleUpgrade} loading={checkoutLoading === id} offer={getOfferForPlanCycle(offers, id, cycle)} />
+            <PlanCard key={id} plan={plans[id]} cycle={cycle} currentPlan={planId} onUpgrade={handleUpgrade} loading={checkoutLoading === id} offer={getOfferForPlanCycle(offers, id, cycle) ?? (appliedCode ? getOfferForPlanCycle(offers.filter(o => o.code === appliedCode), id, cycle) : undefined)} />
           ))}
         </div>
       </section>
