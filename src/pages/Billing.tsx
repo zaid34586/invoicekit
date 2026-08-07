@@ -244,7 +244,13 @@ export default function Billing() {
       merged[key] = {
         ...merged[key],
         monthlyPrice: Number(override.monthly_price),
-        yearlyMonthlyPrice: Number(override.yearly_price),
+        // admin_pricing_plans.yearly_price is the literal annual total (the
+        // "Yearly total" field admin enters, e.g. 1800) -- but this plan
+        // object's yearlyMonthlyPrice slot is the monthly-equivalent rate,
+        // which getAnnualTotal() below multiplies by 12 to show the total.
+        // Divide here so that round-trip recovers the admin's actual total
+        // instead of multiplying it by 12 again (1800 -> was showing 21600).
+        yearlyMonthlyPrice: Number(override.yearly_price) / 12,
         invoiceLimit: override.invoice_limit === null ? "unlimited" : override.invoice_limit,
         clientLimit: override.client_limit === null ? "unlimited" : override.client_limit,
         teamMembers: override.team_limit === null ? "unlimited" : override.team_limit,

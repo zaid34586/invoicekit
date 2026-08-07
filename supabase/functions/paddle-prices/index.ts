@@ -59,11 +59,9 @@ async function paddleRequest(apiKey: string, path: string, method = "GET", body?
   return parsed;
 }
 
-// admin_pricing_plans.yearly_price is the monthly-equivalent rate shown on
-// the yearly toggle (matches src/lib/pricing.ts's yearlyMonthlyPrice and
-// Billing.tsx's getAnnualTotal = yearlyMonthlyPrice * 12) -- so the actual
-// amount Paddle should charge once a year is yearly_price * 12, not
-// yearly_price itself.
+// admin_pricing_plans.yearly_price is the literal annual total (the
+// "Yearly total" field shown and entered in Admin > Plans & Pricing), so it
+// is sent to Paddle as-is -- see the yearly price block below.
 function minorUnits(amount: number) {
   return String(Math.round(Number(amount) * 100));
 }
@@ -154,12 +152,14 @@ Deno.serve(async (req) => {
       monthlyPriceId = created.data?.id;
     }
 
-    // 3. Yearly recurring price -- charged once a year, so the amount is the
-    // monthly-equivalent rate times 12 (see minorUnits comment above).
+    // 3. Yearly recurring price -- charged once a year. yearly_price is
+    // already the literal annual total (the "Yearly total" field admin
+    // enters, e.g. 1800 for a $150/mo plan) -- do NOT multiply by 12 here,
+    // that was double-counting the amount Paddle actually charged.
     const yearlyPayload = {
       description: `${plan.name} yearly (${plan.region})`,
       product_id: productId,
-      unit_price: { amount: minorUnits(Number(plan.yearly_price) * 12), currency_code: currency },
+      unit_price: { amount: minorUnits(plan.yearly_price), currency_code: currency },
       billing_cycle: { interval: "year", frequency: 1 },
       quantity: { minimum: 1, maximum: 1 },
       custom_data: { rivox_plan_key: plan.plan_key, rivox_region: plan.region, rivox_cycle: "yearly" },
