@@ -137,7 +137,17 @@ function PlanCard({
         )}
         {cycle === "yearly" && !isFree && (
           <p className="mt-1 text-xs font-semibold text-emerald-600">
-            {plan.symbol}{getAnnualTotal(plan).toLocaleString("en-US")}/year billed yearly
+            {plan.symbol}
+            {(
+              // When a yearly offer is showing, the annual total must match
+              // the discounted monthly-equivalent price above it (that
+              // price * 12) -- not the plan's undiscounted base total,
+              // which is what getAnnualTotal() alone gives.
+              offer
+                ? Math.max(0, getPlanPrice(plan, cycle) - (offer.discountType === "percentage" ? Math.round(getPlanPrice(plan, cycle) * offer.discountValue / 100) : offer.discountValue)) * 12
+                : getAnnualTotal(plan)
+            ).toLocaleString("en-US")}
+            /year billed yearly
           </p>
         )}
       </div>
