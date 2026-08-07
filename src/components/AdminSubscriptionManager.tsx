@@ -43,7 +43,10 @@ export default function AdminSubscriptionManager() {
 
   async function load() {
     const [planResult, promoResult] = await Promise.all([
-      supabase.from("admin_pricing_plans").select("*").order("sort_order"),
+      // Product is international-only -- no India-specific pricing row.
+      // Filtering defensively even though the India rows are now deleted,
+      // so this stays correct if the region column is ever reused later.
+      supabase.from("admin_pricing_plans").select("*").eq("region", "global").order("sort_order"),
       supabase.from("admin_promo_codes").select("*").order("created_at", { ascending: false }),
     ]);
     if (planResult.error || promoResult.error) {
@@ -150,7 +153,7 @@ export default function AdminSubscriptionManager() {
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <div className="flex flex-wrap items-center gap-2">
-                    <p className="text-xs font-black uppercase tracking-wide text-violet-600">{plan.plan_key} · {plan.region === "india" ? "🇮🇳 India (INR)" : "🌍 Global (USD)"}</p>
+                    <p className="text-xs font-black uppercase tracking-wide text-violet-600">{plan.plan_key}</p>
                     {plan.plan_key !== "free" && (
                       plan.paddle_synced ? <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-bold text-emerald-700">Paddle live</span>
                       : plan.paddle_sync_status === "error" ? <span className="rounded-full bg-red-50 px-2 py-0.5 text-[10px] font-bold text-red-700">Sync error</span>
