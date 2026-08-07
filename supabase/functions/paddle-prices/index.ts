@@ -29,8 +29,18 @@ async function decrypt(encryptedKey: string, ivValue: string) {
   return decoder.decode(decrypted);
 }
 
+// Same environment switch already used correctly by paddle-admin-settings
+// and paddle-subscriptions. This was previously hardcoded to production
+// only, which silently fails (wrong-environment 401/403) for any account
+// still using a Paddle *sandbox* key -- sandbox keys only work against
+// sandbox-api.paddle.com, never api.paddle.com.
+function paddleBaseUrl() {
+  const environment = String(Deno.env.get("PADDLE_ENV") || "production").toLowerCase();
+  return environment === "sandbox" ? "https://sandbox-api.paddle.com" : "https://api.paddle.com";
+}
+
 async function paddleRequest(apiKey: string, path: string, method = "GET", body?: Record<string, unknown>) {
-  const response = await fetch(`https://api.paddle.com${path}`, {
+  const response = await fetch(`${paddleBaseUrl()}${path}`, {
     method,
     headers: {
       Authorization: `Bearer ${apiKey}`,
