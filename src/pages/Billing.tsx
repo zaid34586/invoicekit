@@ -207,17 +207,27 @@ export default function Billing() {
   // to know something was actually wrong. Now it has real states.
   const [activationStatus, setActivationStatus] = useState<"idle" | "waiting" | "success" | "timeout">("idle");
 
-  const [priceOverrides, setPriceOverrides] = useState<Record<string, { monthly_price: number; yearly_price: number; invoice_limit: number | null; client_limit: number | null; team_limit: number | null }>>({});
+  const [priceOverrides, setPriceOverrides] = useState<Record<string, { monthly_price: number; yearly_price: number; invoice_limit: number | null; client_limit: number | null; team_limit: number | null; paddle_synced: boolean; paddle_monthly_price_id: string | null; paddle_yearly_price_id: string | null }>>({});
 
   useEffect(() => {
-    void supabase.from("admin_pricing_plans").select("plan_key,region,monthly_price,yearly_price,invoice_limit,client_limit,team_limit").eq("active", true).then(({ data }) => {
+    void supabase.from("admin_pricing_plans").select("plan_key,region,monthly_price,yearly_price,invoice_limit,client_limit,team_limit,paddle_synced,paddle_monthly_price_id,paddle_yearly_price_id").eq("active", true).then(({ data }) => {
       const map: typeof priceOverrides = {};
-      for (const row of (data as Array<{ plan_key: string; region: string; monthly_price: number; yearly_price: number; invoice_limit: number | null; client_limit: number | null; team_limit: number | null }>) ?? []) {
+      for (const row of (data as Array<{ plan_key: string; region: string; monthly_price: number; yearly_price: number; invoice_limit: number | null; client_limit: number | null; team_limit: number | null; paddle_synced: boolean; paddle_monthly_price_id: string | null; paddle_yearly_price_id: string | null }>) ?? []) {
         map[`${row.plan_key}:${row.region}`] = row;
       }
       setPriceOverrides(map);
     });
   }, []);
+
+  // Looks up the region-aware, admin-synced Paddle Price ID for a plan/cycle
+  // so checkout charges what the Admin dashboard actually shows. Falls back
+  // to undefined (static env var) if that plan hasn't been synced yet.
+  function dynamicPaddlePriceId(planKey: Plan, billingCycle: BillingCycle) {
+    const regionKey = region === "india" ? "india" : "global";
+    const override = priceOverrides[`${planKey}:${regionKey}`];
+    if (!override?.paddle_synced) return undefined;
+    return (billingCycle === "yearly" ? override.paddle_yearly_price_id : override.paddle_monthly_price_id) ?? undefined;
+  }
 
   const plans = useMemo(() => {
     // Admin's Plans & Pricing editor writes to admin_pricing_plans -- this
@@ -515,6 +525,7 @@ export default function Billing() {
             discountCode: promoCode.trim() || (offer?.paddleDiscountId ? undefined : offer?.code) || undefined,
             discountId: promoCode.trim() ? undefined : offer?.paddleDiscountId ?? undefined,
             offerId: offer?.id,
+            priceId: dynamicPaddlePriceId(plan.id, cycle),
           });
         } catch (error) {
           setCheckoutError(error instanceof Error ? error.message : "Unable to start checkout.");

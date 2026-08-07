@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../lib/supabase";
+import { syncOfferWithPaddle } from "../lib/paddleOffers";
+import { syncPlanWithPaddle } from "../lib/paddlePrices";
 
 type PlanRow = {
   id: string;
@@ -14,6 +16,9 @@ type PlanRow = {
   team_limit: number | null;
   active: boolean;
   popular: boolean;
+  paddle_synced: boolean;
+  paddle_sync_status: "not_synced" | "syncing" | "synced" | "error";
+  paddle_last_error: string | null;
 };
 
 type PromoRow = {
@@ -34,6 +39,7 @@ export default function AdminSubscriptionManager() {
   const [promos, setPromos] = useState<PromoRow[]>([]);
   const [notice, setNotice] = useState<string | null>(null);
   const [promoForm, setPromoForm] = useState({ code: "", label: "", discount_value: "20", discount_type: "percentage", billing_scope: "all", applies_to: ["pro", "business"] as string[], usage_limit: "", expires_at: "" });
+  const [syncingPlanId, setSyncingPlanId] = useState<string | null>(null);
 
   async function load() {
     const [planResult, promoResult] = await Promise.all([
@@ -62,14 +68,32 @@ export default function AdminSubscriptionManager() {
       popular: plan.popular,
       updated_at: new Date().toISOString(),
     }).eq("id", plan.id);
-    setNotice(error ? error.message : `${plan.name} plan saved.`);
+    setNotice(error ? error.message : `${plan.name} plan saved. Click "Sync Paddle" so checkout charges this price too.`);
     if (!error) await load();
+  }
+
+  // Pushes the plan's current DB price to Paddle as a live Price object.
+  // Without this, checkout keeps charging whatever price was set in Paddle
+  // the very first time -- "Save plan" alone only ever updated our own DB.
+  async function syncPlan(plan: PlanRow) {
+    setSyncingPlanId(plan.id);
+    setNotice("Syncing plan price with Paddle\u2026");
+    try {
+      await syncPlanWithPaddle(plan.id);
+      setNotice(`${plan.name} (${plan.region}) price is now live on Paddle checkout.`);
+      await load();
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Paddle price sync failed.");
+      await load();
+    } finally {
+      setSyncingPlanId(null);
+    }
   }
 
   async function createPromo() {
     const code = promoForm.code.trim().toUpperCase();
     if (!code || !promoForm.label.trim()) return;
-    const { error } = await supabase.from("admin_promo_codes").insert({
+    const { data, error } = await supabase.from("admin_promo_codes").insert({
       code,
       label: promoForm.label.trim(),
       discount_type: promoForm.discount_type,
@@ -78,11 +102,25 @@ export default function AdminSubscriptionManager() {
       billing_scope: promoForm.billing_scope,
       usage_limit: promoForm.usage_limit ? Number(promoForm.usage_limit) : null,
       expires_at: promoForm.expires_at ? new Date(`${promoForm.expires_at}T23:59:59`).toISOString() : null,
-    });
-    setNotice(error ? error.message : `Promo ${code} created.`);
-    if (!error) {
-      setPromoForm({ code: "", label: "", discount_value: "20", discount_type: "percentage", billing_scope: "all", applies_to: ["pro", "business"], usage_limit: "", expires_at: "" });
+    }).select("id").single();
+    if (error) { setNotice(error.message); return; }
+    setPromoForm({ code: "", label: "", discount_value: "20", discount_type: "percentage", billing_scope: "all", applies_to: ["pro", "business"], usage_limit: "", expires_at: "" });
+    await load();
+    // This simple form used to only insert into our DB, which showed the
+    // discount on plan cards but never reached Paddle checkout (same class
+    // of bug as plan prices above). Sync it immediately so it works exactly
+    // like offers created from Growth Center.
+    if (data?.id) {
+      setNotice(`Promo ${code} created. Syncing with Paddle\u2026`);
+      try {
+        await syncOfferWithPaddle(data.id);
+        setNotice(`Promo ${code} created and is live on Paddle checkout.`);
+      } catch (error) {
+        setNotice(`Promo ${code} created, but Paddle sync failed: ${error instanceof Error ? error.message : "unknown error"}. It will only show as a display badge until synced.`);
+      }
       await load();
+    } else {
+      setNotice(`Promo ${code} created.`);
     }
   }
 
@@ -110,7 +148,18 @@ export default function AdminSubscriptionManager() {
           {plans.map((plan, index) => (
             <div key={plan.id} className={`rounded-3xl border p-5 ${plan.popular ? "border-violet-300 bg-violet-50/50 ring-4 ring-violet-100" : "border-slate-200"}`}>
               <div className="flex items-start justify-between gap-3">
-                <div><p className="text-xs font-black uppercase tracking-wide text-violet-600">{plan.plan_key} · {plan.region === "india" ? "🇮🇳 India (INR)" : "🌍 Global (USD)"}</p><input value={plan.name} onChange={(e) => setPlans((rows) => rows.map((row, i) => i === index ? { ...row, name: e.target.value } : row))} className="mt-1 w-full bg-transparent text-xl font-black text-slate-950 outline-none" /></div>
+                <div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="text-xs font-black uppercase tracking-wide text-violet-600">{plan.plan_key} · {plan.region === "india" ? "🇮🇳 India (INR)" : "🌍 Global (USD)"}</p>
+                    {plan.plan_key !== "free" && (
+                      plan.paddle_synced ? <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-bold text-emerald-700">Paddle live</span>
+                      : plan.paddle_sync_status === "error" ? <span className="rounded-full bg-red-50 px-2 py-0.5 text-[10px] font-bold text-red-700">Sync error</span>
+                      : <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-bold text-amber-700">Not synced to checkout</span>
+                    )}
+                  </div>
+                  <input value={plan.name} onChange={(e) => setPlans((rows) => rows.map((row, i) => i === index ? { ...row, name: e.target.value } : row))} className="mt-1 w-full bg-transparent text-xl font-black text-slate-950 outline-none" />
+                  {plan.paddle_sync_status === "error" && plan.paddle_last_error && <p className="mt-1 text-xs font-medium text-red-600">{plan.paddle_last_error}</p>}
+                </div>
                 <label className="text-xs font-bold text-slate-500"><input type="checkbox" checked={plan.active} onChange={(e) => setPlans((rows) => rows.map((row, i) => i === index ? { ...row, active: e.target.checked } : row))} className="mr-2" />Active</label>
               </div>
               <div className="mt-5 grid grid-cols-2 gap-3">
@@ -121,7 +170,14 @@ export default function AdminSubscriptionManager() {
                 <label className="text-xs font-bold text-slate-500">Team seats<input type="number" value={plan.team_limit ?? ""} placeholder="Unlimited" onChange={(e) => setPlans((rows) => rows.map((row, i) => i === index ? { ...row, team_limit: e.target.value === "" ? null : Number(e.target.value) } : row))} className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" /></label>
                 <label className="flex items-end pb-2 text-xs font-bold text-slate-500"><input type="checkbox" checked={plan.popular} onChange={(e) => setPlans((rows) => rows.map((row, i) => i === index ? { ...row, popular: e.target.checked } : row))} className="mr-2" />Most popular</label>
               </div>
-              <button onClick={() => savePlan(plan)} className="mt-5 w-full rounded-2xl bg-slate-950 px-4 py-3 text-sm font-black text-white hover:bg-violet-600">Save plan</button>
+              <div className="mt-5 flex gap-2">
+                <button onClick={() => savePlan(plan)} className="flex-1 rounded-2xl bg-slate-950 px-4 py-3 text-sm font-black text-white hover:bg-violet-600">Save plan</button>
+                {plan.plan_key !== "free" && (
+                  <button onClick={() => syncPlan(plan)} disabled={syncingPlanId === plan.id} className="flex-1 rounded-2xl border border-cyan-200 bg-cyan-50 px-4 py-3 text-sm font-black text-cyan-700 disabled:opacity-50">
+                    {syncingPlanId === plan.id ? "Syncing…" : plan.paddle_synced ? "Re-sync Paddle" : "Sync Paddle"}
+                  </button>
+                )}
+              </div>
             </div>
           ))}
         </div>

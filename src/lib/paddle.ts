@@ -69,6 +69,7 @@ export async function openPaddleCheckout({
   discountCode,
   discountId,
   offerId,
+  priceId: dynamicPriceId,
 }: {
   plan: Exclude<Plan, "free">;
   cycle: BillingCycle;
@@ -77,8 +78,16 @@ export async function openPaddleCheckout({
   discountCode?: string;
   discountId?: string;
   offerId?: string;
+  // Region-aware Paddle Price ID synced from admin_pricing_plans (see
+  // src/lib/paddlePrices.ts). Previously checkout ALWAYS used the static
+  // VITE_PADDLE_*_PRICE_ID env vars below, which point at a fixed Paddle
+  // Price created once and never updated -- so admin price edits (and
+  // India vs Global region) never reached checkout. When the plan has been
+  // synced to Paddle, its live price ID is passed in here and takes
+  // priority; the static env var stays as a fallback for unsynced plans.
+  priceId?: string;
 }) {
-  const priceId = priceIds[plan][cycle];
+  const priceId = dynamicPriceId?.trim() || priceIds[plan][cycle];
   if (!priceId) throw new Error(`Paddle ${plan} ${cycle} price ID is missing.`);
 
   const paddle = await getPaddle();
