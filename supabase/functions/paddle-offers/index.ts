@@ -139,7 +139,20 @@ Deno.serve(async (req) => {
     if (offer.paddle_discount_id) {
       result = await paddleRequest(apiKey, `/discounts/${offer.paddle_discount_id}`, "PATCH", discountPayload);
     } else {
-      result = await paddleRequest(apiKey, "/discounts", "POST", discountPayload);
+      try {
+        result = await paddleRequest(apiKey, "/discounts", "POST", discountPayload);
+      } catch (createError) {
+        // A discount with this code can already exist in Paddle from an
+        // earlier sync attempt that succeeded on Paddle's side but failed
+        // to save the ID back into our DB (e.g. a transient error right
+        // after creation). Paddle's 409 conflict message includes the
+        // existing discount's ID -- adopt it and PATCH it instead of
+        // failing forever on every retry.
+        const message = createError instanceof Error ? createError.message : "";
+        const conflictMatch = message.match(/Discount ID (dsc_[a-zA-Z0-9_]+)/i);
+        if (!conflictMatch) throw createError;
+        result = await paddleRequest(apiKey, `/discounts/${conflictMatch[1]}`, "PATCH", discountPayload);
+      }
     }
 
     const discount = result.data;
