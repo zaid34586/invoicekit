@@ -54,6 +54,8 @@ Deno.serve(async req => {
     const userClient = createClient(url, anon, { global: { headers: { Authorization: auth } } });
     const { data: { user } } = await userClient.auth.getUser();
     if (!user) return json({ error: "Unauthorized" }, 401);
+    const { data: callerProfile } = await admin.from("profiles").select("is_banned").eq("user_id", user.id).maybeSingle();
+    if (callerProfile?.is_banned) return json({ error: "Account suspended" }, 403);
     const body = await req.json();
 
     if (body.action === "deliver-pending") {
