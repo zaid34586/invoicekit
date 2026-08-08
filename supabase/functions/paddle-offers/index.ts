@@ -120,20 +120,27 @@ Deno.serve(async (req) => {
       ? offer.paddle_restrict_to
       : null;
     const isFlat = offer.discount_type === "fixed";
+    // Paddle's discount schema rejects currency_code as an explicit key
+    // (even set to null) when type is "percentage" -- it must be omitted
+    // entirely, not just empty. Sending it unconditionally was a likely
+    // cause of "Paddle 400: Request does not pass validation."
     const discountPayload: Record<string, unknown> = {
       description: offer.description || offer.label || `Rivox offer ${offer.code}`,
       enabled_for_checkout: Boolean(offer.active),
       code: String(offer.code).replace(/[^a-zA-Z0-9]/g, "").slice(0, 32),
       type: isFlat ? "flat" : "percentage",
       amount: isFlat ? String(Math.round(Number(offer.discount_value) * 100)) : String(Number(offer.discount_value)),
-      currency_code: isFlat ? (offer.paddle_currency_code || "USD") : null,
       recur: Boolean(offer.paddle_recur),
-      maximum_recurring_intervals: offer.paddle_recur ? (offer.paddle_max_recurring_intervals || null) : null,
-      usage_limit: offer.usage_limit || null,
-      restrict_to: restrictTo,
-      expires_at: offer.expires_at || null,
       custom_data: { rivox_offer_id: offer.id, applies_to: offer.applies_to, billing_scope: offer.billing_scope },
     };
+    if (isFlat) discountPayload.currency_code = offer.paddle_currency_code || "USD";
+    if (offer.paddle_recur && offer.paddle_max_recurring_intervals) discountPayload.maximum_recurring_intervals = offer.paddle_max_recurring_intervals;
+    if (offer.usage_limit) discountPayload.usage_limit = offer.usage_limit;
+    if (restrictTo) discountPayload.restrict_to = restrictTo;
+    // A past expires_at is also rejected by Paddle on create/update -- only
+    // send it if it's still in the future; an already-expired offer simply
+    // won't be resent here (it's inactive/expired locally either way).
+    if (offer.expires_at && new Date(offer.expires_at).getTime() > Date.now()) discountPayload.expires_at = offer.expires_at;
 
     let result;
     if (offer.paddle_discount_id) {
