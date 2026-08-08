@@ -1,10 +1,11 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 import { openPaddleCheckout } from "../../lib/paddle";
 import { useRegion } from "../../context/RegionContext";
 import { formatOfferDiscount, getOfferForPlanCycle, loadActiveMarketingOffers, type MarketingOffer } from "../../lib/offers";
 import { trackGrowthEvent } from "../../lib/growth";
+import { supabase } from "../../lib/supabase";
 import {
   BillingCycle,
   GLOBAL_PLANS,
@@ -13,6 +14,7 @@ import {
   PricingPlan,
   formatPlanPrice,
   getAnnualTotal,
+  getPlanPrice,
   getPlanLimitLabel,
 } from "../../lib/pricing";
 
@@ -80,12 +82,28 @@ function PricingCard({
 
       <div className="mt-7">
         <div className="flex items-end gap-2">
-          <span className="section-title font-black text-slate-950">{formatPlanPrice(plan, cycle)}</span>
+          {offer && !isFree ? (
+            <>
+              <span className="text-2xl font-bold text-slate-400 line-through">{formatPlanPrice(plan, cycle)}</span>
+              <span className="section-title font-black text-emerald-600">
+                {plan.symbol}
+                {Math.max(0, getPlanPrice(plan, cycle) - (offer.discountType === "percentage" ? Math.round(getPlanPrice(plan, cycle) * offer.discountValue / 100) : offer.discountValue)).toLocaleString("en-US")}
+              </span>
+            </>
+          ) : (
+            <span className="section-title font-black text-slate-950">{formatPlanPrice(plan, cycle)}</span>
+          )}
           {!isFree && <span className="pb-2 text-sm font-medium text-slate-500">/month</span>}
         </div>
         {cycle === "yearly" && !isFree && (
           <p className="mt-2 text-sm font-medium text-emerald-600">
-            Billed yearly: {plan.symbol}{getAnnualTotal(plan).toLocaleString("en-US")}/year
+            Billed yearly: {plan.symbol}
+            {(
+              offer
+                ? Math.max(0, getPlanPrice(plan, cycle) - (offer.discountType === "percentage" ? Math.round(getPlanPrice(plan, cycle) * offer.discountValue / 100) : offer.discountValue)) * 12
+                : getAnnualTotal(plan)
+            ).toLocaleString("en-US")}
+            /year
           </p>
         )}
         {offer && !isFree && (
@@ -141,8 +159,51 @@ export default function Pricing() {
   const [offers, setOffers] = useState<MarketingOffer[]>([]);
   const [loadingPlan, setLoadingPlan] = useState<Plan | null>(null);
   const [checkoutError, setCheckoutError] = useState<string | null>(null);
-  const plans = region === "india" ? INDIA_PLANS : GLOBAL_PLANS;
   const orderedPlans: Plan[] = ["free", "pro", "business"];
+
+  const [priceOverrides, setPriceOverrides] = useState<Record<string, { monthly_price: number; yearly_price: number; invoice_limit: number | null; client_limit: number | null; team_limit: number | null; paddle_synced: boolean; paddle_monthly_price_id: string | null; paddle_yearly_price_id: string | null }>>({});
+
+  useEffect(() => {
+    // Admin's Plans & Pricing editor writes to admin_pricing_plans -- this
+    // page was previously always showing the hardcoded static plan data
+    // (GLOBAL_PLANS/INDIA_PLANS) with no connection to that table at all, so
+    // price changes there never reached this landing page (only /billing).
+    void supabase.from("admin_pricing_plans").select("plan_key,region,monthly_price,yearly_price,invoice_limit,client_limit,team_limit,paddle_synced,paddle_monthly_price_id,paddle_yearly_price_id").eq("active", true).then(({ data }) => {
+      const map: typeof priceOverrides = {};
+      for (const row of (data as Array<{ plan_key: string; region: string; monthly_price: number; yearly_price: number; invoice_limit: number | null; client_limit: number | null; team_limit: number | null; paddle_synced: boolean; paddle_monthly_price_id: string | null; paddle_yearly_price_id: string | null }>) ?? []) {
+        map[`${row.plan_key}:${row.region}`] = row;
+      }
+      setPriceOverrides(map);
+    });
+  }, []);
+
+  function dynamicPaddlePriceId(planKey: Plan, billingCycle: BillingCycle) {
+    const regionKey = region === "india" ? "india" : "global";
+    const override = priceOverrides[`${planKey}:${regionKey}`];
+    if (!override?.paddle_synced) return undefined;
+    return (billingCycle === "yearly" ? override.paddle_yearly_price_id : override.paddle_monthly_price_id) ?? undefined;
+  }
+
+  const plans = useMemo(() => {
+    const base = region === "india" ? INDIA_PLANS : GLOBAL_PLANS;
+    const regionKey = region === "india" ? "india" : "global";
+    const merged = { ...base };
+    (Object.keys(merged) as Plan[]).forEach((key) => {
+      const override = priceOverrides[`${key}:${regionKey}`];
+      if (!override) return;
+      merged[key] = {
+        ...merged[key],
+        monthlyPrice: Number(override.monthly_price),
+        // See Billing.tsx for why this divides by 12 -- yearly_price is the
+        // literal annual total, this slot holds the monthly-equivalent rate.
+        yearlyMonthlyPrice: Number(override.yearly_price) / 12,
+        invoiceLimit: override.invoice_limit === null ? "unlimited" : override.invoice_limit,
+        clientLimit: override.client_limit === null ? "unlimited" : override.client_limit,
+        teamMembers: override.team_limit === null ? "unlimited" : override.team_limit,
+      };
+    });
+    return merged;
+  }, [region, priceOverrides]);
 
   useEffect(() => {
     loadActiveMarketingOffers().then((items) => {
@@ -174,6 +235,7 @@ export default function Pricing() {
         discountCode: offer?.paddleDiscountId ? undefined : offer?.code,
         discountId: offer?.paddleDiscountId ?? undefined,
         offerId: offer?.id,
+        priceId: dynamicPaddlePriceId(plan.id, cycle),
       });
     } catch (error) {
       setCheckoutError(error instanceof Error ? error.message : "Unable to open Paddle checkout.");
