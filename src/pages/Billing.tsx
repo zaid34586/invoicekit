@@ -15,7 +15,7 @@ import {
 } from "../lib/pricing";
 import { supabase } from "../lib/supabase";
 import { openPaddleCheckout, paddleEnvironment } from "../lib/paddle";
-import { formatOfferDiscount, getOfferForPlanCycle, loadActiveMarketingOffers, type MarketingOffer } from "../lib/offers";
+import { formatOfferDiscount, filterOffersForUser, getOfferForPlanCycle, loadActiveMarketingOffers, type MarketingOffer } from "../lib/offers";
 import { trackGrowthEvent } from "../lib/growth";
 import {
   cancelPaddleSubscription,
@@ -275,11 +275,12 @@ export default function Billing() {
   const planLimit = isUnlimited ? Number.POSITIVE_INFINITY : Number(current.invoiceLimit || FREE_PLAN_LIMIT);
 
   useEffect(() => {
-    loadActiveMarketingOffers().then((items) => {
-      setOffers(items);
-      items.forEach((offer) => void trackGrowthEvent({ event: "offer_view", offerId: offer.id }));
+    loadActiveMarketingOffers().then(async (items) => {
+      const eligible = await filterOffersForUser(items, user?.id);
+      setOffers(eligible);
+      eligible.forEach((offer) => void trackGrowthEvent({ event: "offer_view", offerId: offer.id }));
     });
-  }, []);
+  }, [user?.id]);
 
   useEffect(() => {
     async function loadUsage() {

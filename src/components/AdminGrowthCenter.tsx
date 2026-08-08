@@ -12,6 +12,7 @@ type Offer = {
   paddle_discount_id: string | null; paddle_synced: boolean; paddle_sync_status: "not_synced" | "syncing" | "synced" | "error" | "archived";
   paddle_last_synced_at: string | null; paddle_last_error: string | null; paddle_recur: boolean;
   paddle_max_recurring_intervals: number | null; paddle_currency_code: string; paddle_restrict_to: string[]; created_at: string;
+  new_users_only: boolean;
 };
 
 type FormState = {
@@ -19,12 +20,14 @@ type FormState = {
   discount_value: string; applies_to: string[]; billing_scope: "monthly" | "yearly" | "all";
   starts_at: string; expires_at: string; active: boolean; featured: boolean; priority: string;
   usage_limit: string; paddle_discount_id: string; paddle_recur: boolean; paddle_max_recurring_intervals: string; paddle_currency_code: string;
+  new_users_only: boolean;
 };
 
 const emptyForm: FormState = {
   code: "", label: "", description: "", badge_text: "", discount_type: "percentage", discount_value: "20",
   applies_to: ["pro", "business"], billing_scope: "all", starts_at: "", expires_at: "", active: true,
   featured: false, priority: "0", usage_limit: "", paddle_discount_id: "", paddle_recur: false, paddle_max_recurring_intervals: "", paddle_currency_code: "USD",
+  new_users_only: false,
 };
 
 function statusOf(offer: Offer) {
@@ -89,6 +92,7 @@ export default function AdminGrowthCenter() {
       paddle_discount_id: offer.paddle_discount_id ?? "", paddle_recur: Boolean(offer.paddle_recur),
       paddle_max_recurring_intervals: offer.paddle_max_recurring_intervals == null ? "" : String(offer.paddle_max_recurring_intervals),
       paddle_currency_code: offer.paddle_currency_code || "USD",
+      new_users_only: Boolean(offer.new_users_only),
     });
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
@@ -111,6 +115,7 @@ export default function AdminGrowthCenter() {
       paddle_max_recurring_intervals: form.paddle_recur && form.paddle_max_recurring_intervals ? Number(form.paddle_max_recurring_intervals) : null,
       paddle_currency_code: form.paddle_currency_code || "USD",
       paddle_sync_status: form.paddle_discount_id.trim() ? "synced" : "not_synced",
+      new_users_only: form.new_users_only,
     };
     const result = editingId
       ? await supabase.from("admin_promo_codes").update(enrichedPayload).eq("id", editingId).select("id").single()
@@ -215,7 +220,13 @@ export default function AdminGrowthCenter() {
             <div className="grid grid-cols-2 gap-3"><select value={form.billing_scope} onChange={(e) => setForm({ ...form, billing_scope: e.target.value as FormState['billing_scope'] })} className="rounded-2xl border px-3 py-3 text-sm"><option value="all">Monthly + yearly</option><option value="monthly">Monthly only</option><option value="yearly">Yearly only</option></select><input type="number" value={form.priority} onChange={(e) => setForm({ ...form, priority: e.target.value })} placeholder="Priority" className="rounded-2xl border px-3 py-3 text-sm"/></div>
             <div className="rounded-2xl border border-slate-200 p-3"><p className="text-xs font-black uppercase text-slate-500">Plans</p><div className="mt-2 flex gap-4">{['pro','business'].map((plan) => <label key={plan} className="text-sm font-bold capitalize"><input type="checkbox" checked={form.applies_to.includes(plan)} onChange={(e) => setForm({ ...form, applies_to: e.target.checked ? [...form.applies_to, plan] : form.applies_to.filter((p) => p !== plan) })} className="mr-2"/>{plan}</label>)}</div></div>
             <div className="grid grid-cols-2 gap-3"><label className="text-xs font-bold text-slate-500">Starts<input type="datetime-local" value={form.starts_at} onChange={(e) => setForm({ ...form, starts_at: e.target.value })} className="mt-1 w-full rounded-2xl border px-3 py-3 text-sm"/></label><label className="text-xs font-bold text-slate-500">Ends<input type="datetime-local" value={form.expires_at} onChange={(e) => setForm({ ...form, expires_at: e.target.value })} className="mt-1 w-full rounded-2xl border px-3 py-3 text-sm"/></label></div>
-            <div className="grid grid-cols-2 gap-3"><input type="number" value={form.usage_limit} onChange={(e) => setForm({ ...form, usage_limit: e.target.value })} placeholder="Total redemption limit" className="rounded-2xl border px-3 py-3 text-sm"/><select value={form.paddle_currency_code} onChange={(e) => setForm({ ...form, paddle_currency_code: e.target.value })} className="rounded-2xl border px-3 py-3 text-sm"><option value="USD">USD</option><option value="EUR">EUR</option><option value="GBP">GBP</option><option value="INR">INR</option></select></div><div className="rounded-2xl border border-slate-200 p-3"><div className="flex items-center justify-between gap-3"><label className="text-sm font-bold"><input type="checkbox" checked={form.paddle_recur} onChange={(e) => setForm({ ...form, paddle_recur: e.target.checked })} className="mr-2"/>Apply on renewals</label>{form.paddle_recur && <input type="number" min="1" value={form.paddle_max_recurring_intervals} onChange={(e) => setForm({ ...form, paddle_max_recurring_intervals: e.target.value })} placeholder="Billing periods (blank = forever)" className="w-52 rounded-xl border px-3 py-2 text-xs"/>}</div>{form.paddle_discount_id && <p className="mt-2 break-all text-xs text-slate-500">Paddle ID: {form.paddle_discount_id}</p>}</div>
+            <div className="grid grid-cols-2 gap-3"><input type="number" value={form.usage_limit} onChange={(e) => setForm({ ...form, usage_limit: e.target.value })} placeholder="Total redemption limit" className="rounded-2xl border px-3 py-3 text-sm"/><select value={form.paddle_currency_code} onChange={(e) => setForm({ ...form, paddle_currency_code: e.target.value })} className="rounded-2xl border px-3 py-3 text-sm"><option value="USD">USD</option><option value="EUR">EUR</option><option value="GBP">GBP</option><option value="INR">INR</option></select></div>
+            <label className="flex items-center gap-2 rounded-2xl border border-slate-200 p-3 text-sm font-bold">
+              <input type="checkbox" checked={form.new_users_only} onChange={(e) => setForm({ ...form, new_users_only: e.target.checked })} />
+              New users only (hidden from anyone who has ever had a paid plan)
+            </label>
+            <p className="text-xs text-slate-500">Every offer is automatically one redemption per user, regardless of this setting.</p>
+            <div className="rounded-2xl border border-slate-200 p-3"><div className="flex items-center justify-between gap-3"><label className="text-sm font-bold"><input type="checkbox" checked={form.paddle_recur} onChange={(e) => setForm({ ...form, paddle_recur: e.target.checked })} className="mr-2"/>Apply on renewals</label>{form.paddle_recur && <input type="number" min="1" value={form.paddle_max_recurring_intervals} onChange={(e) => setForm({ ...form, paddle_max_recurring_intervals: e.target.value })} placeholder="Billing periods (blank = forever)" className="w-52 rounded-xl border px-3 py-2 text-xs"/>}</div>{form.paddle_discount_id && <p className="mt-2 break-all text-xs text-slate-500">Paddle ID: {form.paddle_discount_id}</p>}</div>
             <div className="flex gap-5"><label className="text-sm font-bold"><input type="checkbox" checked={form.active} onChange={(e) => setForm({ ...form, active: e.target.checked })} className="mr-2"/>Active</label><label className="text-sm font-bold"><input type="checkbox" checked={form.featured} onChange={(e) => setForm({ ...form, featured: e.target.checked })} className="mr-2"/>Featured</label></div>
             <button onClick={save} className="w-full rounded-2xl bg-slate-950 px-4 py-3 text-sm font-black text-white hover:bg-violet-600">{editingId ? 'Save changes' : 'Create offer'}</button>
           </div>

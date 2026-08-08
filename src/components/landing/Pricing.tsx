@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 import { openPaddleCheckout } from "../../lib/paddle";
 import { useRegion } from "../../context/RegionContext";
-import { formatOfferDiscount, getOfferForPlanCycle, loadActiveMarketingOffers, type MarketingOffer } from "../../lib/offers";
+import { formatOfferDiscount, filterOffersForUser, getOfferForPlanCycle, loadActiveMarketingOffers, type MarketingOffer } from "../../lib/offers";
 import { trackGrowthEvent } from "../../lib/growth";
 import { supabase } from "../../lib/supabase";
 import {
@@ -206,11 +206,12 @@ export default function Pricing() {
   }, [region, priceOverrides]);
 
   useEffect(() => {
-    loadActiveMarketingOffers().then((items) => {
-      setOffers(items);
-      items.forEach((offer) => void trackGrowthEvent({ event: "offer_view", offerId: offer.id }));
+    loadActiveMarketingOffers().then(async (items) => {
+      const eligible = await filterOffersForUser(items, user?.id);
+      setOffers(eligible);
+      eligible.forEach((offer) => void trackGrowthEvent({ event: "offer_view", offerId: offer.id }));
     });
-  }, []);
+  }, [user?.id]);
 
   async function selectPlan(plan: PricingPlan, offer?: MarketingOffer) {
     if (plan.id === "free") {

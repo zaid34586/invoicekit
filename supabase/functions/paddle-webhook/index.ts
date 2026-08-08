@@ -251,6 +251,23 @@ Deno.serve(async (req) => {
             { eventType },
           );
         }
+
+        // Record the redemption (enforces one-time-per-user via the unique
+        // constraint) and mark this user as having held a paid plan, so a
+        // "new users only" offer won't be offered to them again.
+        if (custom.offer_id) {
+          const { error: redemptionError } = await admin.from("admin_offer_redemptions").insert({
+            offer_id: custom.offer_id,
+            user_id: userId,
+            transaction_id: data.id,
+          });
+          if (redemptionError && redemptionError.code !== "23505") {
+            logError("db update failed: admin_offer_redemptions insert", { eventType, userId, message: redemptionError.message });
+          }
+        }
+        if (validPlan) {
+          await admin.from("profiles").update({ has_ever_subscribed: true }).or(`user_id.eq.${userId},id.eq.${userId}`);
+        }
       }
     }
 
