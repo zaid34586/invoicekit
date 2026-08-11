@@ -45,6 +45,8 @@ import Contact from "./pages/Contact";
 import Security from "./pages/Security";
 import NotFound from "./pages/NotFound";
 import ScrollToTop from "./components/ScrollToTop";
+import MaintenancePage from "./pages/MaintenancePage";
+import { usePlatformSettings } from "./lib/platformSettings";
 
 
 function getPortalHost() {
@@ -110,8 +112,15 @@ function LoadingScreen() {
 // Only accessible when NOT logged in
 function PublicOnlyRoute({ children }: { children: ReactNode }) {
   const { user, profile, loading } = useAuth();
+  const { settings, loaded } = usePlatformSettings();
   if (loading && !user) return <LoadingScreen />;
-  if (!user) return <>{children}</>;
+  if (!user) {
+    if (loaded && settings.maintenance_mode) return <MaintenancePage message={settings.maintenance_message} />;
+    if (loaded && !settings.public_signup && window.location.pathname === "/signup") {
+      return <MaintenancePage message="New signups are temporarily closed. Please check back soon." />;
+    }
+    return <>{children}</>;
+  }
 
 const confirmed =
   new URLSearchParams(window.location.search).get("confirmed") === "1";
@@ -142,8 +151,13 @@ return <Navigate to="/dashboard" replace />;
 // Full auth: email confirmed + business country set + phone verified
 function ProtectedRoute({ children }: { children: ReactNode }) {
   const { user, profile, loading, workspaceRole, workspaceStatus } = useAuth();
+  const { settings, loaded } = usePlatformSettings();
   if (loading) return <LoadingScreen />;
   if (!user) return <Navigate to="/login" replace />;
+  const isOwnerAccount = user.email?.toLowerCase() === ADMIN_EMAIL.toLowerCase();
+  if (loaded && settings.maintenance_mode && !(settings.allow_admin_bypass && isOwnerAccount)) {
+    return <MaintenancePage message={settings.maintenance_message} />;
+  }
   if (user.user_metadata?.force_password_change === true) return <Navigate to="/change-temporary-password" replace />;
   if (!user.email_confirmed_at) return <Navigate to="/check-email" replace />;
   if (workspaceStatus === "disabled" || workspaceStatus === "removed") return <>{children}</>;
