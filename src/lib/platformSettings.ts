@@ -24,19 +24,21 @@ export function usePlatformSettings() {
 
   useEffect(() => {
     let cancelled = false;
-    void supabase
-      .from("admin_system_settings")
-      .select("value")
-      .eq("key", "platform")
-      .maybeSingle()
-      .then(({ data }) => {
+    (async () => {
+      try {
+        const { data } = await supabase
+          .from("admin_system_settings")
+          .select("value")
+          .eq("key", "platform")
+          .maybeSingle();
         if (cancelled) return;
         if (data?.value) setSettings({ ...DEFAULTS, ...(data.value as Partial<PlatformSettings>) });
-        setLoaded(true);
-      })
-      .catch(() => {
-        if (!cancelled) setLoaded(true); // fail open: never hard-block the app because this fetch failed
-      });
+      } catch {
+        // fail open: never hard-block the app because this fetch failed
+      } finally {
+        if (!cancelled) setLoaded(true);
+      }
+    })();
     return () => { cancelled = true; };
   }, []);
 
