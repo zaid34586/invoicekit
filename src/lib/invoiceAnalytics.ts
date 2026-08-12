@@ -11,16 +11,29 @@ function lineSubtotal(items: LineItem[] | null | undefined): number {
   );
 }
 
-function lineTax(items: LineItem[] | null | undefined): number {
+// Mirrors gst.ts calculateInvoice()'s discount math: a single reduction
+// applied uniformly across every line, capped at the subtotal.
+function invoiceDiscountAmount(invoice: Invoice, itemsSubtotal: number): number {
+  const type = invoice.discount_type;
+  const value = Number(invoice.discount_value || 0);
+  if (!type || !value || itemsSubtotal <= 0) return 0;
+  const raw = type === "percentage" ? (itemsSubtotal * value) / 100 : value;
+  return Math.min(Math.max(0, raw), itemsSubtotal);
+}
+
+function lineTax(items: LineItem[] | null | undefined, reductionFactor = 1): number {
   return (items ?? []).reduce((sum, item) => {
-    const taxable = Number(item.qty || 0) * Number(item.rate || 0);
+    const taxable = Number(item.qty || 0) * Number(item.rate || 0) * reductionFactor;
     return sum + (taxable * Number(item.gstRate || 0)) / 100;
   }, 0);
 }
 
 export function invoiceDisplayAmount(invoice: Invoice): number {
   const itemsSubtotal = lineSubtotal(invoice.items);
-  const itemTotal = itemsSubtotal + lineTax(invoice.items);
+  const discountAmount = invoiceDiscountAmount(invoice, itemsSubtotal);
+  const discountedSubtotal = itemsSubtotal - discountAmount;
+  const reductionFactor = itemsSubtotal > 0 ? discountedSubtotal / itemsSubtotal : 1;
+  const itemTotal = discountedSubtotal + lineTax(invoice.items, reductionFactor);
   const storedInvoiceTotal = Number(invoice.invoice_total ?? invoice.total ?? 0);
 
   // Old cross-currency rows can contain an inflated stored total. The invoice

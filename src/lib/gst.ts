@@ -11,6 +11,8 @@ export interface GstBreakup {
 
 export interface InvoiceCalc {
   subtotal: number;
+  discountAmount: number;
+  discountedSubtotal: number;
   cgst: number;
   sgst: number;
   igst: number;
@@ -51,13 +53,28 @@ export function calculateInvoice(
   businessState: string | null,
   clientState: string | null,
   businessCountry: string | null = "India",
-  clientCountry: string | null = businessCountry ?? "India"
+  clientCountry: string | null = businessCountry ?? "India",
+  discountType: "percentage" | "fixed" | null = null,
+  discountValue = 0
 ): InvoiceCalc {
   const subtotal = items.reduce((sum, it) => sum + lineAmount(it), 0);
 
+  // Discount is a single reduction applied uniformly across every line
+  // (regardless of that line's own tax rate) -- so it reduces each rate
+  // bucket's taxable amount by the same proportion, then tax is computed
+  // on the already-discounted taxable amount. Capped so a discount can
+  // never exceed the subtotal (no negative invoice).
+  const rawDiscount =
+    discountType === "percentage" ? (subtotal * (discountValue || 0)) / 100
+    : discountType === "fixed" ? (discountValue || 0)
+    : 0;
+  const discountAmount = Math.min(Math.max(0, rawDiscount), subtotal);
+  const discountedSubtotal = subtotal - discountAmount;
+  const reductionFactor = subtotal > 0 ? discountedSubtotal / subtotal : 1;
+
   const rateMap = new Map<number, { taxable: number }>();
   for (const it of items) {
-    const amt = lineAmount(it);
+    const amt = lineAmount(it) * reductionFactor;
     const rate = it.gstRate || 0;
     const entry = rateMap.get(rate) ?? { taxable: 0 };
     entry.taxable += amt;
@@ -83,10 +100,12 @@ export function calculateInvoice(
   if (isIndiaBusiness && isCrossBorder) {
     return {
       subtotal,
+      discountAmount,
+      discountedSubtotal,
       cgst: 0,
       sgst: 0,
       igst: 0,
-      total: subtotal,
+      total: discountedSubtotal,
       breakup: [],
       isInterState: false,
     };
@@ -116,8 +135,8 @@ export function calculateInvoice(
       }
     }
 
-    const total = subtotal + cgst + sgst + igst;
-    return { subtotal, cgst, sgst, igst, total, breakup, isInterState };
+    const total = discountedSubtotal + cgst + sgst + igst;
+    return { subtotal, discountAmount, discountedSubtotal, cgst, sgst, igst, total, breakup, isInterState };
   }
 
   // Non-India business — either domestic (same country as client) or
@@ -133,6 +152,6 @@ export function calculateInvoice(
     breakup.push({ rate, cgst: 0, sgst: 0, igst: tax, taxable, tax });
   }
 
-  const total = subtotal + igst;
-  return { subtotal, cgst: 0, sgst: 0, igst, total, breakup, isInterState: true };
+  const total = discountedSubtotal + igst;
+  return { subtotal, discountAmount, discountedSubtotal, cgst: 0, sgst: 0, igst, total, breakup, isInterState: true };
 }

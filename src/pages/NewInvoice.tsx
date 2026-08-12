@@ -95,6 +95,8 @@ export default function NewInvoice() {
   const [clientGstin, setClientGstin] = useState("");
   const [items, setItems] = useState<LineItem[]>([emptyItem()]);
   const [notes, setNotes] = useState("");
+  const [discountType, setDiscountType] = useState<"percentage" | "fixed" | "">("");
+  const [discountValue, setDiscountValue] = useState<string>("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [clients, setClients] = useState<Client[]>([]);
@@ -236,6 +238,8 @@ export default function NewInvoice() {
       preserveLoadedTaxRef.current = true;
       setItems((invoice.items ?? []).map((item) => ({ ...item, id: makeId() })));
       setNotes(invoice.notes ?? "");
+      setDiscountType((invoice.discount_type as "percentage" | "fixed" | null) ?? "");
+      setDiscountValue(invoice.discount_value ? String(invoice.discount_value) : "");
 
       if (invoice.exchange_rate && Number(invoice.exchange_rate) > 0) {
         setExchangeRate(Number(invoice.exchange_rate));
@@ -270,9 +274,11 @@ export default function NewInvoice() {
         businessState,
         clientState || null,
         profile?.country ?? null,
-        clientCountry || null
+        clientCountry || null,
+        discountType || null,
+        Number(discountValue) || 0
       ),
-    [items, businessState, clientState, profile?.country, clientCountry]
+    [items, businessState, clientState, profile?.country, clientCountry, discountType, discountValue]
   );
 
   // Tax decision — determines label, note, and tax type for display.
@@ -329,6 +335,7 @@ export default function NewInvoice() {
       : amount;
 
   const baseSubtotal = toBaseCurrency(calc.subtotal);
+  const baseDiscountAmount = toBaseCurrency(calc.discountAmount);
   const baseCgst = toBaseCurrency(calc.cgst);
   const baseSgst = toBaseCurrency(calc.sgst);
   const baseIgst = toBaseCurrency(calc.igst);
@@ -413,6 +420,9 @@ export default function NewInvoice() {
       client_gstin: clientGstin.trim().toUpperCase() || null,
       items,
       subtotal: baseSubtotal,
+      discount_type: discountType || null,
+      discount_value: discountType ? Number(discountValue) || 0 : 0,
+      discount_amount: baseDiscountAmount,
       cgst: baseCgst,
       sgst: baseSgst,
       igst: baseIgst,
@@ -892,6 +902,32 @@ export default function NewInvoice() {
               </div>
             )}
 
+            <div className="mb-4 pb-4 border-b border-slate-100">
+              <label className="text-xs font-semibold text-slate-500 uppercase">Discount</label>
+              <div className="mt-2 flex gap-2">
+                <select
+                  className="input-field text-sm"
+                  value={discountType}
+                  onChange={(e) => setDiscountType(e.target.value as "percentage" | "fixed" | "")}
+                >
+                  <option value="">No discount</option>
+                  <option value="percentage">%</option>
+                  <option value="fixed">{invoiceCurrency}</option>
+                </select>
+                {discountType && (
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    className="input-field text-sm"
+                    placeholder={discountType === "percentage" ? "e.g. 10" : "e.g. 50"}
+                    value={discountValue}
+                    onChange={(e) => setDiscountValue(e.target.value)}
+                  />
+                )}
+              </div>
+            </div>
+
             <div className="space-y-2.5 text-sm">
               <div className="flex justify-between">
                 <span className="text-slate-500">Subtotal</span>
@@ -899,6 +935,15 @@ export default function NewInvoice() {
                   {formatMoney(displaySubtotal, invoiceCurrency)}
                 </span>
               </div>
+
+              {calc.discountAmount > 0 && (
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Discount</span>
+                  <span className="font-medium text-emerald-600">
+                    −{formatMoney(calc.discountAmount, invoiceCurrency)}
+                  </span>
+                </div>
+              )}
 
               {calc.isInterState ? (
                 <div className="flex justify-between">

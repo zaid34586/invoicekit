@@ -305,9 +305,12 @@ export default function InvoicePreview() {
   const displayIgst = isForeignCurrency
     ? convertCurrency(Number(invoice.igst), exchangeRate)
     : Number(invoice.igst);
+  const displayDiscountAmount = isForeignCurrency
+    ? convertCurrency(Number(invoice.discount_amount ?? 0), exchangeRate)
+    : Number(invoice.discount_amount ?? 0);
 
   const displayTotal =
-    displaySubtotal + displayCgst + displaySgst + displayIgst;
+    displaySubtotal - displayDiscountAmount + displayCgst + displaySgst + displayIgst;
 
   const baseTotalDisplay =
     isForeignCurrency && exchangeRate > 0
@@ -674,6 +677,14 @@ invoice.client_country ?? "United States",
                 {formatMoney(displaySubtotal, invoiceCurrency)}
               </span>
             </div>
+            {displayDiscountAmount > 0 && (
+              <div className="flex justify-between">
+                <span className="text-slate-500">Discount</span>
+                <span className="font-medium text-emerald-600">
+                  −{formatMoney(displayDiscountAmount, invoiceCurrency)}
+                </span>
+              </div>
+            )}
             {isInterState ? (
               <div className="flex justify-between">
                 <span className="text-slate-500">{effectiveTaxLabel}</span>

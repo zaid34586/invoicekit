@@ -215,9 +215,12 @@ export default function ShareInvoice() {
   const displayIgst = isForeignCurrency
     ? convertCurrency(Number(invoice.igst), exchangeRate)
     : Number(invoice.igst);
+  const displayDiscountAmount = isForeignCurrency
+    ? convertCurrency(Number(invoice.discount_amount ?? 0), exchangeRate)
+    : Number(invoice.discount_amount ?? 0);
   const displaySubtotal = itemSubtotal;
   const displayTotal =
-    displaySubtotal + displayCgst + displaySgst + displayIgst;
+    displaySubtotal - displayDiscountAmount + displayCgst + displaySgst + displayIgst;
   const hiddenBlocks = new Set(branding?.hidden_blocks || []);
   const blockOrder = branding?.block_order || DEFAULT_BRANDING.block_order;
   const blockStyle = (id: string) => ({ order: Math.max(0, blockOrder.indexOf(id)), gridColumn: branding?.layout_mode === "grid" && branding.block_widths?.[id] === "half" ? "span 1" : "1 / -1" });
@@ -417,6 +420,14 @@ export default function ShareInvoice() {
                   {formatMoney(displaySubtotal, invoiceCurrency)}
                 </span>
               </div>
+              {displayDiscountAmount > 0 && (
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Discount</span>
+                  <span className="font-medium text-emerald-600">
+                    −{formatMoney(displayDiscountAmount, invoiceCurrency)}
+                  </span>
+                </div>
+              )}
               {isInterState ? (
                 <div className="flex justify-between">
                   <span className="text-slate-500">{effectiveTaxLabel}</span>

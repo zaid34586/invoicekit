@@ -92,6 +92,9 @@ export interface Invoice {
   items: LineItem[];
 
   subtotal: number;
+  discount_type: "percentage" | "fixed" | null;
+  discount_value: number;
+  discount_amount: number;
   cgst: number;
   sgst: number;
   igst: number;
