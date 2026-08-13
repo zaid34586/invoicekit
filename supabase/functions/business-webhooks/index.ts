@@ -50,13 +50,41 @@ Deno.serve(async req => {
   try {
     const url = Deno.env.get("SUPABASE_URL")!, service = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, anon = Deno.env.get("SUPABASE_ANON_KEY")!;
     const admin = createClient(url, service);
+    const body = await req.json();
+
+    // Cron-triggered sweep: authenticated via a shared secret (set with
+    // `supabase secrets set WEBHOOK_CRON_SECRET=...`) instead of a user
+    // session, since a scheduled job has no logged-in user. Without this,
+    // deliveries only ever retried when a customer happened to create or
+    // edit an invoice/client themselves -- a failed delivery from an
+    // otherwise-idle workspace could sit "failed" indefinitely.
+    if (body.action === "cron-sweep") {
+      const expected = Deno.env.get("WEBHOOK_CRON_SECRET");
+      const provided = req.headers.get("x-cron-secret");
+      if (!expected || !provided || provided !== expected) return json({ error: "Unauthorized" }, 401);
+      const { data: due } = await admin.from("workspace_webhook_deliveries")
+        .select("*,workspace_webhooks!inner(id,url,signing_secret,workspace_id,active)")
+        .eq("workspace_webhooks.active", true)
+        .in("status", ["pending", "failed"])
+        .lte("next_retry_at", new Date().toISOString())
+        .lt("attempts", 8)
+        .order("created_at", { ascending: true })
+        .limit(200);
+      let delivered = 0, failed = 0;
+      for (const d of due || []) {
+        const hook = (d as any).workspace_webhooks;
+        const result = await attemptDelivery(admin, d, hook);
+        if (result.success) delivered++; else failed++;
+      }
+      return json({ swept: (due || []).length, delivered, failed });
+    }
+
     const auth = req.headers.get("authorization") || "";
     const userClient = createClient(url, anon, { global: { headers: { Authorization: auth } } });
     const { data: { user } } = await userClient.auth.getUser();
     if (!user) return json({ error: "Unauthorized" }, 401);
     const { data: callerProfile } = await admin.from("profiles").select("is_banned").eq("user_id", user.id).maybeSingle();
     if (callerProfile?.is_banned) return json({ error: "Account suspended" }, 403);
-    const body = await req.json();
 
     if (body.action === "deliver-pending") {
       const workspaceId = await resolveWorkspaceId(admin, user.id);
