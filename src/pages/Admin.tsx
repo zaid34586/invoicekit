@@ -137,6 +137,7 @@ type FreeProModalState = {
   profile: Profile;
   days: string;
   reason: string;
+  plan: "pro" | "business";
 } | null;
 
 type AdminSystemSettings = {
@@ -845,10 +846,10 @@ export default function Admin() {
     await logAction("invoice_balance_reset", "profile", profile.id, { email: profile.email, previous_balance: current, reason });
   }
 
-  function openFreeProModal(profile: Profile) {
+  function openFreeProModal(profile: Profile, plan: "pro" | "business" = "pro") {
     setError(null);
     setNotice(null);
-    setFreeProModal({ profile, days: "30", reason: "Manual free Pro access" });
+    setFreeProModal({ profile, days: "30", reason: `Manual free ${plan === "business" ? "Business" : "Pro"} access`, plan });
   }
 
   async function submitFreePro(daysOverride?: number) {
@@ -860,23 +861,25 @@ export default function Admin() {
     }
 
     const profile = freeProModal.profile;
+    const plan = freeProModal.plan;
+    const planLabel = plan === "business" ? "Business" : "Pro";
     const until = new Date();
     until.setDate(until.getDate() + days);
     setAdminActionBusy(true);
     setError(null);
     setNotice(null);
     try {
-      await updateProfile(profile.id, { is_pro: true, plan: "pro", free_pro_until: until.toISOString() }, "give_free_pro");
-      await logAction("free_pro_granted", "profile", profile.id, {
+      await updateProfile(profile.id, { is_pro: true, plan, free_pro_until: until.toISOString() }, `give_free_${plan}`);
+      await logAction(`free_${plan}_granted`, "profile", profile.id, {
         email: profile.email,
         days,
         free_pro_until: until.toISOString(),
-        reason: freeProModal.reason || "Manual free Pro access",
+        reason: freeProModal.reason || `Manual free ${planLabel} access`,
       });
       setFreeProModal(null);
-      setNotice(`Free Pro is active for ${days} day${days === 1 ? "" : "s"}.`);
+      setNotice(`Free ${planLabel} is active for ${days} day${days === 1 ? "" : "s"}.`);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Free Pro update failed.");
+      setError(err instanceof Error ? err.message : `Free ${planLabel} update failed.`);
     } finally {
       setAdminActionBusy(false);
     }
@@ -1634,7 +1637,8 @@ export default function Admin() {
                     <div className="grid grid-cols-2 gap-2">
                       <button className="btn-secondary" onClick={() => openInvoiceBalanceModal(selectedUser)}>Add Invoices</button>
                       <button className="btn-secondary" onClick={() => handleResetCredits(selectedUser)}>Reset Balance</button>
-                      <button className="btn-primary" onClick={() => openFreeProModal(selectedUser)}>Give Free Pro</button>
+                      <button className="btn-primary" onClick={() => openFreeProModal(selectedUser, "pro")}>Give Free Pro</button>
+                      <button className="btn-primary" onClick={() => openFreeProModal(selectedUser, "business")}>Give Free Business</button>
                       <button className="btn-secondary" onClick={() => handleRemoveFreePro(selectedUser)}>Remove Pro</button>
                       <button className="btn-secondary col-span-2" onClick={() => handleResetUserPassword(selectedUser)}>Reset Login Password</button>
                       {(selectedUser as unknown as { is_banned?: boolean }).is_banned ? (
@@ -1743,7 +1747,7 @@ export default function Admin() {
                 <table className="w-full">
                   <thead><tr className="border-b border-slate-100 bg-slate-50/50"><th className="text-left text-xs font-semibold text-slate-500 uppercase px-5 py-3">User</th><th className="text-left text-xs font-semibold text-slate-500 uppercase px-5 py-3">Plan</th><th className="text-left text-xs font-semibold text-slate-500 uppercase px-5 py-3">Invoice Balance</th><th className="text-right text-xs font-semibold text-slate-500 uppercase px-5 py-3">Actions</th></tr></thead>
                   <tbody className="divide-y divide-slate-100">
-                    {profiles.map((p) => <tr key={p.id}><td className="px-5 py-3.5"><p className="font-medium text-slate-900">{p.business_name || "Unnamed"}</p><p className="text-xs text-slate-500">{p.email}</p></td><td className="px-5 py-3.5"><Pill className={p.is_pro ? "bg-amber-50 text-amber-700 border-amber-200" : statusClass("closed")}>{p.is_pro ? "Pro" : "Free"}</Pill></td><td className="px-5 py-3.5 font-semibold">{Number((p as unknown as { credits?: number }).credits ?? 0)}</td><td className="px-5 py-3.5 text-right space-x-2"><button className="btn-secondary text-xs py-1.5 px-3" onClick={() => openInvoiceBalanceModal(p)}>Add Invoices</button><button className="btn-primary text-xs py-1.5 px-3" onClick={() => openFreeProModal(p)}>Give Free Pro</button></td></tr>)}
+                    {profiles.map((p) => <tr key={p.id}><td className="px-5 py-3.5"><p className="font-medium text-slate-900">{p.business_name || "Unnamed"}</p><p className="text-xs text-slate-500">{p.email}</p></td><td className="px-5 py-3.5"><Pill className={p.is_pro ? "bg-amber-50 text-amber-700 border-amber-200" : statusClass("closed")}>{p.is_pro ? ((p as unknown as { plan?: string }).plan === "business" ? "Business" : "Pro") : "Free"}</Pill></td><td className="px-5 py-3.5 font-semibold">{Number((p as unknown as { credits?: number }).credits ?? 0)}</td><td className="px-5 py-3.5 text-right space-x-2"><button className="btn-secondary text-xs py-1.5 px-3" onClick={() => openInvoiceBalanceModal(p)}>Add Invoices</button><button className="btn-primary text-xs py-1.5 px-3" onClick={() => openFreeProModal(p, "pro")}>Give Free Pro</button><button className="btn-primary text-xs py-1.5 px-3" onClick={() => openFreeProModal(p, "business")}>Give Free Business</button></td></tr>)}
                   </tbody>
                 </table>
               </div>
@@ -2596,7 +2600,7 @@ export default function Admin() {
             <div className="w-full max-w-lg rounded-2xl bg-white shadow-2xl border border-slate-200">
               <div className="p-5 border-b border-slate-100 flex items-start justify-between gap-4">
                 <div>
-                  <h2 className="text-lg font-bold text-slate-900">Give Free Pro</h2>
+                  <h2 className="text-lg font-bold text-slate-900">Give Free {freeProModal.plan === "business" ? "Business" : "Pro"}</h2>
                   <p className="text-sm text-slate-500">The expiry date is saved automatically. After it passes, the user returns to the Free plan.</p>
                 </div>
                 <button className="text-slate-400 hover:text-slate-700 text-xl" onClick={() => setFreeProModal(null)}>×</button>
@@ -2604,7 +2608,12 @@ export default function Admin() {
               <div className="p-5 space-y-4">
                 <div className="rounded-xl bg-amber-50 border border-amber-100 p-4">
                   <p className="font-semibold text-slate-900">{freeProModal.profile.business_name || freeProModal.profile.email || "Selected user"}</p>
-                  <p className="text-sm text-amber-700">Pro access tab tak active rahega jab tak selected duration expire nahi hoti.</p>
+                  <p className="text-sm text-amber-700">{freeProModal.plan === "business" ? "Business" : "Pro"} access tab tak active rahega jab tak selected duration expire nahi hoti.</p>
+                </div>
+                <label className="block text-sm font-medium text-slate-700">Plan</label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button className={freeProModal.plan === "pro" ? "btn-primary text-sm" : "btn-secondary text-sm"} onClick={() => setFreeProModal({ ...freeProModal, plan: "pro" })}>Pro</button>
+                  <button className={freeProModal.plan === "business" ? "btn-primary text-sm" : "btn-secondary text-sm"} onClick={() => setFreeProModal({ ...freeProModal, plan: "business" })}>Business</button>
                 </div>
                 <div className="grid grid-cols-4 gap-2">
                   {[7, 30, 90, 365].map((days) => (
@@ -2615,7 +2624,7 @@ export default function Admin() {
                 <input className="input" type="number" min="1" value={freeProModal.days} onChange={(e) => setFreeProModal({ ...freeProModal, days: e.target.value })} />
                 <label className="block text-sm font-medium text-slate-700">Reason</label>
                 <select className="input" value={freeProModal.reason} onChange={(e) => setFreeProModal({ ...freeProModal, reason: e.target.value })}>
-                  <option>Manual free Pro access</option>
+                  <option>Manual free {freeProModal.plan === "business" ? "Business" : "Pro"} access</option>
                   <option>Promotion</option>
                   <option>Trial extension</option>
                   <option>Support compensation</option>
@@ -2624,7 +2633,7 @@ export default function Admin() {
               </div>
               <div className="p-5 border-t border-slate-100 flex justify-end gap-2">
                 <button className="btn-secondary" onClick={() => setFreeProModal(null)}>Cancel</button>
-                <button className="btn-primary" disabled={adminActionBusy} onClick={() => submitFreePro()}>{adminActionBusy ? "Saving..." : "Give Free Pro"}</button>
+                <button className="btn-primary" disabled={adminActionBusy} onClick={() => submitFreePro()}>{adminActionBusy ? "Saving..." : `Give Free ${freeProModal.plan === "business" ? "Business" : "Pro"}`}</button>
               </div>
             </div>
           </div>
