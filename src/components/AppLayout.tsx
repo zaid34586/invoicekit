@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, type ReactNode } from "react";
 import { NavLink, useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import LiveChatWidget from "./LiveChatWidget";
+import NotificationBell from "./NotificationBell";
 
 function NavItem({
   to,
@@ -237,7 +238,10 @@ export default function AppLayout({ children }: { children: ReactNode }) {
               </div>
             </NavLink>
           </div>
-          <UserMenu />
+          <div className="flex items-center gap-2">
+            <NotificationBell />
+            <UserMenu />
+          </div>
         </div>
       </header>
 

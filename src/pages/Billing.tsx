@@ -681,7 +681,24 @@ export default function Billing() {
         </div>
       </section>
 
-      {planId !== "free" && (
+      {planId !== "free" && (profile as unknown as { free_pro_until?: string | null })?.free_pro_until && (
+        <section className="card border-2 border-violet-200 bg-violet-50 p-6">
+          <div className="flex items-start gap-3">
+            <div className="mt-0.5 flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full bg-violet-600 text-white">🎁</div>
+            <div>
+              <h2 className="text-lg font-bold text-slate-950">You have free {planId === "business" ? "Business" : "Pro"} access</h2>
+              <p className="mt-1 text-sm text-slate-600">
+                This was granted by the Rivox team, not a paid subscription — there's nothing to sync with Paddle or pay for.
+              </p>
+              <p className="mt-2 text-sm font-semibold text-violet-700">
+                Expires on {new Date((profile as unknown as { free_pro_until: string }).free_pro_until).toLocaleDateString("en-IN", { day: "numeric", month: "long", year: "numeric" })}
+              </p>
+            </div>
+          </div>
+        </section>
+      )}
+
+      {planId !== "free" && !(profile as unknown as { free_pro_until?: string | null })?.free_pro_until && (
         <section className="card p-6">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
             <div>

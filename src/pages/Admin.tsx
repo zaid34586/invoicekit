@@ -697,8 +697,17 @@ export default function Admin() {
   }
 
   async function handleRemoveFreePro(profile: Profile) {
-    if (!window.confirm("Is user ka free Pro/Pro access remove karna hai?")) return;
+    const currentPlan = (profile as unknown as { plan?: string }).plan === "business" ? "Business" : "Pro";
+    if (!window.confirm(`Is user ka free ${currentPlan} access remove karna hai?`)) return;
     await updateProfile(profile.id, { is_pro: false, plan: "free", free_pro_until: null }, "remove_free_pro");
+    await supabase.from("notifications").insert({
+      audience: "user",
+      recipient_user_id: (profile as unknown as { user_id?: string }).user_id || profile.id,
+      type: "plan_removed",
+      title: `Your free ${currentPlan} access has ended`,
+      body: `Your account is now on the Free plan.`,
+      metadata: { previous_plan: currentPlan.toLowerCase() },
+    });
   }
 
   function exportCsv(rows: Record<string, unknown>[], filename: string) {
@@ -875,6 +884,14 @@ export default function Admin() {
         days,
         free_pro_until: until.toISOString(),
         reason: freeProModal.reason || `Manual free ${planLabel} access`,
+      });
+      await supabase.from("notifications").insert({
+        audience: "user",
+        recipient_user_id: (profile as unknown as { user_id?: string }).user_id || profile.id,
+        type: "plan_granted",
+        title: `You've been given free ${planLabel} access`,
+        body: `Reason: ${freeProModal.reason || `Manual free ${planLabel} access`}. Valid for ${days} day${days === 1 ? "" : "s"}, until ${until.toLocaleDateString()}.`,
+        metadata: { plan, days, free_pro_until: until.toISOString(), reason: freeProModal.reason || null },
       });
       setFreeProModal(null);
       setNotice(`Free ${planLabel} is active for ${days} day${days === 1 ? "" : "s"}.`);
@@ -1639,7 +1656,7 @@ export default function Admin() {
                       <button className="btn-secondary" onClick={() => handleResetCredits(selectedUser)}>Reset Balance</button>
                       <button className="btn-primary" onClick={() => openFreeProModal(selectedUser, "pro")}>Give Free Pro</button>
                       <button className="btn-primary" onClick={() => openFreeProModal(selectedUser, "business")}>Give Free Business</button>
-                      <button className="btn-secondary" onClick={() => handleRemoveFreePro(selectedUser)}>Remove Pro</button>
+                      <button className="btn-secondary" onClick={() => handleRemoveFreePro(selectedUser)}>Remove {(selectedUser as unknown as { plan?: string }).plan === "business" ? "Business" : "Pro"}</button>
                       <button className="btn-secondary col-span-2" onClick={() => handleResetUserPassword(selectedUser)}>Reset Login Password</button>
                       {(selectedUser as unknown as { is_banned?: boolean }).is_banned ? (
                         <button className="btn-primary col-span-2" onClick={() => handleUnban(selectedUser)}>Unban User</button>
