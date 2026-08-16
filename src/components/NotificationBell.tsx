@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useAuth } from "../context/AuthContext";
 import { supabase } from "../lib/supabase";
 
@@ -11,10 +11,44 @@ type NotificationRow = {
   created_at: string;
 };
 
+// Loud, pleasant two-note chime (like a doorbell "ding-dong") built entirely
+// with the Web Audio API -- no external mp3/wav file to host or bundle.
+function playNotificationChime() {
+  try {
+    const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+    const ctx = new AudioCtx();
+    const now = ctx.currentTime;
+
+    function tone(freq: number, start: number, duration: number, peakGain: number) {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(freq, now + start);
+      gain.gain.setValueAtTime(0, now + start);
+      gain.gain.linearRampToValueAtTime(peakGain, now + start + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + start + duration);
+      osc.connect(gain).connect(ctx.destination);
+      osc.start(now + start);
+      osc.stop(now + start + duration + 0.05);
+    }
+
+    // Bright high note, then a fuller low note right after -- loud (0.9 gain)
+    // and cuts through easily even with system volume turned down a bit.
+    tone(1318.5, 0, 0.35, 0.9); // E6
+    tone(987.77, 0.18, 0.5, 0.9); // B5
+
+    window.setTimeout(() => void ctx.close(), 1200);
+  } catch {
+    // Some browsers block audio until the user has interacted with the page
+    // at least once -- fail silently rather than throwing.
+  }
+}
+
 export default function NotificationBell() {
   const { user } = useAuth();
   const [items, setItems] = useState<NotificationRow[]>([]);
   const [open, setOpen] = useState(false);
+  const seenIds = useRef<Set<string> | null>(null);
 
   async function load() {
     if (!user) return;
@@ -25,12 +59,24 @@ export default function NotificationBell() {
       .eq("recipient_user_id", user.id)
       .order("created_at", { ascending: false })
       .limit(30);
-    setItems((data as NotificationRow[]) ?? []);
+    const rows = (data as NotificationRow[]) ?? [];
+
+    if (seenIds.current === null) {
+      // First load after mount: just record what already exists, don't
+      // chime for a backlog of old notifications the user hasn't seen yet.
+      seenIds.current = new Set(rows.map((r) => r.id));
+    } else {
+      const hasNew = rows.some((r) => !seenIds.current!.has(r.id));
+      if (hasNew) playNotificationChime();
+      seenIds.current = new Set(rows.map((r) => r.id));
+    }
+
+    setItems(rows);
   }
 
   useEffect(() => {
     void load();
-    const interval = window.setInterval(() => void load(), 60_000);
+    const interval = window.setInterval(() => void load(), 30_000);
     return () => window.clearInterval(interval);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id]);
