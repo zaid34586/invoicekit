@@ -1000,6 +1000,14 @@ export default function Admin() {
     await load();
   }
 
+  async function updateTeamDepartment(member: AdminTeamMember, department: string) {
+    const { error: updateError } = await supabase.from("admin_team_members").update({ department: department || null }).eq("id", member.id);
+    if (updateError) return setError(updateError.message);
+    await logAction("update_team_department", "admin_team_members", member.id, { old_department: member.department || null, new_department: department || null });
+    setNotice("Team department updated.");
+    await load();
+  }
+
   async function resetTeamTempPassword(member: AdminTeamMember) {
     const password = window.prompt(`New temporary password for ${member.email}`, generatePassword());
     if (!password || password.length < 6) return;
@@ -1865,13 +1873,29 @@ export default function Admin() {
                               </button>
                             </td>
                             <td className="px-5 py-3.5">
-                              <select className="input text-xs py-1.5" value={m.role} onChange={(e) => updateTeamRole(m, e.target.value as AdminTeamMember["role"])}>
-                                <option value="limited">Limited</option>
-                                <option value="full_access">Full Access</option>
-                                <option value="support">Support</option>
-                                <option value="finance">Finance</option>
-                                <option value="viewer">Viewer</option>
-                              </select>
+                              <div className="flex flex-col gap-1">
+                                <select className="input text-xs py-1.5" value={m.role} onChange={(e) => updateTeamRole(m, e.target.value as AdminTeamMember["role"])}>
+                                  <option value="limited">Limited</option>
+                                  <option value="standard">Standard (department staff)</option>
+                                  <option value="full_access">Full Access</option>
+                                  <option value="support">Support</option>
+                                  <option value="finance">Finance</option>
+                                  <option value="viewer">Viewer</option>
+                                </select>
+                                {m.role === "standard" && (
+                                  <select className="input text-xs py-1.5" value={m.department || ""} onChange={(e) => updateTeamDepartment(m, e.target.value)}>
+                                    <option value="">No department</option>
+                                    <option value="engineering">⚙️ Engineering</option>
+                                    <option value="finance">💰 Finance</option>
+                                    <option value="general">📋 General</option>
+                                    <option value="hr">👤 HR</option>
+                                    <option value="legal">⚖️ Legal / Compliance</option>
+                                    <option value="marketing">📣 Marketing</option>
+                                    <option value="sales">📢 Sales / Promotion</option>
+                                    <option value="support">🎧 Support</option>
+                                  </select>
+                                )}
+                              </div>
                             </td>
                             <td className="px-5 py-3.5"><Pill className={statusClass(m.status)}>{m.status}</Pill></td>
                             <td className="px-5 py-3.5 text-sm text-slate-500">{formatDate(m.created_at)}</td>
@@ -1899,6 +1923,7 @@ export default function Admin() {
                       </div>
                       <div className="grid md:grid-cols-2 gap-3">
                         <Info label="Role" value={roleLabels[selectedTeam.role]} />
+                        {selectedTeam.role === "standard" && <Info label="Department" value={selectedTeam.department ? selectedTeam.department.charAt(0).toUpperCase() + selectedTeam.department.slice(1) : "No department set"} />}
                         <Info label="Created" value={formatDate(selectedTeam.created_at)} />
                         <Info label="Auth User" value={selectedTeam.auth_user_id ? "Created" : "Not linked"} />
                         <Info label="Temp Password" value={selectedTeam.temporary_password || "—"} />
