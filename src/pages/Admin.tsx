@@ -954,25 +954,26 @@ export default function Admin() {
       });
 
       if (fnError) {
-        const { error: insertError } = await supabase.from("admin_team_members").insert({
-          email: teamForm.email.toLowerCase(),
-          name: teamForm.name || null,
-          role: teamForm.role,
-          department: teamForm.department || null,
-          temporary_password: teamForm.password,
-          notes: teamForm.notes || "Edge Function not deployed yet. Deploy create-team-member for real Auth login.",
-          created_by: user?.id ?? null,
-        });
-        if (insertError) throw insertError;
-        setNotice("Team record created. Edge Function deploy karne ke baad real login create hoga.");
+        // Try to surface the actual reason (the function returns a JSON
+        // body with `error` even on failure) instead of a generic message
+        // that hides what really went wrong.
+        let detail = fnError.message;
+        try {
+          const ctx = (fnError as unknown as { context?: Response }).context;
+          if (ctx) {
+            const body = await ctx.clone().json();
+            if (body?.error) detail = body.error;
+          }
+        } catch { /* keep the generic message if we can't parse a body */ }
+        throw new Error(detail);
+      }
+
+      if (data?.email_sent) {
+        setNotice(`Team member created. Welcome email sent to ${teamForm.email}.`);
+      } else if (data?.email_error) {
+        setNotice(`Team member created, but email failed: ${data.email_error}`);
       } else {
-        if (data?.email_sent) {
-          setNotice(`Team member created. Welcome email sent to ${teamForm.email}.`);
-        } else if (data?.email_error) {
-          setNotice(`Team member created, but email failed: ${data.email_error}`);
-        } else {
-          setNotice(data?.message ?? "Team member created. Email not configured yet.");
-        }
+        setNotice(data?.message ?? "Team member created. Email not configured yet.");
       }
 
       await logAction("create_team_member", "admin_team_members", teamForm.email, { role: teamForm.role });
