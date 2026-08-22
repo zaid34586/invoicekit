@@ -1022,11 +1022,32 @@ export default function Admin() {
   async function deleteTeamMember(member: AdminTeamMember) {
     const confirmText = window.prompt(`Delete team member ${member.email}? Confirm ke liye DELETE likho.`);
     if (confirmText !== "DELETE") return;
+    setError(null);
+    setNotice(null);
+
+    // Delete the linked Supabase Auth login first, so the email is freed up
+    // for re-registration/re-invite. Without this, only the admin_team_members
+    // row was removed and the Auth account stayed behind, causing
+    // "already registered" errors when reusing the same email later.
+    if (member.auth_user_id) {
+      try {
+        const result = await invokeAdminUserAction("delete_auth_user", { user_id: member.auth_user_id });
+        if (result?.ok === false) throw new Error(result.message || "Auth user delete failed");
+      } catch (authActionError) {
+        const message = authActionError instanceof Error ? authActionError.message : "Auth user delete failed";
+        // "not found" just means the auth user was already gone (e.g. deleted
+        // manually before) -- safe to continue removing the team record.
+        if (!/not.?found/i.test(message)) {
+          return setError(`Could not delete the linked login: ${message}. Team record was not deleted.`);
+        }
+      }
+    }
+
     const { error: deleteError } = await supabase.from("admin_team_members").delete().eq("id", member.id);
     if (deleteError) return setError(deleteError.message);
-    await logAction("delete_team_member", "admin_team_members", member.id, { email: member.email });
+    await logAction("delete_team_member", "admin_team_members", member.id, { email: member.email, auth_user_id: member.auth_user_id });
     setSelectedTeamId(null);
-    setNotice("Team member record deleted. Agar real Auth user bana tha to Supabase Authentication se disable/delete manually karo.");
+    setNotice("Team member record aur uska login dono delete ho gaye. Email ab dobara register/invite ke liye free hai.");
     await load();
   }
 
