@@ -69,6 +69,31 @@ function escapeHtml(value: string) {
   return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#039;");
 }
 
+function brandShell(labelText: string, headingText: string, bodyHtml: string) {
+  return `<!doctype html><html lang="en"><body style="margin:0;padding:0;background:#f3f5fb;font-family:Arial,sans-serif;color:#0f172a;"><table width="100%" cellpadding="0" cellspacing="0" role="presentation" style="background:#f3f5fb;padding:32px 12px;"><tr><td align="center"><table width="100%" cellpadding="0" cellspacing="0" role="presentation" style="max-width:650px;background:#ffffff;border-radius:24px;overflow:hidden;"><tr><td style="padding:40px 48px;background:#24134f;color:#ffffff;"><div style="font-size:32px;font-weight:800;"><span style="color:#ff7849;">⚡</span> Rivox</div><div style="margin-top:8px;font-size:17px;color:#ddd6fe;">Business OS</div></td></tr><tr><td style="padding:46px 48px;"><div style="font-size:14px;font-weight:800;letter-spacing:3px;color:#7c3aed;">${labelText}</div><h1 style="margin:22px 0 16px;font-size:34px;line-height:1.2;color:#0f172a;">${headingText}</h1>${bodyHtml}</td></tr><tr><td style="padding:25px 48px;border-top:1px solid #e2e8f0;font-size:13px;line-height:1.7;color:#94a3b8;">Rivox · Secure invoicing, payments and business operations</td></tr></table></td></tr></table></body></html>`;
+}
+
+function buildCustomerReceipt(params: { business: string; invoiceNumber: string; currency: string; amount: string; reference: string }) {
+  const body = `
+    <p style="margin:0 0 28px;font-size:17px;line-height:1.7;color:#64748b;">Your payment to <strong>${escapeHtml(params.business)}</strong> was successful. Here is your receipt for your records.</p>
+    <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:16px;padding:24px 28px;margin:0 0 8px;">
+      <p style="margin:0 0 16px;font-size:14px;line-height:1.6;"><span style="display:block;font-weight:800;color:#0f172a;">Invoice</span><span style="color:#475569;">${escapeHtml(params.invoiceNumber)}</span></p>
+      <p style="margin:0 0 16px;font-size:14px;line-height:1.6;"><span style="display:block;font-weight:800;color:#0f172a;">Amount</span><span style="color:#475569;">${escapeHtml(params.currency)} ${escapeHtml(params.amount)}</span></p>
+      <p style="margin:0 0 16px;font-size:14px;line-height:1.6;"><span style="display:block;font-weight:800;color:#0f172a;">Payment reference</span><span style="color:#475569;">${escapeHtml(params.reference)}</span></p>
+      <p style="margin:0;font-size:14px;line-height:1.6;"><span style="display:block;font-weight:800;color:#0f172a;">Status</span><span style="color:#16a34a;font-weight:700;">Paid</span></p>
+    </div>`;
+  return brandShell("PAYMENT RECEIPT", "Thank you for your payment", body);
+}
+
+function buildOwnerNotice(params: { clientName: string; invoiceNumber: string; currency: string; amount: string; reference: string; providerLabel: string }) {
+  const body = `
+    <p style="margin:0 0 28px;font-size:17px;line-height:1.7;color:#64748b;"><strong>${escapeHtml(params.clientName)}</strong> paid <strong>${escapeHtml(params.currency)} ${escapeHtml(params.amount)}</strong> via ${escapeHtml(params.providerLabel)} for invoice <strong>${escapeHtml(params.invoiceNumber)}</strong>.</p>
+    <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:16px;padding:24px 28px;margin:0 0 8px;">
+      <p style="margin:0;font-size:14px;line-height:1.6;"><span style="display:block;font-weight:800;color:#0f172a;">Payment reference</span><span style="color:#475569;">${escapeHtml(params.reference)}</span></p>
+    </div>`;
+  return brandShell("PAYMENT RECEIVED", "You just got paid", body);
+}
+
 type EmailResult = { sent: boolean; id?: string; error?: string };
 
 function isDeliverableEmail(value: string | null | undefined) {
@@ -178,7 +203,7 @@ async function finalizePayment(admin: any, params: {
     const { data: profile } = await admin.from("profiles").select("email,business_name")
       .eq("user_id", workspace.owner_user_id).maybeSingle();
     const businessName = profile?.business_name || workspace.name || "Business";
-    const receipt = `<div style="font-family:Arial,sans-serif;background:#f8fafc;padding:28px"><div style="max-width:600px;margin:auto;background:#fff;border-radius:16px;padding:28px"><h1 style="color:#4f46e5">Payment receipt</h1><p>Your payment to <b>${escapeHtml(businessName)}</b> was successful.</p><div style="background:#f1f5f9;border-radius:12px;padding:18px"><p><b>Invoice:</b> ${escapeHtml(invoice.invoice_number)}</p><p><b>Amount:</b> ${escapeHtml(currency)} ${escapeHtml(moneyValue(amount, currency))}</p><p><b>PayPal reference:</b> ${escapeHtml(capture.id)}</p><p><b>Status:</b> Paid</p></div><p>Thank you for your business.</p></div></div>`;
+    const receipt = buildCustomerReceipt({ business: businessName, invoiceNumber: invoice.invoice_number, currency, amount: moneyValue(amount, currency), reference: capture.id });
     // The invoice customer email is authoritative. PayPal Sandbox payer
     // addresses end in example.com and can never receive a real receipt.
     const receiptEmail = isDeliverableEmail(invoice.client_email) ? String(invoice.client_email).trim().toLowerCase() : (isDeliverableEmail(payerEmail) ? String(payerEmail).trim().toLowerCase() : null);
@@ -193,7 +218,8 @@ async function finalizePayment(admin: any, params: {
     }).eq("provider", "paypal").eq("environment", connection.environment).eq("provider_order_id", order.id);
 
     const ownerSubject = `Payment received for ${invoice.invoice_number}`;
-    const ownerResult = await sendEmail(profile?.email || null, ownerSubject, `<div style="font-family:Arial,sans-serif"><h2>Payment received</h2><p>${escapeHtml(invoice.client_name)} paid <b>${escapeHtml(currency)} ${escapeHtml(moneyValue(amount, currency))}</b> for invoice <b>${escapeHtml(invoice.invoice_number)}</b>.</p><p>PayPal reference: ${escapeHtml(capture.id)}</p></div>`);
+    const ownerHtml = buildOwnerNotice({ clientName: invoice.client_name, invoiceNumber: invoice.invoice_number, currency, amount: moneyValue(amount, currency), reference: capture.id, providerLabel: "PayPal" });
+    const ownerResult = await sendEmail(profile?.email || null, ownerSubject, ownerHtml);
     if (profile?.email) await logEmail(admin, { to: profile.email, subject: ownerSubject, result: ownerResult, metadata: { invoice_id: invoice.id, payment_id: capture.id, provider: "paypal", audience: "owner" } });
   }
   return { paid: true, captureId: capture.id, invoiceNumber: invoice.invoice_number };

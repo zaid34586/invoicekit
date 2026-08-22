@@ -24,6 +24,31 @@ function minorAmount(amount: number, currency: string) { return Math.round(amoun
 function majorAmount(amount: number, currency: string) { return amount / (zeroDecimal.has(currency) ? 1 : 100); }
 function escapeHtml(value: string) { return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#039;"); }
 
+function brandShell(labelText: string, headingText: string, bodyHtml: string) {
+  return `<!doctype html><html lang="en"><body style="margin:0;padding:0;background:#f3f5fb;font-family:Arial,sans-serif;color:#0f172a;"><table width="100%" cellpadding="0" cellspacing="0" role="presentation" style="background:#f3f5fb;padding:32px 12px;"><tr><td align="center"><table width="100%" cellpadding="0" cellspacing="0" role="presentation" style="max-width:650px;background:#ffffff;border-radius:24px;overflow:hidden;"><tr><td style="padding:40px 48px;background:#24134f;color:#ffffff;"><div style="font-size:32px;font-weight:800;"><span style="color:#ff7849;">⚡</span> Rivox</div><div style="margin-top:8px;font-size:17px;color:#ddd6fe;">Business OS</div></td></tr><tr><td style="padding:46px 48px;"><div style="font-size:14px;font-weight:800;letter-spacing:3px;color:#7c3aed;">${labelText}</div><h1 style="margin:22px 0 16px;font-size:34px;line-height:1.2;color:#0f172a;">${headingText}</h1>${bodyHtml}</td></tr><tr><td style="padding:25px 48px;border-top:1px solid #e2e8f0;font-size:13px;line-height:1.7;color:#94a3b8;">Rivox · Secure invoicing, payments and business operations</td></tr></table></td></tr></table></body></html>`;
+}
+
+function buildCustomerReceipt(params: { business: string; invoiceNumber: string; currency: string; amount: string; reference: string }) {
+  const body = `
+    <p style="margin:0 0 28px;font-size:17px;line-height:1.7;color:#64748b;">Your payment to <strong>${escapeHtml(params.business)}</strong> was successful. Here is your receipt for your records.</p>
+    <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:16px;padding:24px 28px;margin:0 0 8px;">
+      <p style="margin:0 0 16px;font-size:14px;line-height:1.6;"><span style="display:block;font-weight:800;color:#0f172a;">Invoice</span><span style="color:#475569;">${escapeHtml(params.invoiceNumber)}</span></p>
+      <p style="margin:0 0 16px;font-size:14px;line-height:1.6;"><span style="display:block;font-weight:800;color:#0f172a;">Amount</span><span style="color:#475569;">${escapeHtml(params.currency)} ${escapeHtml(params.amount)}</span></p>
+      <p style="margin:0 0 16px;font-size:14px;line-height:1.6;"><span style="display:block;font-weight:800;color:#0f172a;">Payment reference</span><span style="color:#475569;">${escapeHtml(params.reference)}</span></p>
+      <p style="margin:0;font-size:14px;line-height:1.6;"><span style="display:block;font-weight:800;color:#0f172a;">Status</span><span style="color:#16a34a;font-weight:700;">Paid</span></p>
+    </div>`;
+  return brandShell("PAYMENT RECEIPT", "Thank you for your payment", body);
+}
+
+function buildOwnerNotice(params: { clientName: string; invoiceNumber: string; currency: string; amount: string; reference: string; providerLabel: string }) {
+  const body = `
+    <p style="margin:0 0 28px;font-size:17px;line-height:1.7;color:#64748b;"><strong>${escapeHtml(params.clientName)}</strong> paid <strong>${escapeHtml(params.currency)} ${escapeHtml(params.amount)}</strong> via ${escapeHtml(params.providerLabel)} for invoice <strong>${escapeHtml(params.invoiceNumber)}</strong>.</p>
+    <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:16px;padding:24px 28px;margin:0 0 8px;">
+      <p style="margin:0;font-size:14px;line-height:1.6;"><span style="display:block;font-weight:800;color:#0f172a;">Payment reference</span><span style="color:#475569;">${escapeHtml(params.reference)}</span></p>
+    </div>`;
+  return brandShell("PAYMENT RECEIVED", "You just got paid", body);
+}
+
 type EmailResult = { sent: boolean; id?: string; error?: string };
 function isDeliverableEmail(value: string | null | undefined) { if (!value) return false; const email = value.trim().toLowerCase(); return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) && !email.endsWith(".example.com") && !email.endsWith("@example.com"); }
 async function sendEmail(to: string | null, subject: string, html: string): Promise<EmailResult> {
@@ -74,12 +99,13 @@ async function finalizePaid(admin: any, context: any, session: any) {
     const business = profile?.business_name || workspace.name || "Business";
     const receiptEmail = isDeliverableEmail(invoice.client_email) ? String(invoice.client_email).trim().toLowerCase() : (isDeliverableEmail(payerEmail) ? String(payerEmail).trim().toLowerCase() : null);
     const receiptSubject = `Receipt for invoice ${invoice.invoice_number}`;
-    const receiptHtml = `<div style="font-family:Arial,sans-serif;background:#f8fafc;padding:28px"><div style="max-width:600px;margin:auto;background:#fff;border-radius:16px;padding:28px"><h1 style="color:#635bff">Payment receipt</h1><p>Your payment to <b>${escapeHtml(business)}</b> was successful.</p><p><b>Invoice:</b> ${escapeHtml(invoice.invoice_number)}<br><b>Amount:</b> ${currency} ${amount.toFixed(2)}<br><b>Stripe reference:</b> ${escapeHtml(paymentIntent)}<br><b>Status:</b> Paid</p></div></div>`;
+    const receiptHtml = buildCustomerReceipt({ business, invoiceNumber: invoice.invoice_number, currency, amount: amount.toFixed(2), reference: paymentIntent });
     const receiptResult = await sendEmail(receiptEmail, receiptSubject, receiptHtml);
     if (receiptEmail) await logEmail(admin, { to: receiptEmail, subject: receiptSubject, result: receiptResult, metadata: { invoice_id: invoice.id, payment_id: paymentIntent, provider: "stripe", audience: "customer" } });
     await admin.from("invoice_payments").update({ receipt_email: receiptEmail, receipt_email_status: receiptResult.sent ? "sent" : receiptEmail ? "failed" : "skipped", receipt_email_sent_at: receiptResult.sent ? new Date().toISOString() : null, receipt_email_error: receiptResult.error || null }).eq("provider", "stripe").eq("environment", connection.environment).eq("provider_order_id", session.id);
     const ownerSubject = `Payment received for ${invoice.invoice_number}`;
-    const ownerResult = await sendEmail(profile?.email || null, ownerSubject, `<div style="font-family:Arial,sans-serif"><h2>Payment received</h2><p>${escapeHtml(invoice.client_name)} paid <b>${currency} ${amount.toFixed(2)}</b> via Stripe for invoice <b>${escapeHtml(invoice.invoice_number)}</b>.</p></div>`);
+    const ownerHtml = buildOwnerNotice({ clientName: invoice.client_name, invoiceNumber: invoice.invoice_number, currency, amount: amount.toFixed(2), reference: paymentIntent, providerLabel: "Stripe" });
+    const ownerResult = await sendEmail(profile?.email || null, ownerSubject, ownerHtml);
     if (profile?.email) await logEmail(admin, { to: profile.email, subject: ownerSubject, result: ownerResult, metadata: { invoice_id: invoice.id, payment_id: paymentIntent, provider: "stripe", audience: "owner" } });
   }
   return { paid: true, paymentId: paymentIntent, invoiceNumber: invoice.invoice_number };
@@ -150,7 +176,7 @@ Deno.serve(async (req) => {
       if (!receiptEmail) return json({ error: "Add a valid client email to this invoice before resending the receipt." }, 400);
       const subject = `Receipt for invoice ${invoice.invoice_number}`;
       const business = profile?.business_name || workspace.name || "Business";
-      const html = `<div style="font-family:Arial,sans-serif;background:#f8fafc;padding:28px"><div style="max-width:600px;margin:auto;background:#fff;border-radius:16px;padding:28px"><h1 style="color:#635bff">Payment receipt</h1><p>Your payment to <b>${escapeHtml(business)}</b> was successful.</p><p><b>Invoice:</b> ${escapeHtml(invoice.invoice_number)}<br><b>Amount:</b> ${payment.currency} ${Number(payment.amount).toFixed(2)}<br><b>Stripe reference:</b> ${escapeHtml(payment.provider_capture_id || payment.provider_order_id)}<br><b>Status:</b> Paid</p></div></div>`;
+      const html = buildCustomerReceipt({ business, invoiceNumber: invoice.invoice_number, currency: payment.currency, amount: Number(payment.amount).toFixed(2), reference: payment.provider_capture_id || payment.provider_order_id });
       const result = await sendEmail(receiptEmail, subject, html);
       await logEmail(admin, { to: receiptEmail, subject, result, metadata: { invoice_id: invoice.id, payment_id: payment.provider_capture_id, provider: "stripe", audience: "customer", resent: true } });
       await admin.from("invoice_payments").update({ receipt_email: receiptEmail, receipt_email_status: result.sent ? "sent" : "failed", receipt_email_sent_at: result.sent ? new Date().toISOString() : null, receipt_email_error: result.error || null }).eq("id", payment.id);
