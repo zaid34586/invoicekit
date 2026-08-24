@@ -54,7 +54,7 @@ export default function Privacy() {
       </Section>
 
       <Section title="11. Updates and contact">
-        <p>We may update this policy as Rivox evolves. The latest revision date will appear above. Privacy questions and requests can be sent to <a className="font-bold text-primary-600 hover:underline" href="mailto:support@rivox.com">support@rivox.com</a>.</p>
+        <p>We may update this policy as Rivox evolves. The latest revision date will appear above. Privacy questions and requests can be sent to <a className="font-bold text-primary-600 hover:underline" href="mailto:support@rivoxcloud.com">support@rivoxcloud.com</a>.</p>
       </Section>
     </PublicPageLayout>
   );

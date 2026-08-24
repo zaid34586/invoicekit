@@ -68,7 +68,7 @@ export default function Terms() {
       </Section>
 
       <Section title="13. Contact">
-        <p>Questions about these terms can be sent to <a className="font-bold text-primary-600 hover:underline" href="mailto:support@rivox.com">support@rivox.com</a>.</p>
+        <p>Questions about these terms can be sent to <a className="font-bold text-primary-600 hover:underline" href="mailto:support@rivoxcloud.com">support@rivoxcloud.com</a>.</p>
       </Section>
     </PublicPageLayout>
   );

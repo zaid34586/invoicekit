@@ -33,7 +33,7 @@ export default function RefundPolicy() {
       </Section>
 
       <Section title="6. How to request a refund">
-        <p>For Paddle-processed purchases, use the support link in your Paddle receipt or Paddle’s buyer support portal. You may also email <a className="font-bold text-primary-600 hover:underline" href="mailto:support@rivox.com">support@rivox.com</a> with your order email and transaction details. Do not send full card information.</p>
+        <p>For Paddle-processed purchases, use the support link in your Paddle receipt or Paddle’s buyer support portal. You may also email <a className="font-bold text-primary-600 hover:underline" href="mailto:support@rivoxcloud.com">support@rivoxcloud.com</a> with your order email and transaction details. Do not send full card information.</p>
       </Section>
 
       <Section title="7. Chargebacks">

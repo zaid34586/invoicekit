@@ -474,7 +474,7 @@ export default function NewInvoice() {
         .maybeSingle();
 
       if (!existingClient) {
-        await supabase.from("clients").insert({
+        const { error: clientInsertError } = await supabase.from("clients").insert({
           user_id: workspaceOwnerId || user.id,
           name: clientName.trim(),
           phone: clientPhone.trim() || null,
@@ -485,6 +485,10 @@ export default function NewInvoice() {
           country: clientCountry,
           country_code: clientCountryCode,
         });
+        // Don't block invoice creation on this -- the invoice itself already
+        // saved successfully above. But surface it so a real failure here
+        // (e.g. a schema mismatch) is never silent again.
+        if (clientInsertError) console.error("Failed to save client from invoice:", clientInsertError.message);
       }
     }
 

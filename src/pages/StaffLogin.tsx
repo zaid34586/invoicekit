@@ -87,7 +87,7 @@ export default function StaffLogin() {
               {error && <div className="rounded-2xl bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">{error}</div>}
               <div>
                 <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-2">Work email</label>
-                <input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-slate-950" placeholder="support@rivox.com" autoComplete="username" />
+                <input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-slate-950" placeholder="support@rivoxcloud.com" autoComplete="username" />
               </div>
               <div>
                 <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-2">Password</label>
