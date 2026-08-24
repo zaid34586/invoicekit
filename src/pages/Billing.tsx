@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { useRegion } from "../context/RegionContext";
 import { FREE_PLAN_LIMIT } from "../lib/constants";
@@ -99,6 +100,7 @@ function PlanCard({
   onUpgrade,
   loading,
   offer,
+  highlighted,
 }: {
   plan: PricingPlan;
   cycle: BillingCycle;
@@ -106,11 +108,12 @@ function PlanCard({
   onUpgrade: (plan: PricingPlan, offer?: MarketingOffer) => void;
   loading?: boolean;
   offer?: MarketingOffer;
+  highlighted?: boolean;
 }) {
   const isCurrent = currentPlan === plan.id;
   const isFree = plan.id === "free";
   return (
-    <div className={`relative flex flex-col rounded-2xl border bg-white p-6 shadow-sm ${plan.featured ? "border-primary-500 ring-4 ring-primary-100" : "border-slate-200"}`}>
+    <div className={`relative flex flex-col rounded-2xl border bg-white p-6 shadow-sm ${highlighted ? "border-primary-500 ring-4 ring-primary-200" : plan.featured ? "border-primary-500 ring-4 ring-primary-100" : "border-slate-200"}`}>
       {plan.featured && (
         <span className="absolute -top-3 left-6 rounded-full bg-primary-600 px-3 py-1 text-xs font-bold text-white">
           Most Popular
@@ -195,7 +198,9 @@ function PlanCard({
 export default function Billing() {
   const { user, profile, refreshProfile } = useAuth();
   const region = useRegion();
-  const [cycle, setCycle] = useState<BillingCycle>("monthly");
+  const [searchParams] = useSearchParams();
+  const highlightPlan = searchParams.get("plan"); // deep link from UpgradeModal, e.g. ?plan=business&cycle=yearly
+  const [cycle, setCycle] = useState<BillingCycle>(searchParams.get("cycle") === "yearly" ? "yearly" : "monthly");
   const [invoicesThisMonth, setInvoicesThisMonth] = useState(0);
   const [promoCode, setPromoCode] = useState("");
   const [promoMessage, setPromoMessage] = useState<string | null>(null);
@@ -676,7 +681,7 @@ export default function Billing() {
         {promoMessage && <p className="mb-4 rounded-xl bg-primary-50 p-3 text-sm font-medium text-primary-700">{promoMessage}</p>}
         <div className="grid gap-6 lg:grid-cols-3">
           {(["free", "pro", "business"] as Plan[]).map((id) => (
-            <PlanCard key={id} plan={plans[id]} cycle={cycle} currentPlan={planId} onUpgrade={handleUpgrade} loading={checkoutLoading === id} offer={getOfferForPlanCycle(offers, id, cycle) ?? (appliedCode ? getOfferForPlanCycle(offers.filter(o => o.code === appliedCode), id, cycle) : undefined)} />
+            <PlanCard key={id} plan={plans[id]} cycle={cycle} currentPlan={planId} onUpgrade={handleUpgrade} loading={checkoutLoading === id} offer={getOfferForPlanCycle(offers, id, cycle) ?? (appliedCode ? getOfferForPlanCycle(offers.filter(o => o.code === appliedCode), id, cycle) : undefined)} highlighted={highlightPlan === id} />
           ))}
         </div>
       </section>

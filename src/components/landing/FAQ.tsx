@@ -12,9 +12,9 @@ const faqs = [
       "Yes. Every invoice can be downloaded as a professional PDF."
   },
   {
-    question: "Does Rivox support GST?",
+    question: "Does Rivox handle tax and currency for international clients?",
     answer:
-      "Yes. Rivox supports GSTIN, HSN/SAC, CGST, SGST and IGST."
+      "Yes. Rivox automatically applies the right tax format for your client's country (including GST, VAT and more) and converts amounts using live exchange rates, so you always know exactly what you're owed."
   },
   {
     question: "Can I send invoices by Email or WhatsApp?",
@@ -22,9 +22,9 @@ const faqs = [
       "Yes. You can share invoices using Email, WhatsApp and public share links."
   },
   {
-    question: "Will online payments be supported?",
+    question: "Can I collect payments directly through Rivox?",
     answer:
-      "Yes. Cashfree will be available for India and Paddle for international customers."
+      "Yes. On Pro and Business plans, every invoice gets a payment-ready link connected to your own Stripe or PayPal account, so clients can pay you directly."
   }
 ];
 

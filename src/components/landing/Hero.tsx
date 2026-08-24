@@ -21,18 +21,18 @@ export default function Hero() {
         <div className="mx-auto max-w-4xl text-center">
           <div className="inline-flex max-w-full items-center gap-2 rounded-full border border-primary-200 bg-white/75 px-3 py-1.5 text-xs font-bold sm:px-4 sm:py-2 sm:text-sm text-primary-700 shadow-sm backdrop-blur">
             <span className="h-2 w-2 rounded-full bg-emerald-500 shadow-[0_0_0_5px_rgba(16,185,129,0.12)]" />
-            Business moves faster with Rivox
+            Built for freelancers and agencies billing across borders
           </div>
 
           <h1 className="display-title mt-6 font-black text-slate-950 sm:mt-8">
-            Run your business.
+            Invoice international clients.
             <span className="block bg-gradient-to-r from-primary-600 via-violet-600 to-cyan-500 bg-clip-text text-transparent">
-              Get paid faster.
+              Get paid in your currency, automatically.
             </span>
           </h1>
 
           <p className="mx-auto mt-5 max-w-2xl text-base leading-7 text-slate-600 sm:mt-7 sm:text-lg sm:leading-8 lg:text-xl">
-            Create polished invoices, manage clients, track revenue and subscriptions, and operate your business from one premium workspace.
+            Multi-currency invoicing, live exchange rates, and automatic multi-country tax handling — built for freelancers and agencies who work with clients around the world, not another basic invoicing tool.
           </p>
 
           <div className="mt-7 flex flex-col justify-center gap-3 sm:mt-10 sm:flex-row">

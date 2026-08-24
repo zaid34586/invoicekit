@@ -4,6 +4,7 @@ import { useAuth } from "../context/AuthContext";
 import BrandStudio from "../components/BrandStudio";
 import AdvancedAnalytics from "../components/AdvancedAnalytics";
 import { DEFAULT_BRANDING, type WorkspaceBranding } from "../lib/branding";
+import LockedFeature from "../components/LockedFeature";
 
 type Tab="analytics"|"branding"|"api"|"webhooks"|"audit";
 const events=["invoice.created","invoice.paid","invoice.overdue","customer.created","customer.updated","subscription.updated"];
@@ -25,7 +26,20 @@ export default function Business(){
  async function revokeKey(id:string){if(!confirm("Revoke this API key?"))return;await supabase.rpc("revoke_workspace_api_key",{p_id:id});await load()}
  async function createHook(){if(!hookUrl.startsWith("https://")){setMessage("Webhook URL must start with https://");return} const secret="whsec_"+crypto.randomUUID().split("-").join("")+crypto.randomUUID().split("-").join("");const {error}=await supabase.from("workspace_webhooks").insert({workspace_id:workspaceId,url:hookUrl,events:hookEvents,signing_secret:secret});setMessage(error?.message||`Webhook created. Signing secret: ${secret}`);if(!error){setHookUrl("");await load()}}
  async function retry(id:string){const {data,error}=await supabase.functions.invoke("business-webhooks",{body:{action:"retry",deliveryId:id}});setMessage((data as any)?.error||error?.message||"Delivery retry completed.");await load()}
- if(!isBusiness)return <div className="mx-auto max-w-3xl card p-10 text-center"><p className="text-xs font-bold uppercase tracking-widest text-violet-600">Business workspace</p><h1 className="mt-3 text-3xl font-black">Unlock advanced operations</h1><p className="mt-3 text-slate-600">Custom branding, analytics, API keys, webhooks, audit logs and unlimited team seats are available on Business.</p><a href="/billing" className="btn-primary mt-7 inline-flex">Upgrade to Business</a></div>;
+ if(!isBusiness)return <LockedFeature active={true} eyebrow="Business workspace" title="Unlock advanced operations" description="Custom branding, advanced analytics, API keys, webhooks, audit logs and unlimited team seats are available on the Business plan.">
+  <div className="mx-auto max-w-7xl space-y-6">
+   <section className="rounded-[28px] bg-gradient-to-r from-slate-950 via-indigo-950 to-violet-900 p-8 text-white"><p className="text-xs font-bold uppercase tracking-[.25em] text-violet-300">Business command center</p><h1 className="mt-3 text-3xl font-black">Advanced workspace controls</h1><p className="mt-2 text-slate-300">Analytics, brand control and developer tools in one secure place.</p></section>
+   <div className="flex gap-2 overflow-x-auto pb-1">{["Analytics","Branding","API","Webhooks","Audit"].map(t=><button key={t} className="rounded-xl px-4 py-2.5 text-sm font-bold bg-white text-slate-600 border">{t}</button>)}</div>
+   <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
+    {[["Total revenue","$18,450"],["Monthly growth","+100.0%"],["Outstanding","$3,280"],["Customer lifetime value","$1,340"]].map(([label,value])=><div key={label} className="card p-6"><p className="text-sm text-slate-500">{label}</p><p className="mt-2 text-2xl font-black text-slate-900">{value}</p></div>)}
+   </div>
+   <div className="grid gap-6 lg:grid-cols-2">
+    <div className="card p-6"><h3 className="text-xl font-black">Custom invoice branding</h3><p className="mt-2 text-sm text-slate-500">Choose a template, add your logo and colors, preview live before it goes to clients.</p><div className="mt-4 grid grid-cols-2 gap-3">{["Modern","Executive","Minimal","Corporate"].map(x=><div key={x} className="rounded-xl border p-4 text-sm font-bold text-slate-700">{x}</div>)}</div></div>
+    <div className="card p-6"><h3 className="text-xl font-black">API keys &amp; webhooks</h3><p className="mt-2 text-sm text-slate-500">Generate live API keys and subscribe to invoice/customer events for your own integrations.</p><pre className="mt-4 overflow-x-auto rounded-xl bg-slate-950 p-4 text-xs text-slate-200">{`GET /functions/v1/business-api/invoices\nGET /functions/v1/business-api/clients`}</pre></div>
+   </div>
+   <div className="card overflow-hidden"><div className="border-b p-5"><h3 className="text-xl font-black">Audit logs</h3><p className="text-sm text-slate-500">Immutable workspace activity history.</p></div><div className="divide-y">{["invoice.created","settings.changed","team.invited"].map(a=><div key={a} className="p-5 text-sm font-semibold text-slate-600">{a}</div>)}</div></div>
+  </div>
+ </LockedFeature>;
  return <div className="mx-auto max-w-7xl space-y-6"><section className="rounded-[28px] bg-gradient-to-r from-slate-950 via-indigo-950 to-violet-900 p-8 text-white"><p className="text-xs font-bold uppercase tracking-[.25em] text-violet-300">Business command center</p><h1 className="mt-3 text-3xl font-black">Advanced workspace controls</h1><p className="mt-2 text-slate-300">Analytics, brand control and developer tools in one secure place.</p></section>{message&&<div className="rounded-2xl border border-violet-200 bg-violet-50 px-5 py-4 text-violet-800">{message}</div>}
  <div className="flex gap-2 overflow-x-auto pb-1">{(["analytics","branding","api","webhooks","audit"] as Tab[]).map(t=><button key={t} onClick={()=>setTab(t)} className={`rounded-xl px-4 py-2.5 text-sm font-bold capitalize ${tab===t?"bg-violet-600 text-white":"bg-white text-slate-600 border"}`}>{t}</button>)}</div>
  {tab==="analytics"&&<AdvancedAnalytics invoices={invoices} clients={clients} payments={payments} currency={profile?.currency||"USD"}/>} 

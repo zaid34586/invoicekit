@@ -6,6 +6,7 @@ import type { Invoice, Client } from "../lib/types";
 import * as XLSX from "xlsx";
 import jsPDF from "jspdf";
 import { invoiceBaseAmount, invoicePaidBaseAmount, invoiceDisplayAmount, invoiceDate, startOfDay, endOfDay, isWithin } from "../lib/invoiceAnalytics";
+import LockedFeature from "../components/LockedFeature";
 
 // Type definitions
 type DateFilter = "today" | "week" | "month" | "year" | "custom";
@@ -709,6 +710,12 @@ function businessNameForExport(): string {
   ];
 
   return (
+    <LockedFeature
+      active={profile?.plan === "free"}
+      eyebrow="Reports & Analytics"
+      title="Reports & Analytics is a Pro feature"
+      description="Revenue trends, invoice pipeline, and client insights unlock on the Pro plan and above."
+    >
     <div className="max-w-[1500px] mx-auto space-y-7 animate-fade-in pb-10">
       {/* Premium analytics header */}
       <section className="relative overflow-hidden rounded-[32px] bg-gradient-to-br from-slate-950 via-indigo-950 to-violet-900 p-7 text-white shadow-[0_28px_80px_-30px_rgba(79,70,229,.62)] sm:p-8">
@@ -1160,5 +1167,6 @@ function businessNameForExport(): string {
         title={`${exportModal} Export`}
       />
     </div>
+    </LockedFeature>
   );
 }
