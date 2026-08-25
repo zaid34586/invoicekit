@@ -24,7 +24,7 @@
   .badge { @apply inline-flex items-center rounded-full px-2.5 py-1 text-xs font-bold; }
   .page-container { @apply mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8; }
   .section-shell { @apply py-14 sm:py-20 lg:py-24; }
-  .display-title { font-size: clamp(2.35rem, 7.5vw, 5.4rem); line-height: .98; letter-spacing: -0.055em; }
+  .display-title { font-size: clamp(2.15rem, 5vw, 3.75rem); line-height: 1.08; letter-spacing: -0.045em; }
   .section-title { font-size: clamp(1.85rem, 5vw, 3rem); line-height: 1.08; letter-spacing: -0.035em; }
   .auth-page { @apply flex min-h-screen items-center justify-center overflow-x-hidden bg-gradient-to-br from-slate-950 via-slate-900 to-violet-950 px-3 py-5 sm:px-6 sm:py-8 lg:py-10; }
   .auth-shell { @apply grid w-full max-w-5xl min-w-0 overflow-hidden rounded-2xl border border-white/10 bg-white shadow-2xl shadow-violet-950/30 sm:rounded-3xl lg:grid-cols-[1.05fr_.95fr]; }
