@@ -1,4 +1,4 @@
-export type BrandTemplate = "modern" | "executive" | "minimal" | "corporate" | "luxury";
+export type BrandTemplate = "modern" | "executive" | "minimal" | "corporate" | "luxury" | "slate" | "emerald";
 
 export interface WorkspaceBranding {
   logo_url: string;
@@ -50,6 +50,8 @@ export const BRAND_PRESETS: Record<BrandTemplate, Partial<WorkspaceBranding>> = 
   minimal: { brand_color: "#111827", accent_color: "#64748B", font_family: "modern", header_style: "minimal", table_style: "lines", invoice_title: "INVOICE" },
   corporate: { brand_color: "#1D4ED8", accent_color: "#0F766E", font_family: "modern", header_style: "split", table_style: "solid", invoice_title: "TAX INVOICE" },
   luxury: { brand_color: "#18120B", accent_color: "#C99A2E", font_family: "editorial", header_style: "banner", table_style: "lines", invoice_title: "PRIVATE INVOICE" },
+  slate: { brand_color: "#1E293B", accent_color: "#38BDF8", font_family: "modern", header_style: "banner", table_style: "soft", invoice_title: "INVOICE" },
+  emerald: { brand_color: "#065F46", accent_color: "#D4AF37", font_family: "classic", header_style: "split", table_style: "solid", invoice_title: "INVOICE" },
 };
 
 export function applyBrandPreset(value: WorkspaceBranding, template: BrandTemplate): WorkspaceBranding {
