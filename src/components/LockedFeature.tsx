@@ -30,7 +30,12 @@ export default function LockedFeature({ active, eyebrow = "Business feature", ti
       <div aria-hidden="true" className="pointer-events-none select-none blur-[6px] opacity-50">
         {children}
       </div>
-      <div className="absolute inset-0 z-10 flex items-center justify-center p-4">
+      {/* Fixed (not absolute) so the card is centered in the viewport the
+          instant this renders -- the content behind it can be much taller
+          than the screen, and an absolutely-positioned overlay would center
+          itself against that full height, forcing the user to scroll down
+          to find it. */}
+      <div className="fixed inset-0 z-40 flex items-center justify-center p-4">
         <div className="w-full max-w-sm rounded-2xl border border-slate-200 bg-white/95 p-6 text-center shadow-[0_30px_80px_-20px_rgba(15,23,42,0.35)] backdrop-blur">
           <p className="text-[11px] font-black uppercase tracking-[0.18em] text-primary-700">{eyebrow}</p>
           <h3 className="mt-2 text-lg font-black text-slate-950">{title}</h3>

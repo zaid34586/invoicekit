@@ -17,7 +17,6 @@ export default function Terms() {
     >
       <Section title="1. Acceptance of these terms">
         <p>By creating an account, accessing, or using Rivox, you agree to these Terms of Service and our Privacy Policy. If you do not agree, do not use the service.</p>
-        <p>Rivox is a brand operated by <b>Mohd Zaid</b>, a sole proprietor. References to "Rivox," "we," "us," or "our" in these terms refer to Mohd Zaid, trading as Rivox.</p>
       </Section>
 
       <Section title="2. The Rivox service">
