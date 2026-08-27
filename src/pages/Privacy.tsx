@@ -13,6 +13,7 @@ export default function Privacy() {
       updated="10 July 2026"
     >
       <Section title="1. Information we collect">
+        <p>Rivox is a brand operated by <b>Mohd Zaid</b>, a sole proprietor. References to "Rivox," "we," "us," or "our" in this policy refer to Mohd Zaid, trading as Rivox.</p>
         <p>We may collect account details such as your name, email, phone number, country, business information, authentication records, and preferences. We also process content you choose to store in Rivox, including invoices, client records, files, payment status, and team communications.</p>
         <p>Technical information may include device and browser data, IP address, approximate location, session identifiers, usage events, diagnostics, and security logs.</p>
       </Section>

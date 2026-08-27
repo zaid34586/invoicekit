@@ -13,6 +13,7 @@ export default function RefundPolicy() {
       updated="10 July 2026"
     >
       <Section title="1. Merchant of Record">
+        <p>Rivox is a brand operated by <b>Mohd Zaid</b>, a sole proprietor. References to "Rivox," "we," "us," or "our" in this policy refer to Mohd Zaid, trading as Rivox.</p>
         <p>Paid Rivox subscriptions may be sold and processed by Paddle as Merchant of Record. Paddle handles checkout, payment collection, applicable indirect taxes, receipts, chargebacks, and approved refunds. Paddle’s buyer terms and mandatory consumer laws also apply.</p>
       </Section>
 
