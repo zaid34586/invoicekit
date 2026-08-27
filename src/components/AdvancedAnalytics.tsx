@@ -1,15 +1,19 @@
 import { useMemo } from "react";
+import { getCountryTaxSummary } from "../lib/tax";
 
 type Props = {
   invoices: any[];
   clients: any[];
   payments: any[];
   currency: string;
+  country?: string | null;
 };
 
 const amount = (invoice: any) => Number(invoice.base_total ?? invoice.total ?? 0);
 
-export default function AdvancedAnalytics({ invoices, clients, payments, currency }: Props) {
+export default function AdvancedAnalytics({ invoices, clients, payments, currency, country }: Props) {
+  const isIndiaBusiness = (country || "India") === "India";
+  const countryTax = getCountryTaxSummary(country);
   const money = (value: number) => new Intl.NumberFormat(undefined, { style: "currency", currency }).format(value || 0);
   const data = useMemo(() => {
     const now = new Date();
@@ -81,7 +85,7 @@ export default function AdvancedAnalytics({ invoices, clients, payments, currenc
     <section className="grid gap-6 lg:grid-cols-2"><Rank title="Top customers" rows={data.topCustomers} money={money} /><Rank title="Best services" rows={data.bestServices} money={money} /></section>
 
     <section className="grid gap-6 lg:grid-cols-3">
-      <div className="card p-6"><p className="text-xs font-bold uppercase tracking-[.18em] text-violet-600">Tax summary</p><h2 className="mt-1 text-xl font-black">Tax collected</h2><p className="mt-4 text-3xl font-black">{money(data.tax)}</p><div className="mt-5 space-y-3"><Line label="CGST" value={money(data.cgst)} /><Line label="SGST" value={money(data.sgst)} /><Line label="IGST / VAT" value={money(data.igst)} /></div></div>
+      <div className="card p-6"><p className="text-xs font-bold uppercase tracking-[.18em] text-violet-600">Tax summary</p><h2 className="mt-1 text-xl font-black">Tax collected</h2><p className="mt-4 text-3xl font-black">{money(data.tax)}</p><div className="mt-5 space-y-3">{isIndiaBusiness?<><Line label="CGST" value={money(data.cgst)} /><Line label="SGST" value={money(data.sgst)} /><Line label="IGST" value={money(data.igst)} /></>:<Line label={countryTax.label} value={money(data.igst)} />}</div></div>
       <div className="card p-6"><p className="text-xs font-bold uppercase tracking-[.18em] text-violet-600">Payment analytics</p><h2 className="mt-1 text-xl font-black">Payment channels</h2><div className="mt-5 space-y-3">{data.providers.length ? data.providers.map(([name, row]) => <div key={name} className="rounded-xl bg-slate-50 p-4"><div className="flex justify-between"><b>{name}</b><b>{money(row.amount)}</b></div><p className="mt-1 text-xs text-slate-500">{row.count} successful payments</p></div>) : <p className="text-sm text-slate-500">Gateway payment data will appear after the first successful payment.</p>}</div></div>
       <div className="card p-6"><p className="text-xs font-bold uppercase tracking-[.18em] text-violet-600">Needs attention</p><h2 className="mt-1 text-xl font-black">Outstanding invoices</h2><div className="mt-5 space-y-3">{data.overdue.length ? data.overdue.map((invoice) => <div key={invoice.id} className="flex items-center justify-between gap-3 rounded-xl border border-rose-100 bg-rose-50/60 p-4"><div><b>{invoice.invoice_number}</b><p className="text-xs text-slate-500">{invoice.client_name} · due {new Date(`${invoice.due_date}T00:00:00`).toLocaleDateString()}</p></div><b className="text-rose-600">{money(amount(invoice))}</b></div>) : <p className="text-sm text-emerald-600">No overdue invoices. Everything is on track.</p>}</div></div>
     </section>

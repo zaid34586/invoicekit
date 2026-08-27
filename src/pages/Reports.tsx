@@ -7,6 +7,7 @@ import * as XLSX from "xlsx";
 import jsPDF from "jspdf";
 import { invoiceBaseAmount, invoicePaidBaseAmount, invoiceDisplayAmount, invoiceDate, startOfDay, endOfDay, isWithin } from "../lib/invoiceAnalytics";
 import LockedFeature from "../components/LockedFeature";
+import { getCountryTaxSummary } from "../lib/tax";
 
 // Type definitions
 type DateFilter = "today" | "week" | "month" | "year" | "custom";
@@ -651,6 +652,12 @@ function businessNameForExport(): string {
   const totalSGST = filteredInvoices.reduce((sum, inv) => sum + Number(inv.sgst || 0), 0);
   const totalIGST = filteredInvoices.reduce((sum, inv) => sum + Number(inv.igst || 0), 0);
   const totalGST = totalCGST + totalSGST + totalIGST;
+  // Non-India businesses don't use CGST/SGST — gst.ts stores their flat
+  // VAT/Sales Tax/etc. amount in the `igst` column purely for storage
+  // compatibility (see gst.ts comment). So for a non-India business, show
+  // one card with the country's real tax name instead of India's 3-way split.
+  const isIndiaBusiness = (profile?.country || "India") === "India";
+  const countryTax = getCountryTaxSummary(profile?.country);
 
   // Chart data (with placeholder data if no real data)
   const hasData = filteredInvoices.length > 0;
@@ -1048,7 +1055,7 @@ function businessNameForExport(): string {
             <h2 className="text-lg font-semibold text-slate-900 mb-4">Tax Summary</h2>
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
               <StatCard
-                label="Total GST Collected"
+                label={isIndiaBusiness ? "Total GST Collected" : `Total ${countryTax.label} Collected`}
                 value={formatMoney(totalGST, currency)}
                 icon={
                   <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -1058,39 +1065,55 @@ function businessNameForExport(): string {
                 color="primary"
                 loading={loading}
               />
-              <StatCard
-                label="CGST"
-                value={formatMoney(totalCGST, currency)}
-                icon={
-                  <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
-                  </svg>
-                }
-                color="blue"
-                loading={loading}
-              />
-              <StatCard
-                label="SGST"
-                value={formatMoney(totalSGST, currency)}
-                icon={
-                  <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
-                  </svg>
-                }
-                color="green"
-                loading={loading}
-              />
-              <StatCard
-                label="IGST"
-                value={formatMoney(totalIGST, currency)}
-                icon={
-                  <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
-                  </svg>
-                }
-                color="amber"
-                loading={loading}
-              />
+              {isIndiaBusiness ? (
+                <>
+                  <StatCard
+                    label="CGST"
+                    value={formatMoney(totalCGST, currency)}
+                    icon={
+                      <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+                      </svg>
+                    }
+                    color="blue"
+                    loading={loading}
+                  />
+                  <StatCard
+                    label="SGST"
+                    value={formatMoney(totalSGST, currency)}
+                    icon={
+                      <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+                      </svg>
+                    }
+                    color="green"
+                    loading={loading}
+                  />
+                  <StatCard
+                    label="IGST"
+                    value={formatMoney(totalIGST, currency)}
+                    icon={
+                      <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+                      </svg>
+                    }
+                    color="amber"
+                    loading={loading}
+                  />
+                </>
+              ) : (
+                <StatCard
+                  label={countryTax.label}
+                  value={formatMoney(totalIGST, currency)}
+                  icon={
+                    <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+                    </svg>
+                  }
+                  color="blue"
+                  loading={loading}
+                />
+              )}
             </div>
           </section>
 
