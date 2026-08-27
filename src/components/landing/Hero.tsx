@@ -25,14 +25,14 @@ export default function Hero() {
           </div>
 
           <h1 className="display-title mt-6 font-black text-slate-950 sm:mt-8">
-            Invoicing for freelancers and agencies
+            Invoice international clients.
             <span className="block bg-gradient-to-r from-primary-600 via-violet-600 to-cyan-500 bg-clip-text text-transparent">
-              working across borders.
+              Get paid in your currency, automatically.
             </span>
           </h1>
 
           <p className="mx-auto mt-5 max-w-2xl text-base leading-7 text-slate-600 sm:mt-7 sm:text-lg sm:leading-8 lg:text-xl">
-            Multi-currency invoices, live exchange rates, and automatic tax handling — in one workspace.
+            Multi-currency invoicing, live exchange rates, and automatic multi-country tax handling — built for freelancers and agencies who work with clients around the world, not another basic invoicing tool.
           </p>
 
           <div className="mt-7 flex flex-col justify-center gap-3 sm:mt-10 sm:flex-row">
