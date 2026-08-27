@@ -397,10 +397,14 @@ export default function NewInvoice() {
     }
 
     if (!isEditMode && !profile?.is_pro) {
+      const monthStart = new Date();
+      monthStart.setDate(1);
+      monthStart.setHours(0, 0, 0, 0);
       const { count } = await supabase
         .from("invoices")
         .select("*", { count: "exact", head: true })
-        .eq("user_id", workspaceOwnerId || user.id);
+        .eq("user_id", workspaceOwnerId || user.id)
+        .gte("created_at", monthStart.toISOString());
       if ((count ?? 0) >= FREE_PLAN_LIMIT) {
         openUpgrade();
         return;
