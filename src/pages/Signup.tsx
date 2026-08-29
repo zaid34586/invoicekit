@@ -2,6 +2,7 @@ import { useState, type FormEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { ADMIN_EMAIL } from "../lib/constants";
+import PasswordField from "../components/PasswordField";
 
 type Stage = "form" | "loading" | "success";
 
@@ -163,14 +164,12 @@ export default function Signup() {
               <label className="label" htmlFor="password">
                 Password
               </label>
-              <input
+              <PasswordField
                 id="password"
-                type="password"
                 required
                 minLength={8}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="input h-12"
                 placeholder="At least 8 characters"
                 autoComplete="new-password"
               />

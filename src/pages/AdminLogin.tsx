@@ -4,6 +4,7 @@ import { useAuth } from "../context/AuthContext";
 import { supabase } from "../lib/supabase";
 import { ADMIN_EMAIL } from "../lib/constants";
 import RivoxLogo from "../components/RivoxLogo";
+import PasswordField from "../components/PasswordField";
 
 // Owner-only console login. This route is intentionally hidden from the normal
 // product navigation and never creates accounts.
@@ -135,12 +136,12 @@ export default function AdminLogin() {
 
                 <div>
                   <label className="mb-2 block text-xs font-black uppercase tracking-[0.18em] text-slate-400">Password</label>
-                  <input
-                    type="password"
+                  <PasswordField
                     required
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     className="w-full rounded-2xl border border-white/10 bg-slate-950/60 px-4 py-4 text-sm text-white outline-none transition placeholder:text-slate-600 focus:border-blue-400/70 focus:ring-4 focus:ring-blue-500/20"
+                    toggleClassName="text-slate-500 hover:text-slate-300"
                     placeholder="••••••••"
                     autoComplete="current-password"
                   />

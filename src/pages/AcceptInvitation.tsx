@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../context/AuthContext";
+import PasswordField from "../components/PasswordField";
 
 type Invitation = {
   email: string;
@@ -113,9 +114,9 @@ export default function AcceptInvitation() {
             <div><p className="text-slate-400">Email</p><p className="truncate font-bold text-slate-800">{invitation.email}</p></div>
           </div>
           <form onSubmit={submit} className="mt-6 space-y-4">
-            <label className="block"><span className="label">Password</span><input autoFocus required type="password" autoComplete="new-password" className="input h-12" value={password} onChange={(e) => setPassword(e.target.value)} /></label>
+            <label className="block"><span className="label">Password</span><PasswordField autoFocus required autoComplete="new-password" className="input h-12" value={password} onChange={(e) => setPassword(e.target.value)} /></label>
             <div><div className="mb-2 h-2 overflow-hidden rounded-full bg-slate-100"><div className={`h-full transition-all ${passed < 3 ? "bg-red-500" : passed < 5 ? "bg-amber-500" : "bg-emerald-500"}`} style={{ width: `${passed * 20}%` }}/></div><div className="grid grid-cols-2 gap-1">{rules.map((rule) => <p key={rule.label} className={`text-xs ${rule.test(password) ? "text-emerald-600" : "text-slate-400"}`}>{rule.test(password) ? "✓" : "○"} {rule.label}</p>)}</div></div>
-            <label className="block"><span className="label">Confirm password</span><input required type="password" autoComplete="new-password" className="input h-12" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} /></label>
+            <label className="block"><span className="label">Confirm password</span><PasswordField required autoComplete="new-password" className="input h-12" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} /></label>
             <button disabled={saving || !passwordIsValid || password !== confirmPassword} className="btn-primary h-12 w-full disabled:cursor-not-allowed disabled:opacity-50">{saving ? "Creating your account..." : "Continue"}</button>
           </form>
         </>}

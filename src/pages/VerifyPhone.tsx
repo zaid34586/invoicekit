@@ -26,6 +26,22 @@ export default function VerifyPhone() {
   const countryCode = profile?.country_code ?? "";
 const fullPhone = countryCode + phone;
 
+  async function extractFunctionError(error: unknown, fallback: string): Promise<string> {
+    // supabase-js only gives a generic "Edge Function returned a non-2xx
+    // status code" in error.message — the real reason (e.g. Twilio's actual
+    // error) is in the response body, reachable via error.context.
+    const ctx = (error as { context?: Response })?.context;
+    if (ctx && typeof ctx.json === "function") {
+      try {
+        const body = await ctx.clone().json();
+        if (body?.error) return body.error as string;
+      } catch {
+        // response wasn't JSON — fall through to generic message
+      }
+    }
+    return (error as Error)?.message || fallback;
+  }
+
   async function sendOTP() {
     setError("");
     setOtp("");
@@ -44,7 +60,7 @@ const fullPhone = countryCode + phone;
     setLoading(false);
 
     if (error) {
-      setError(error.message);
+      setError(await extractFunctionError(error, "Could not send OTP. Please try again."));
       return;
     }
 
@@ -73,7 +89,7 @@ const fullPhone = countryCode + phone;
 
     if (error) {
       setStage("otp");
-      setError(error.message);
+      setError(await extractFunctionError(error, "Could not verify OTP. Please try again."));
       return;
     }
 

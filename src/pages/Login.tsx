@@ -2,6 +2,7 @@ import { useState, type FormEvent } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { supabase } from "../lib/supabase";
+import PasswordField from "../components/PasswordField";
 
 type Stage = "form" | "loading";
 
@@ -146,13 +147,11 @@ export default function Login() {
                   Forgot password?
                 </Link>
               </div>
-              <input
+              <PasswordField
                 id="password"
-                type="password"
                 required
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="input h-12"
                 placeholder="Enter your password"
                 autoComplete="current-password"
               />
