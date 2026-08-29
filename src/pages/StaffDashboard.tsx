@@ -281,7 +281,24 @@ export default function StaffDashboard() {
     });
     setVerifying(false);
     if (error || data?.error) {
-      setMessage(`AI verification failed: ${data?.error || error?.message || "Unknown error"}`);
+      // supabase-js only fills `data` when the function returns 2xx. On a
+      // non-2xx response (e.g. 503 when GEMINI_API_KEY isn't set, or 502 on
+      // a Gemini call failure) it throws a FunctionsHttpError instead, whose
+      // .message is just a generic "Edge Function returned a non-2xx status
+      // code" — the real reason is in the response body, reachable via
+      // error.context (the raw Response). Try to read that first so staff
+      // (and admins debugging this) see the actual cause, not a dead end.
+      let realMessage = data?.error || error?.message || "Unknown error";
+      const ctx = (error as { context?: Response })?.context;
+      if (ctx && typeof ctx.json === "function") {
+        try {
+          const body = await ctx.clone().json();
+          if (body?.error) realMessage = body.error;
+        } catch {
+          // response body wasn't JSON — fall back to whatever we already have
+        }
+      }
+      setMessage(`AI verification failed: ${realMessage}`);
       await load();
       return;
     }
@@ -463,8 +480,23 @@ export default function StaffDashboard() {
 
   function TasksPage() {
     if (!hasStaffPermission(role, "tasks")) return <Blocked />;
+    const deptTip: Record<string, { icon: string; title: string; body: string }> = {
+      content: { icon: "✍️", title: "Content Creator workspace", body: "Every content task lists the key message and resources you need under \"Task Brief.\" Draft in the Content Draft box and run \"Verify with AI\" before submitting." },
+      sales: { icon: "📢", title: "Sales workspace", body: "Check the task brief for the target segment and any lead list before drafting outreach. Log calls/contacts from the Workspace Tools panel on each task." },
+      marketing: { icon: "📣", title: "Marketing workspace", body: "Campaign and research tasks list the audience/assets needed under \"Task Brief.\" Attach proof links or screenshots when you submit." },
+    };
+    const tip = staff?.department ? deptTip[staff.department] : undefined;
     return (
       <div className="space-y-6">
+        {tip && (
+          <div className="rounded-2xl border border-primary-100 bg-primary-50 px-5 py-4 flex items-start gap-3">
+            <span className="text-2xl leading-none">{tip.icon}</span>
+            <div>
+              <p className="font-bold text-primary-900 text-sm">{tip.title}</p>
+              <p className="text-primary-800 text-sm mt-0.5">{tip.body}</p>
+            </div>
+          </div>
+        )}
         <Section
           title="My Tasks"
           subtitle="Open a task, start work, add updates and submit it for admin review."

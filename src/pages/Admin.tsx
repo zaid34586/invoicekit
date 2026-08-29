@@ -227,6 +227,95 @@ const roleAccess: Record<AdminTeamMember["role"], string[]> = Object.fromEntries
   ])
 ) as Record<AdminTeamMember["role"], string[]>;
 
+// Ready-made task briefs for the three highest-volume recurring-content
+// departments (Content Creator, Sales/Promotion, Marketing). Picking one in
+// the Assign New Task form fills in title/description/priority instantly —
+// the only thing admin still has to do per task is attach the real
+// resource link/file (screenshot, data, pricing sheet, etc.), since that's
+// different every time and can't be templated.
+type TaskTemplate = {
+  id: string;
+  department: "content" | "sales" | "marketing";
+  label: string;
+  title: string;
+  description: string;
+  priority: "low" | "medium" | "high" | "urgent";
+  resourcesNeeded: string[];
+};
+
+const TASK_TEMPLATES: TaskTemplate[] = [
+  {
+    id: "content-feature-spotlight",
+    department: "content",
+    label: "✍️ Feature Spotlight post",
+    title: "Feature Spotlight — [feature name]",
+    description:
+      "Write a LinkedIn feature-spotlight post. Lead with the real pain point this feature solves, explain the fix in plain language, attach a real product screenshot, end with a clear CTA. No jargon, no filler.",
+    priority: "medium",
+    resourcesNeeded: ["Real product screenshot (PII-cropped)", "Any exact numbers/claims to include"],
+  },
+  {
+    id: "content-founder-story",
+    department: "content",
+    label: "✍️ Founder story / reflection",
+    title: "Founder Reflection post",
+    description:
+      "Personal, honest post in the founder's voice — one real challenge, one thing enjoyed, one lesson learned. End with a genuine question to the audience to drive comments. No generic 'entrepreneurship is hard' lines.",
+    priority: "medium",
+    resourcesNeeded: ["Founder's specific input (challenge / enjoyed / learned)"],
+  },
+  {
+    id: "content-milestone-recap",
+    department: "content",
+    label: "✍️ Milestone / recap post",
+    title: "Milestone Recap post",
+    description:
+      "Recap post covering the period's real numbers — one genuine win + one honest challenge, thank the community by name category, keep it transparent, not just promotional.",
+    priority: "medium",
+    resourcesNeeded: ["Real numbers for the period from founder"],
+  },
+  {
+    id: "sales-outreach-sequence",
+    department: "sales",
+    label: "📢 Outreach sequence",
+    title: "Cold outreach sequence — [segment name]",
+    description:
+      "Draft a 3-touch outreach sequence (initial + 2 follow-ups) for the target segment. Each message under 100 words, one clear ask per message, no generic templates — reference the segment's actual pain point.",
+    priority: "medium",
+    resourcesNeeded: ["Target segment/persona details", "List of leads or lead source"],
+  },
+  {
+    id: "sales-pricing-promo",
+    department: "sales",
+    label: "📢 Pricing / promo push",
+    title: "Pricing Promo — [offer name]",
+    description:
+      "Promote a specific pricing offer across the assigned channel. State exact savings numbers (not vague percentages), one-line comparison of plans, single clear CTA.",
+    priority: "high",
+    resourcesNeeded: ["Exact current pricing/discount numbers", "Pricing page screenshot"],
+  },
+  {
+    id: "marketing-campaign-brief",
+    department: "marketing",
+    label: "📣 Campaign brief",
+    title: "Campaign — [campaign name]",
+    description:
+      "Put together the campaign brief: audience, channel(s), key message, timeline, and the one metric that defines success for this campaign. Flag anything blocking launch.",
+    priority: "medium",
+    resourcesNeeded: ["Target audience/segment", "Any brand assets or prior campaign data"],
+  },
+  {
+    id: "marketing-competitor-scan",
+    department: "marketing",
+    label: "📣 Competitor / market scan",
+    title: "Competitor scan — [topic]",
+    description:
+      "Research how 3-5 named competitors are currently positioning around this topic. Summarize as a short comparison table plus a one-paragraph takeaway on where we have a gap or edge.",
+    priority: "low",
+    resourcesNeeded: ["List of competitors to check"],
+  },
+];
+
 function generatePassword() {
   const part = Math.random().toString(36).slice(2, 8);
   const digits = Math.floor(1000 + Math.random() * 9000);
@@ -327,6 +416,7 @@ export default function Admin() {
   const [teamStatusFilter, setTeamStatusFilter] = useState<"all" | "active" | "disabled">("all");
   const [selectedTeamId, setSelectedTeamId] = useState<string | null>(null);
   const [taskForm, setTaskForm] = useState({ title: "", description: "", assigned_to: "", department: "general", priority: "medium", due_date: "", requiresVerification: false, resourceLabel: "", resourceUrl: "", resources: [] as { label: string; url: string }[] });
+  const [taskTemplateId, setTaskTemplateId] = useState("");
   const [selectedAdminTaskId, setSelectedAdminTaskId] = useState<string | null>(null);
   const [adminTaskNote, setAdminTaskNote] = useState("");
   const [taskFileUploading, setTaskFileUploading] = useState(false);
@@ -1087,6 +1177,7 @@ export default function Admin() {
     await logAction("create_task", "admin_tasks", taskForm.title);
     const assignee = team.find((m) => m.id === taskForm.assigned_to);
     setTaskForm({ title: "", description: "", assigned_to: "", department: "general", priority: "medium", due_date: "", requiresVerification: false, resourceLabel: "", resourceUrl: "", resources: [] });
+    setTaskTemplateId("");
     setNotice("Task created.");
     showAssignToast(assignee ? `Assigned to ${assignee.name || assignee.email} ✓` : "Task created ✓");
     await load();
@@ -2068,7 +2159,7 @@ export default function Admin() {
                     </button>
                   )}
                   <div className="grid grid-cols-2 gap-2">
-                    <select className="input" value={taskForm.department} onChange={(e) => setTaskForm({ ...taskForm, department: e.target.value, assigned_to: "" })}>
+                    <select className="input" value={taskForm.department} onChange={(e) => { setTaskTemplateId(""); setTaskForm({ ...taskForm, department: e.target.value, assigned_to: "" }); }}>
                       <option value="general">📋 General</option><option value="support">🎧 Support</option><option value="finance">💰 Finance</option><option value="sales">📢 Sales</option><option value="engineering">⚙️ Engineering</option><option value="marketing">📣 Marketing</option><option value="hr">👤 HR</option><option value="legal">⚖️ Legal</option><option value="content">✍️ Content</option>
                     </select>
                     <div className="flex items-center gap-1">
@@ -2084,6 +2175,35 @@ export default function Admin() {
                       ))}
                     </div>
                   </div>
+                  {(taskForm.department === "content" || taskForm.department === "sales" || taskForm.department === "marketing") && (
+                    <div className="rounded-xl bg-primary-50 border border-primary-100 p-3 space-y-2">
+                      <p className="text-xs font-semibold text-primary-700 uppercase">Quick template (optional)</p>
+                      <select
+                        className="input text-sm"
+                        value={taskTemplateId}
+                        onChange={(e) => {
+                          const id = e.target.value;
+                          setTaskTemplateId(id);
+                          const tpl = TASK_TEMPLATES.find((t) => t.id === id);
+                          if (tpl) setTaskForm((cur) => ({ ...cur, title: tpl.title, description: tpl.description, priority: tpl.priority }));
+                        }}
+                      >
+                        <option value="">— Start blank —</option>
+                        {TASK_TEMPLATES.filter((t) => t.department === taskForm.department).map((t) => (
+                          <option key={t.id} value={t.id}>{t.label}</option>
+                        ))}
+                      </select>
+                      {taskTemplateId && (
+                        <div className="text-xs text-primary-800 bg-white rounded-lg border border-primary-100 p-2">
+                          <p className="font-semibold mb-1">Still needed for this task:</p>
+                          <ul className="list-disc list-inside space-y-0.5">
+                            {TASK_TEMPLATES.find((t) => t.id === taskTemplateId)?.resourcesNeeded.map((r) => <li key={r}>{r}</li>)}
+                          </ul>
+                          <p className="mt-1 text-primary-600">Edit the title (e.g. replace "[feature name]") and add the resource link/file below.</p>
+                        </div>
+                      )}
+                    </div>
+                  )}
                   <input className="input" type="date" value={taskForm.due_date} onChange={(e) => setTaskForm({ ...taskForm, due_date: e.target.value })} />
 
                   <div className="rounded-xl bg-slate-50 border border-slate-100 p-3 space-y-2">
