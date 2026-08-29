@@ -329,6 +329,9 @@ export default function Admin() {
   const [taskForm, setTaskForm] = useState({ title: "", description: "", assigned_to: "", department: "general", priority: "medium", due_date: "", requiresVerification: false, resourceLabel: "", resourceUrl: "", resources: [] as { label: string; url: string }[] });
   const [selectedAdminTaskId, setSelectedAdminTaskId] = useState<string | null>(null);
   const [adminTaskNote, setAdminTaskNote] = useState("");
+  const [taskFileUploading, setTaskFileUploading] = useState(false);
+  const [editTaskForm, setEditTaskForm] = useState({ title: "", description: "", due_date: "", priority: "medium" as AdminTask["priority"], requiresVerification: false, resourceLabel: "", resourceUrl: "", resources: [] as { label: string; url: string }[] });
+  const [editTaskSaving, setEditTaskSaving] = useState(false);
   const [financeForm, setFinanceForm] = useState(emptyFormFinance());
   const [financeSearch, setFinanceSearch] = useState("");
   const [financeStatusFilter, setFinanceStatusFilter] = useState<"all" | AdminFinanceEntry["status"]>("all");
@@ -1116,6 +1119,38 @@ export default function Admin() {
     await load();
   }
 
+  async function uploadTaskResourceFile(file: File): Promise<{ label: string; url: string } | null> {
+    if (!user) return null;
+    setTaskFileUploading(true);
+    try {
+      const ext = file.name.split(".").pop() || "bin";
+      const path = `${user.id}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+      const { error: uploadError } = await supabase.storage.from("task-attachments").upload(path, file, { contentType: file.type, upsert: false });
+      if (uploadError) { setError(uploadError.message); return null; }
+      const { data } = supabase.storage.from("task-attachments").getPublicUrl(path);
+      return { label: file.name, url: data.publicUrl };
+    } finally {
+      setTaskFileUploading(false);
+    }
+  }
+
+  async function saveTaskEdits(task: AdminTask) {
+    setEditTaskSaving(true);
+    const { error: updateError } = await supabase.from("admin_tasks").update({
+      title: editTaskForm.title,
+      description: editTaskForm.description || null,
+      due_date: editTaskForm.due_date || null,
+      priority: editTaskForm.priority,
+      requires_verification: editTaskForm.requiresVerification,
+      resources: editTaskForm.resources,
+    }).eq("id", task.id);
+    setEditTaskSaving(false);
+    if (updateError) return setError(updateError.message);
+    await logAction("update_task_details", "admin_tasks", task.id, { title: editTaskForm.title });
+    setNotice("Task updated.");
+    await load();
+  }
+
   async function approveTask(task: AdminTask) {
     const { error: updateError } = await supabase.from("admin_tasks").update({ status: "done", progress: 100 }).eq("id", task.id);
     if (updateError) return setError(updateError.message);
@@ -1312,6 +1347,20 @@ export default function Admin() {
   }, [taskForm.department, taskForm.assigned_to]);
 
   const selectedAdminTask = selectedAdminTaskId ? tasks.find((task) => task.id === selectedAdminTaskId) ?? null : null;
+
+  useEffect(() => {
+    if (!selectedAdminTask) return;
+    setEditTaskForm({
+      title: selectedAdminTask.title,
+      description: selectedAdminTask.description || "",
+      due_date: selectedAdminTask.due_date || "",
+      priority: selectedAdminTask.priority,
+      requiresVerification: Boolean(selectedAdminTask.requires_verification),
+      resourceLabel: "",
+      resourceUrl: "",
+      resources: (selectedAdminTask.resources || []).map((r) => ({ label: r.label || "Resource", url: r.url || "" })),
+    });
+  }, [selectedAdminTaskId]); // eslint-disable-line react-hooks/exhaustive-deps
   const filteredAuditLogs = useMemo(() => {
     const q = auditSearch.trim().toLowerCase();
     if (!q) return auditLogs;
@@ -2058,6 +2107,22 @@ export default function Admin() {
                         Add
                       </button>
                     </div>
+                    <label className="flex items-center justify-center gap-2 rounded-lg border border-dashed border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-600 cursor-pointer hover:bg-slate-50">
+                      {taskFileUploading ? "Uploading..." : "📎 Upload file (image / PDF)"}
+                      <input
+                        type="file"
+                        accept="image/png,image/jpeg,image/webp,image/gif,application/pdf"
+                        className="hidden"
+                        disabled={taskFileUploading}
+                        onChange={async (e) => {
+                          const file = e.target.files?.[0];
+                          e.target.value = "";
+                          if (!file) return;
+                          const uploaded = await uploadTaskResourceFile(file);
+                          if (uploaded) setTaskForm((cur) => ({ ...cur, resources: [...cur.resources, uploaded] }));
+                        }}
+                      />
+                    </label>
                     {taskForm.resources.length > 0 && (
                       <div className="flex flex-wrap gap-2">
                         {taskForm.resources.map((r, i) => (
@@ -2680,15 +2745,69 @@ export default function Admin() {
               <div className="p-6 grid lg:grid-cols-[1fr_320px] gap-6">
                 <div className="space-y-5">
                   <div className="rounded-2xl bg-slate-50 border border-slate-100 p-5">
-                    <p className="text-xs font-bold uppercase tracking-wide text-slate-500 mb-2">Task brief</p>
-                    <p className="text-sm text-slate-700 whitespace-pre-wrap">{selectedAdminTask.description || "No description provided."}</p>
-                    {selectedAdminTask.resources && selectedAdminTask.resources.length > 0 && (
-                      <div className="flex flex-wrap gap-2 mt-3">
-                        {selectedAdminTask.resources.map((r, i) => (
-                          <a key={i} href={r.url || "#"} target="_blank" rel="noreferrer" className="text-xs font-semibold text-primary-700 underline">{r.label || r.url}</a>
-                        ))}
+                    <p className="text-xs font-bold uppercase tracking-wide text-slate-500 mb-2">Task brief <span className="normal-case font-medium text-slate-400">(editable)</span></p>
+                    <input className="input mb-2" placeholder="Task title" value={editTaskForm.title} onChange={(e) => setEditTaskForm({ ...editTaskForm, title: e.target.value })} />
+                    <textarea className="input min-h-24" placeholder="Description" value={editTaskForm.description} onChange={(e) => setEditTaskForm({ ...editTaskForm, description: e.target.value })} />
+                    <div className="grid grid-cols-2 gap-2 mt-2">
+                      <input className="input" type="date" value={editTaskForm.due_date} onChange={(e) => setEditTaskForm({ ...editTaskForm, due_date: e.target.value })} />
+                      <select className="input" value={editTaskForm.priority} onChange={(e) => setEditTaskForm({ ...editTaskForm, priority: e.target.value as AdminTask["priority"] })}>
+                        <option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option><option value="urgent">Urgent</option>
+                      </select>
+                    </div>
+                    <label className="flex items-center gap-2 mt-3 cursor-pointer">
+                      <input type="checkbox" checked={editTaskForm.requiresVerification} onChange={(e) => setEditTaskForm({ ...editTaskForm, requiresVerification: e.target.checked })} />
+                      <span className="text-sm text-slate-700">Requires AI content verification</span>
+                    </label>
+
+                    <div className="mt-4 pt-4 border-t border-slate-200 space-y-2">
+                      <p className="text-xs font-semibold text-slate-500 uppercase">Resources / brief attachments</p>
+                      <div className="grid grid-cols-[1fr_1fr_auto] gap-2">
+                        <input className="input text-xs py-1.5" placeholder="Label" value={editTaskForm.resourceLabel} onChange={(e) => setEditTaskForm({ ...editTaskForm, resourceLabel: e.target.value })} />
+                        <input className="input text-xs py-1.5" placeholder="URL" value={editTaskForm.resourceUrl} onChange={(e) => setEditTaskForm({ ...editTaskForm, resourceUrl: e.target.value })} />
+                        <button
+                          type="button"
+                          className="btn-secondary text-xs py-1.5 px-3"
+                          onClick={() => {
+                            if (!editTaskForm.resourceUrl.trim()) return;
+                            setEditTaskForm({
+                              ...editTaskForm,
+                              resources: [...editTaskForm.resources, { label: editTaskForm.resourceLabel.trim() || "Resource", url: editTaskForm.resourceUrl.trim() }],
+                              resourceLabel: "",
+                              resourceUrl: "",
+                            });
+                          }}
+                        >
+                          Add
+                        </button>
                       </div>
-                    )}
+                      <label className="flex items-center justify-center gap-2 rounded-lg border border-dashed border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-600 cursor-pointer hover:bg-slate-50">
+                        {taskFileUploading ? "Uploading..." : "📎 Upload file (image / PDF)"}
+                        <input
+                          type="file"
+                          accept="image/png,image/jpeg,image/webp,image/gif,application/pdf"
+                          className="hidden"
+                          disabled={taskFileUploading}
+                          onChange={async (e) => {
+                            const file = e.target.files?.[0];
+                            e.target.value = "";
+                            if (!file) return;
+                            const uploaded = await uploadTaskResourceFile(file);
+                            if (uploaded) setEditTaskForm((cur) => ({ ...cur, resources: [...cur.resources, uploaded] }));
+                          }}
+                        />
+                      </label>
+                      {editTaskForm.resources.length > 0 && (
+                        <div className="flex flex-wrap gap-2">
+                          {editTaskForm.resources.map((r, i) => (
+                            <Pill key={`${r.url}-${i}`} className="bg-white text-slate-700 border-slate-200">
+                              <a href={r.url} target="_blank" rel="noreferrer" className="underline">{r.label}</a>
+                              <button type="button" className="ml-1.5 text-slate-400 hover:text-red-600" onClick={() => setEditTaskForm({ ...editTaskForm, resources: editTaskForm.resources.filter((_, idx) => idx !== i) })}>×</button>
+                            </Pill>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                    <button className="btn-primary w-full mt-4" disabled={editTaskSaving || !editTaskForm.title.trim()} onClick={() => saveTaskEdits(selectedAdminTask)}>{editTaskSaving ? "Saving..." : "Save changes"}</button>
                   </div>
                   {selectedAdminTask.requires_verification && (
                     <div className="rounded-2xl border border-purple-200 bg-purple-50 p-5 space-y-3">
