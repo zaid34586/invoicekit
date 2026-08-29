@@ -18,6 +18,7 @@ import AdminSecurityCenter from "../components/AdminSecurityCenter";
 import AdminProductionQA from "../components/AdminProductionQA";
 import AdminOperationsCommand from "../components/AdminOperationsCommand";
 import AdminUnifiedKPI from "../components/AdminUnifiedKPI";
+import { STAFF_ROLE_PERMISSIONS, STAFF_PERMISSION_LABELS, type StaffRole } from "../lib/staffPermissions";
 import AdminTeamWorkload from "../components/AdminTeamWorkload";
 import AdminRevenueIntelligence from "../components/AdminRevenueIntelligence";
 import AdminCustomerSuccess from "../components/AdminCustomerSuccess";
@@ -66,7 +67,7 @@ type AdminTask = {
   title: string;
   description: string | null;
   assigned_to: string | null;
-  department: "general" | "support" | "finance" | "sales" | "engineering" | "marketing" | "hr" | "legal";
+  department: "general" | "support" | "finance" | "sales" | "engineering" | "marketing" | "hr" | "legal" | "content";
   priority: "low" | "medium" | "high" | "urgent";
   status: "pending" | "in_progress" | "done" | "blocked";
   progress: number;
@@ -77,6 +78,15 @@ type AdminTask = {
   completed_at?: string | null;
   origin?: "manual" | "auto" | "chat" | null;
   rule_id?: string | null;
+  resources?: { label?: string; url?: string }[] | null;
+  requires_verification?: boolean | null;
+  draft_content?: string | null;
+  ai_verification_status?: "pending" | "pass" | "fail" | null;
+  ai_verification_feedback?: string | null;
+  submission_url?: string | null;
+  submission_screenshot_url?: string | null;
+  submission_notes?: string | null;
+  submitted_at?: string | null;
   created_at: string;
 };
 
@@ -204,14 +214,18 @@ const roleLabels: Record<AdminTeamMember["role"], string> = {
   viewer: "Viewer",
 };
 
-const roleAccess: Record<AdminTeamMember["role"], string[]> = {
-  full_access: ["Dashboard", "Users", "Invoice Balance", "Team", "Tasks", "Finance", "Invoices", "Analytics", "Support", "Audit", "Settings"],
-  standard: ["Dashboard", "Tasks (own department)", "Support (if assigned)", "Communication"],
-  limited: ["Dashboard", "Users", "Tasks"],
-  support: ["Users", "Support", "Tasks"],
-  finance: ["Finance", "Invoices", "Analytics"],
-  viewer: ["Dashboard", "Users", "Invoices", "Analytics"],
-};
+// Fix: this used to be a separate hand-typed list that drifted from the
+// real permission engine in staffPermissions.ts (e.g. it showed "Invoice
+// Balance", "Team", "Audit" — items that don't exist in the staff
+// dashboard nav at all). Now it's derived straight from
+// STAFF_ROLE_PERMISSIONS, so the preview always matches what the role
+// actually unlocks in the staff portal.
+const roleAccess: Record<AdminTeamMember["role"], string[]> = Object.fromEntries(
+  (Object.keys(STAFF_ROLE_PERMISSIONS) as StaffRole[]).map((role) => [
+    role,
+    STAFF_ROLE_PERMISSIONS[role].map((perm) => STAFF_PERMISSION_LABELS[perm]),
+  ])
+) as Record<AdminTeamMember["role"], string[]>;
 
 function generatePassword() {
   const part = Math.random().toString(36).slice(2, 8);
@@ -312,7 +326,7 @@ export default function Admin() {
   const [teamSearch, setTeamSearch] = useState("");
   const [teamStatusFilter, setTeamStatusFilter] = useState<"all" | "active" | "disabled">("all");
   const [selectedTeamId, setSelectedTeamId] = useState<string | null>(null);
-  const [taskForm, setTaskForm] = useState({ title: "", description: "", assigned_to: "", department: "general", priority: "medium", due_date: "" });
+  const [taskForm, setTaskForm] = useState({ title: "", description: "", assigned_to: "", department: "general", priority: "medium", due_date: "", requiresVerification: false, resourceLabel: "", resourceUrl: "", resources: [] as { label: string; url: string }[] });
   const [selectedAdminTaskId, setSelectedAdminTaskId] = useState<string | null>(null);
   const [adminTaskNote, setAdminTaskNote] = useState("");
   const [financeForm, setFinanceForm] = useState(emptyFormFinance());
@@ -1063,11 +1077,13 @@ export default function Admin() {
       progress: 0,
       due_date: taskForm.due_date || null,
       created_by: user?.id ?? null,
+      resources: taskForm.resources,
+      requires_verification: taskForm.requiresVerification,
     });
     if (insertError) return setError(insertError.message);
     await logAction("create_task", "admin_tasks", taskForm.title);
     const assignee = team.find((m) => m.id === taskForm.assigned_to);
-    setTaskForm({ title: "", description: "", assigned_to: "", department: "general", priority: "medium", due_date: "" });
+    setTaskForm({ title: "", description: "", assigned_to: "", department: "general", priority: "medium", due_date: "", requiresVerification: false, resourceLabel: "", resourceUrl: "", resources: [] });
     setNotice("Task created.");
     showAssignToast(assignee ? `Assigned to ${assignee.name || assignee.email} ✓` : "Task created ✓");
     await load();
@@ -1907,6 +1923,7 @@ export default function Admin() {
                                 {m.role === "standard" && (
                                   <select className="input text-xs py-1.5" value={m.department || ""} onChange={(e) => updateTeamDepartment(m, e.target.value)}>
                                     <option value="">No department</option>
+                                    <option value="content">✍️ Content Creator</option>
                                     <option value="engineering">⚙️ Engineering</option>
                                     <option value="finance">💰 Finance</option>
                                     <option value="general">📋 General</option>
@@ -2003,7 +2020,7 @@ export default function Admin() {
                   )}
                   <div className="grid grid-cols-2 gap-2">
                     <select className="input" value={taskForm.department} onChange={(e) => setTaskForm({ ...taskForm, department: e.target.value, assigned_to: "" })}>
-                      <option value="general">📋 General</option><option value="support">🎧 Support</option><option value="finance">💰 Finance</option><option value="sales">📢 Sales</option><option value="engineering">⚙️ Engineering</option><option value="marketing">📣 Marketing</option><option value="hr">👤 HR</option><option value="legal">⚖️ Legal</option>
+                      <option value="general">📋 General</option><option value="support">🎧 Support</option><option value="finance">💰 Finance</option><option value="sales">📢 Sales</option><option value="engineering">⚙️ Engineering</option><option value="marketing">📣 Marketing</option><option value="hr">👤 HR</option><option value="legal">⚖️ Legal</option><option value="content">✍️ Content</option>
                     </select>
                     <div className="flex items-center gap-1">
                       {([["low", "⚪", "Low", "bg-slate-100 text-slate-600 border-slate-200"], ["medium", "🟡", "Med", "bg-amber-50 text-amber-700 border-amber-200"], ["high", "🟠", "High", "bg-orange-50 text-orange-700 border-orange-200"], ["urgent", "🔴", "Urgent", "bg-red-50 text-red-700 border-red-200"]] as const).map(([value, dot, label, cls]) => (
@@ -2019,6 +2036,44 @@ export default function Admin() {
                     </div>
                   </div>
                   <input className="input" type="date" value={taskForm.due_date} onChange={(e) => setTaskForm({ ...taskForm, due_date: e.target.value })} />
+
+                  <div className="rounded-xl bg-slate-50 border border-slate-100 p-3 space-y-2">
+                    <p className="text-xs font-semibold text-slate-500 uppercase">Resources / brief attachments</p>
+                    <div className="grid grid-cols-[1fr_1fr_auto] gap-2">
+                      <input className="input text-xs py-1.5" placeholder="Label (e.g. Brand guide)" value={taskForm.resourceLabel} onChange={(e) => setTaskForm({ ...taskForm, resourceLabel: e.target.value })} />
+                      <input className="input text-xs py-1.5" placeholder="URL" value={taskForm.resourceUrl} onChange={(e) => setTaskForm({ ...taskForm, resourceUrl: e.target.value })} />
+                      <button
+                        type="button"
+                        className="btn-secondary text-xs py-1.5 px-3"
+                        onClick={() => {
+                          if (!taskForm.resourceUrl.trim()) return;
+                          setTaskForm({
+                            ...taskForm,
+                            resources: [...taskForm.resources, { label: taskForm.resourceLabel.trim() || "Resource", url: taskForm.resourceUrl.trim() }],
+                            resourceLabel: "",
+                            resourceUrl: "",
+                          });
+                        }}
+                      >
+                        Add
+                      </button>
+                    </div>
+                    {taskForm.resources.length > 0 && (
+                      <div className="flex flex-wrap gap-2">
+                        {taskForm.resources.map((r, i) => (
+                          <Pill key={`${r.url}-${i}`} className="bg-white text-slate-700 border-slate-200">
+                            {r.label}
+                            <button type="button" className="ml-1.5 text-slate-400 hover:text-red-600" onClick={() => setTaskForm({ ...taskForm, resources: taskForm.resources.filter((_, idx) => idx !== i) })}>×</button>
+                          </Pill>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  <label className="flex items-center gap-2 rounded-xl bg-slate-50 border border-slate-100 p-3 cursor-pointer">
+                    <input type="checkbox" checked={taskForm.requiresVerification} onChange={(e) => setTaskForm({ ...taskForm, requiresVerification: e.target.checked })} />
+                    <span className="text-sm text-slate-700">Requires AI content verification before it can be marked done</span>
+                  </label>
                   <button className="btn-primary w-full" type="submit">Create Task</button>
                 </form>
               </Card>
@@ -2627,7 +2682,43 @@ export default function Admin() {
                   <div className="rounded-2xl bg-slate-50 border border-slate-100 p-5">
                     <p className="text-xs font-bold uppercase tracking-wide text-slate-500 mb-2">Task brief</p>
                     <p className="text-sm text-slate-700 whitespace-pre-wrap">{selectedAdminTask.description || "No description provided."}</p>
+                    {selectedAdminTask.resources && selectedAdminTask.resources.length > 0 && (
+                      <div className="flex flex-wrap gap-2 mt-3">
+                        {selectedAdminTask.resources.map((r, i) => (
+                          <a key={i} href={r.url || "#"} target="_blank" rel="noreferrer" className="text-xs font-semibold text-primary-700 underline">{r.label || r.url}</a>
+                        ))}
+                      </div>
+                    )}
                   </div>
+                  {selectedAdminTask.requires_verification && (
+                    <div className="rounded-2xl border border-purple-200 bg-purple-50 p-5 space-y-3">
+                      <p className="text-xs font-bold uppercase tracking-wide text-purple-700">AI content verification</p>
+                      {selectedAdminTask.ai_verification_status ? (
+                        <>
+                          <Pill className={selectedAdminTask.ai_verification_status === "pass" ? "bg-emerald-100 text-emerald-700 border-emerald-200" : selectedAdminTask.ai_verification_status === "fail" ? "bg-red-100 text-red-700 border-red-200" : "bg-slate-100 text-slate-600 border-slate-200"}>
+                            {selectedAdminTask.ai_verification_status === "pending" ? "Checking..." : selectedAdminTask.ai_verification_status === "pass" ? "✅ Passed" : "❌ Failed"}
+                          </Pill>
+                          {selectedAdminTask.ai_verification_feedback && <p className="text-sm text-purple-950 whitespace-pre-wrap">{selectedAdminTask.ai_verification_feedback}</p>}
+                        </>
+                      ) : (
+                        <p className="text-sm text-purple-700">No draft submitted for AI verification yet.</p>
+                      )}
+                      {selectedAdminTask.draft_content && (
+                        <div className="rounded-xl bg-white border border-purple-100 p-3">
+                          <p className="text-xs font-semibold text-slate-500 mb-1">Latest draft</p>
+                          <p className="text-sm text-slate-700 whitespace-pre-wrap">{selectedAdminTask.draft_content}</p>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  {(selectedAdminTask.submission_url || selectedAdminTask.submission_screenshot_url || selectedAdminTask.submission_notes) && (
+                    <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-5 space-y-2">
+                      <p className="text-xs font-bold uppercase tracking-wide text-emerald-700">Submission proof {selectedAdminTask.submitted_at ? `· ${formatDate(selectedAdminTask.submitted_at)}` : ""}</p>
+                      {selectedAdminTask.submission_url && <a href={selectedAdminTask.submission_url} target="_blank" rel="noreferrer" className="block text-sm font-semibold text-primary-700 underline break-all">{selectedAdminTask.submission_url}</a>}
+                      {selectedAdminTask.submission_screenshot_url && <a href={selectedAdminTask.submission_screenshot_url} target="_blank" rel="noreferrer" className="block text-sm font-semibold text-primary-700 underline break-all">Screenshot: {selectedAdminTask.submission_screenshot_url}</a>}
+                      {selectedAdminTask.submission_notes && <p className="text-sm text-emerald-900 whitespace-pre-wrap">{selectedAdminTask.submission_notes}</p>}
+                    </div>
+                  )}
                   <div className="rounded-2xl border border-slate-200 p-5">
                     <p className="text-xs font-bold uppercase tracking-wide text-slate-500 mb-2">Staff updates</p>
                     <div className="min-h-[90px] rounded-2xl bg-blue-50 border border-blue-100 p-4 text-sm text-blue-950 whitespace-pre-wrap">{selectedAdminTask.staff_notes || "No staff update yet."}</div>

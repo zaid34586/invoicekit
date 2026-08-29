@@ -5,7 +5,18 @@ import { hasStaffPermission, STAFF_ROLE_LABELS, type StaffMember, type StaffRole
 import CommunicationCenter from "../components/CommunicationCenter";
 import WorkspaceTools from "../components/WorkspaceTools";
 
-interface TaskRow { id: string; title: string; description?: string | null; status: string; priority: string; due_date: string | null; progress?: number | null; staff_notes?: string | null; internal_notes?: string | null; department?: string | null; last_staff_update?: string | null; }
+interface TaskRow {
+  id: string; title: string; description?: string | null; status: string; priority: string; due_date: string | null; progress?: number | null; staff_notes?: string | null; internal_notes?: string | null; department?: string | null; last_staff_update?: string | null;
+  resources?: { label?: string; url?: string }[] | null;
+  requires_verification?: boolean | null;
+  draft_content?: string | null;
+  ai_verification_status?: "pending" | "pass" | "fail" | null;
+  ai_verification_feedback?: string | null;
+  submission_url?: string | null;
+  submission_screenshot_url?: string | null;
+  submission_notes?: string | null;
+  submitted_at?: string | null;
+}
 interface TicketRow { id: string; user_id?: string | null; ticket_number?: string | null; subject: string; message?: string | null; status: string; priority: string; created_at: string; staff_notes?: string | null; sla_target_minutes?: number | null; first_admin_reply_at?: string | null; assigned_to?: string | null; resolution_summary?: string | null; category?: string | null; }
 interface TicketMessage { id: string; author_type: string; message: string; is_internal: boolean; created_at: string; }
 interface CustomerContext { email: string | null; business_name: string | null; pastTicketCount: number; invoiceCount: number; invoiceTotal: number }
@@ -98,6 +109,12 @@ export default function StaffDashboard() {
   const [active, setActive] = useState(() => window.location.hash.replace("#", "") || "dashboard");
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [taskComment, setTaskComment] = useState("");
+  const [draftContent, setDraftContent] = useState("");
+  const [verifying, setVerifying] = useState(false);
+  const [submissionUrl, setSubmissionUrl] = useState("");
+  const [submissionScreenshotUrl, setSubmissionScreenshotUrl] = useState("");
+  const [submissionNotes, setSubmissionNotes] = useState("");
+  const [submittingProof, setSubmittingProof] = useState(false);
   const [selectedTicketId, setSelectedTicketId] = useState<string | null>(null);
   const [ticketMessages, setTicketMessages] = useState<TicketMessage[]>([]);
   const [ticketReply, setTicketReply] = useState("");
@@ -132,7 +149,7 @@ export default function StaffDashboard() {
     if (hasStaffPermission(team.role, "tasks")) {
       const { data: taskData } = await supabase
         .from("admin_tasks")
-        .select("id, title, description, status, priority, due_date, progress, staff_notes, internal_notes, department, last_staff_update")
+        .select("id, title, description, status, priority, due_date, progress, staff_notes, internal_notes, department, last_staff_update, resources, requires_verification, draft_content, ai_verification_status, ai_verification_feedback, submission_url, submission_screenshot_url, submission_notes, submitted_at")
         .or(`assigned_to.eq.${team.id},assigned_to.is.null`)
         .order("created_at", { ascending: false })
         .limit(40);
@@ -216,6 +233,13 @@ export default function StaffDashboard() {
 
   const selectedTask = selectedTaskId ? tasks.find((task) => task.id === selectedTaskId) ?? null : null;
 
+  useEffect(() => {
+    setDraftContent(selectedTask?.draft_content || "");
+    setSubmissionUrl(selectedTask?.submission_url || "");
+    setSubmissionScreenshotUrl(selectedTask?.submission_screenshot_url || "");
+    setSubmissionNotes(selectedTask?.submission_notes || "");
+  }, [selectedTaskId]); // eslint-disable-line react-hooks/exhaustive-deps
+
   async function markNotificationRead(notificationId: string) {
     await supabase.from("notifications").update({ read_at: new Date().toISOString() }).eq("id", notificationId);
     await load();
@@ -246,6 +270,44 @@ export default function StaffDashboard() {
     const nextNotes = appendLog(task.staff_notes, staff?.name || user?.email || "Staff", taskComment);
     setTaskComment("");
     await updateTask(task.id, { staff_notes: nextNotes });
+  }
+
+  async function verifyDraft(task: TaskRow) {
+    if (!draftContent.trim()) { setMessage("Write your draft before verifying."); return; }
+    setVerifying(true); setMessage(null);
+    const { data, error } = await supabase.functions.invoke("verify-task-content", {
+      body: { task_id: task.id, draft_content: draftContent.trim() },
+    });
+    setVerifying(false);
+    if (error || data?.error) {
+      setMessage(`AI verification failed: ${data?.error || error?.message || "Unknown error"}`);
+      await load();
+      return;
+    }
+    setMessage(data.verdict === "pass" ? "✅ AI verification passed." : "❌ AI verification failed — see feedback and revise your draft.");
+    await load();
+  }
+
+  async function submitTaskWithProof(task: TaskRow) {
+    if (task.requires_verification && task.ai_verification_status !== "pass") {
+      setMessage("This task needs AI verification to pass before you can submit it.");
+      return;
+    }
+    if (!submissionUrl.trim() && !submissionScreenshotUrl.trim() && !submissionNotes.trim()) {
+      setMessage("Add a proof link, screenshot link, or note before submitting.");
+      return;
+    }
+    setSubmittingProof(true); setMessage(null);
+    await updateTask(task.id, {
+      submission_url: submissionUrl.trim() || null,
+      submission_screenshot_url: submissionScreenshotUrl.trim() || null,
+      submission_notes: submissionNotes.trim() || null,
+      submitted_at: new Date().toISOString(),
+      status: "done",
+      progress: 100,
+    } as Partial<TaskRow>);
+    setSubmittingProof(false);
+    setMessage("Task submitted for review.");
   }
 
   async function updateTicket(ticketId: string, changes: Partial<TicketRow>) {
@@ -495,7 +557,30 @@ export default function StaffDashboard() {
                   <div className="rounded-2xl bg-slate-50 border border-slate-100 p-5">
                     <div className="text-xs font-bold uppercase tracking-wide text-slate-500 mb-2">Task brief</div>
                     <p className="text-sm text-slate-700 whitespace-pre-wrap">{selectedTask.description || "No description provided."}</p>
+                    {selectedTask.resources && selectedTask.resources.length > 0 && (
+                      <div className="flex flex-wrap gap-2 mt-3">
+                        {selectedTask.resources.map((r, i) => (
+                          <a key={i} href={r.url || "#"} target="_blank" rel="noreferrer" className="rounded-full border border-primary-200 bg-white px-3 py-1 text-xs font-bold text-primary-700 hover:bg-primary-50">🔗 {r.label || r.url}</a>
+                        ))}
+                      </div>
+                    )}
                   </div>
+                  {selectedTask.requires_verification && (
+                    <div className="rounded-2xl border border-purple-200 bg-purple-50 p-5">
+                      <div className="text-xs font-bold uppercase tracking-wide text-purple-700 mb-3">Content draft & AI verification</div>
+                      <p className="text-xs text-purple-700 mb-3">This task needs your draft to pass an AI check against the brief and resources before it can be submitted.</p>
+                      <textarea value={draftContent} onChange={(e) => setDraftContent(e.target.value)} placeholder="Paste or write your content draft here..." className="w-full rounded-2xl border border-purple-200 px-4 py-3 text-sm min-h-[140px] bg-white" />
+                      <button onClick={() => verifyDraft(selectedTask)} disabled={verifying || !draftContent.trim()} className="mt-3 rounded-2xl bg-purple-600 text-white px-4 py-2 text-sm font-bold disabled:opacity-50">{verifying ? "Checking with AI..." : "Verify with AI"}</button>
+                      {selectedTask.ai_verification_status && (
+                        <div className="mt-4">
+                          <Badge tone={selectedTask.ai_verification_status === "pass" ? "green" : selectedTask.ai_verification_status === "fail" ? "red" : "slate"}>
+                            {selectedTask.ai_verification_status === "pending" ? "Checking..." : selectedTask.ai_verification_status === "pass" ? "✅ Passed" : "❌ Failed — revise and re-verify"}
+                          </Badge>
+                          {selectedTask.ai_verification_feedback && <p className="text-sm text-purple-950 mt-2 whitespace-pre-wrap">{selectedTask.ai_verification_feedback}</p>}
+                        </div>
+                      )}
+                    </div>
+                  )}
                   {selectedTask.internal_notes && (
                     <div className="rounded-2xl bg-amber-50 border border-amber-100 p-5">
                       <div className="text-xs font-bold uppercase tracking-wide text-amber-700 mb-2">Admin note</div>
@@ -516,7 +601,9 @@ export default function StaffDashboard() {
                     <div className="grid gap-2">
                       <button onClick={() => quickTaskAction(selectedTask, "in_progress", Math.max(selectedTask.progress ?? 0, 25))} disabled={savingId === selectedTask.id} className="rounded-2xl bg-blue-600 text-white px-4 py-3 text-sm font-bold">Start work</button>
                       <button onClick={() => quickTaskAction(selectedTask, "blocked", selectedTask.progress ?? 25)} disabled={savingId === selectedTask.id} className="rounded-2xl bg-amber-500 text-white px-4 py-3 text-sm font-bold">Need help</button>
-                      <button onClick={() => quickTaskAction(selectedTask, "done", 100)} disabled={savingId === selectedTask.id} className="rounded-2xl bg-emerald-600 text-white px-4 py-3 text-sm font-bold">Submit for review</button>
+                      {!selectedTask.requires_verification && (
+                        <button onClick={() => quickTaskAction(selectedTask, "done", 100)} disabled={savingId === selectedTask.id} className="rounded-2xl bg-emerald-600 text-white px-4 py-3 text-sm font-bold">Submit for review</button>
+                      )}
                     </div>
                   </div>
                   <WorkspaceTools itemType="task" itemId={selectedTask.id} performedBy={staff?.id} />
@@ -537,8 +624,22 @@ export default function StaffDashboard() {
                       {[0,25,50,75,100].map(v => <option key={v} value={v}>{v}%</option>)}
                     </select>
                   </div>
-                  <div className="rounded-2xl bg-slate-50 border border-slate-100 p-4 text-xs text-slate-500">
-                    Proof upload can be added after storage setup. For now, paste screenshot links, PDF links, or verification notes in Work updates before submitting for review.
+                  <div className="rounded-2xl border border-slate-200 p-4">
+                    <div className="text-xs font-bold uppercase tracking-wide text-slate-500 mb-3">Submission proof</div>
+                    {selectedTask.requires_verification && selectedTask.ai_verification_status !== "pass" && (
+                      <p className="text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-xl p-2 mb-2">Pass AI verification above before you can submit.</p>
+                    )}
+                    <input value={submissionUrl} onChange={(e) => setSubmissionUrl(e.target.value)} placeholder="Proof URL (link, doc, published post...)" className="w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm mb-2" />
+                    <input value={submissionScreenshotUrl} onChange={(e) => setSubmissionScreenshotUrl(e.target.value)} placeholder="Screenshot URL (optional)" className="w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm mb-2" />
+                    <textarea value={submissionNotes} onChange={(e) => setSubmissionNotes(e.target.value)} placeholder="Submission notes (optional)" className="w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm min-h-[70px] mb-2" />
+                    <button
+                      onClick={() => submitTaskWithProof(selectedTask)}
+                      disabled={submittingProof || savingId === selectedTask.id || Boolean(selectedTask.requires_verification && selectedTask.ai_verification_status !== "pass")}
+                      className="w-full rounded-2xl bg-emerald-600 text-white px-4 py-3 text-sm font-bold disabled:opacity-50"
+                    >
+                      {submittingProof ? "Submitting..." : "Submit with proof"}
+                    </button>
+                    {selectedTask.submitted_at && <p className="text-xs text-slate-400 mt-2">Last submitted {new Date(selectedTask.submitted_at).toLocaleString()}</p>}
                   </div>
                 </div>
               </div>
