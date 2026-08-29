@@ -1,9 +1,29 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { RecaptchaVerifier, signInWithPhoneNumber, type ConfirmationResult } from "firebase/auth";
 import { useAuth } from "../context/AuthContext";
 import { supabase } from "../lib/supabase";
+import { firebaseAuth, isFirebaseConfigured } from "../lib/firebase";
 
 type Stage = "phone" | "otp" | "verifying" | "success";
+
+// Firebase requires an invisible reCAPTCHA to be attached to a real DOM node
+// before signInWithPhoneNumber will work. We create it once and reuse it;
+// if a send fails we reset it (Firebase's own recommendation) so the next
+// attempt gets a fresh challenge instead of silently failing.
+let recaptchaVerifier: RecaptchaVerifier | null = null;
+
+function getRecaptchaVerifier(): RecaptchaVerifier {
+  if (!firebaseAuth) {
+    throw new Error("Firebase is not configured.");
+  }
+  if (!recaptchaVerifier) {
+    recaptchaVerifier = new RecaptchaVerifier(firebaseAuth, "recaptcha-container", {
+      size: "invisible",
+    });
+  }
+  return recaptchaVerifier;
+}
 
 export default function VerifyPhone() {
   const [phone, setPhone] = useState("");
@@ -12,6 +32,7 @@ export default function VerifyPhone() {
   const [loading, setLoading] = useState(false);
   const [resendTimer, setResendTimer] = useState(0);
   const [error, setError] = useState("");
+  const confirmationResultRef = useRef<ConfirmationResult | null>(null);
 
   const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
   const navigate = useNavigate();
@@ -26,25 +47,29 @@ export default function VerifyPhone() {
   const countryCode = profile?.country_code ?? "";
 const fullPhone = countryCode + phone;
 
-  async function extractFunctionError(error: unknown, fallback: string): Promise<string> {
-    // supabase-js only gives a generic "Edge Function returned a non-2xx
-    // status code" in error.message — the real reason (e.g. Twilio's actual
-    // error) is in the response body, reachable via error.context.
-    const ctx = (error as { context?: Response })?.context;
-    if (ctx && typeof ctx.json === "function") {
-      try {
-        const body = await ctx.clone().json();
-        if (body?.error) return body.error as string;
-      } catch {
-        // response wasn't JSON — fall through to generic message
-      }
+  // Firebase error codes -> plain-language messages.
+  // (Full list: https://firebase.google.com/docs/reference/js/auth#autherrorcodes)
+  function friendlyFirebaseError(err: unknown): string {
+    const code = (err as { code?: string })?.code || "";
+    if (code === "auth/invalid-phone-number") return "Enter a valid mobile number.";
+    if (code === "auth/too-many-requests") return "Too many attempts. Please try again later.";
+    if (code === "auth/quota-exceeded") return "SMS limit reached for today. Please try again tomorrow.";
+    if (code === "auth/code-expired") return "This code has expired. Please request a new one.";
+    if (code === "auth/invalid-verification-code") return "Invalid OTP. Please try again.";
+    if (code === "auth/billing-not-enabled" || code === "auth/operation-not-allowed") {
+      return "Phone verification is not fully set up yet. Please contact support.";
     }
-    return (error as Error)?.message || fallback;
+    return (err as Error)?.message || "Something went wrong. Please try again.";
   }
 
   async function sendOTP() {
     setError("");
     setOtp("");
+
+    if (!isFirebaseConfigured || !firebaseAuth) {
+      setError("Phone verification is not set up yet. Please contact support.");
+      return;
+    }
 
     if (phone.replace(/\D/g, "").length < 8) {
       setError("Enter a valid mobile number.");
@@ -53,23 +78,22 @@ const fullPhone = countryCode + phone;
 
     setLoading(true);
 
-    const { data, error } = await supabase.functions.invoke("send-otp", {
-      body: { phone: fullPhone },
-    });
+    try {
+      const verifier = getRecaptchaVerifier();
+      const confirmationResult = await signInWithPhoneNumber(firebaseAuth, fullPhone, verifier);
+      confirmationResultRef.current = confirmationResult;
 
-    setLoading(false);
-
-    if (error) {
-      setError(await extractFunctionError(error, "Could not send OTP. Please try again."));
-      return;
-    }
-
-    if (data?.success) {
       setStage("otp");
       setResendTimer(30);
       setTimeout(() => inputRefs.current[0]?.focus(), 100);
-    } else {
-      setError(data?.error || "Failed to send OTP.");
+    } catch (err) {
+      // Reset the reCAPTCHA widget so the next attempt starts clean —
+      // Firebase's own docs recommend this after any send failure.
+      recaptchaVerifier?.clear();
+      recaptchaVerifier = null;
+      setError(friendlyFirebaseError(err));
+    } finally {
+      setLoading(false);
     }
   }
 
@@ -81,19 +105,19 @@ const fullPhone = countryCode + phone;
       return;
     }
 
-    setStage("verifying");
-
-    const { data, error } = await supabase.functions.invoke("verify-otp", {
-      body: { phone: fullPhone, code: otp },
-    });
-
-    if (error) {
-      setStage("otp");
-      setError(await extractFunctionError(error, "Could not verify OTP. Please try again."));
+    if (!confirmationResultRef.current) {
+      setError("Session expired. Please request a new OTP.");
+      setStage("phone");
       return;
     }
 
-    if (data?.success) {
+    setStage("verifying");
+
+    try {
+      await confirmationResultRef.current.confirm(otp);
+
+      // Firebase only verifies the phone number — Supabase profile stays
+      // the single source of truth for the app, so we write the result there.
       await supabase
         .from("profiles")
         .update({
@@ -109,9 +133,9 @@ const fullPhone = countryCode + phone;
       setTimeout(() => {
         navigate("/dashboard", { replace: true });
       }, 1500);
-    } else {
+    } catch (err) {
       setStage("otp");
-      setError("Invalid OTP. Please try again.");
+      setError(friendlyFirebaseError(err));
     }
   }
 
@@ -175,6 +199,8 @@ const fullPhone = countryCode + phone;
 
   return (
     <div className="auth-page">
+      {/* Invisible reCAPTCHA anchor required by Firebase before it will send an SMS. Stays hidden. */}
+      <div id="recaptcha-container" />
       <div className="auth-shell">
         <section className="auth-aside">
           <div>
