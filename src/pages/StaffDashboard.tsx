@@ -131,6 +131,12 @@ export default function StaffDashboard() {
   const [queueDraft, setQueueDraft] = useState({ notes: "", screenshotUrl: "", recordingUrl: "" });
   const [queueFileUploading, setQueueFileUploading] = useState<"screenshot" | "recording" | null>(null);
   const [queueItemSaving, setQueueItemSaving] = useState(false);
+  const [recordingState, setRecordingState] = useState<"idle" | "requesting" | "recording" | "unsupported" | "denied">("idle");
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const mediaStreamRef = useRef<MediaStream | null>(null);
+  const recordedChunksRef = useRef<Blob[]>([]);
+  const recordingUploadTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const recordingSessionIdRef = useRef<string | null>(null);
   const [selectedTicketId, setSelectedTicketId] = useState<string | null>(null);
   const [ticketMessages, setTicketMessages] = useState<TicketMessage[]>([]);
   const [ticketReply, setTicketReply] = useState("");
@@ -203,6 +209,16 @@ export default function StaffDashboard() {
   }
 
   useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [user]);
+
+  // Stop any in-progress screen recording if the staff member navigates away
+  // from the dashboard entirely (logout, tab close) without clicking End.
+  useEffect(() => {
+    return () => {
+      if (recordingUploadTimerRef.current) clearInterval(recordingUploadTimerRef.current);
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") mediaRecorderRef.current.stop();
+      if (mediaStreamRef.current) mediaStreamRef.current.getTracks().forEach((t) => t.stop());
+    };
+  }, []);
 
   useEffect(() => {
     if (!staff) return;
@@ -332,8 +348,69 @@ export default function StaffDashboard() {
     setQueueTaskId(task.id);
     setQueueSession(null);
     setQueueItemFilter("all");
+    setRecordingState("idle");
     const { data } = await supabase.from("task_queue_items").select("*").eq("task_id", task.id).order("sort_order");
     setQueueItemsState((data as QueueItemRow[]) ?? []);
+  }
+
+  // Uploads whatever has been recorded so far, overwriting the same storage
+  // object. Simpler and safer than merging chunks server-side: if the tab
+  // crashes mid-session, the last periodic upload is still a valid, playable
+  // recording (just missing the last <30s), instead of losing everything.
+  async function uploadRecordingSnapshot(sessionId: string) {
+    if (recordedChunksRef.current.length === 0) return;
+    const blob = new Blob(recordedChunksRef.current, { type: "video/webm" });
+    const path = `${sessionId}.webm`;
+    const { error } = await supabase.storage.from("task-session-recordings").upload(path, blob, { contentType: "video/webm", upsert: true });
+    if (error) return;
+    const { data } = supabase.storage.from("task-session-recordings").getPublicUrl(path);
+    await supabase.from("task_sessions").update({ recording_url: data.publicUrl }).eq("id", sessionId);
+  }
+
+  function stopScreenRecording() {
+    if (recordingUploadTimerRef.current) { clearInterval(recordingUploadTimerRef.current); recordingUploadTimerRef.current = null; }
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") mediaRecorderRef.current.stop();
+    if (mediaStreamRef.current) { mediaStreamRef.current.getTracks().forEach((t) => t.stop()); mediaStreamRef.current = null; }
+    mediaRecorderRef.current = null;
+  }
+
+  async function startScreenRecording(task: TaskRow, sessionId: string) {
+    recordingSessionIdRef.current = sessionId;
+    recordedChunksRef.current = [];
+
+    if (!navigator.mediaDevices?.getDisplayMedia) {
+      setRecordingState("unsupported");
+      setMessage("Screen recording isn't supported on this browser/device — continuing without it. Use a desktop browser (Chrome/Edge) for recorded sessions.");
+      return;
+    }
+
+    setRecordingState("requesting");
+    let stream: MediaStream;
+    try {
+      stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
+    } catch {
+      setRecordingState("denied");
+      setMessage("Screen-share permission was not granted — continuing without recording.");
+      return;
+    }
+
+    mediaStreamRef.current = stream;
+    // If the person uses the browser's own "Stop sharing" control, end the
+    // session gracefully instead of leaving it in a broken half-recording state.
+    stream.getVideoTracks()[0]?.addEventListener("ended", () => {
+      stopScreenRecording();
+      setRecordingState("idle");
+      void endQueueSession(task, false);
+    });
+
+    const mimeType = MediaRecorder.isTypeSupported("video/webm;codecs=vp9,opus") ? "video/webm;codecs=vp9,opus" : "video/webm";
+    const recorder = new MediaRecorder(stream, { mimeType });
+    recorder.ondataavailable = (e) => { if (e.data.size > 0) recordedChunksRef.current.push(e.data); };
+    recorder.start(5000); // emit a chunk every 5s
+    mediaRecorderRef.current = recorder;
+    setRecordingState("recording");
+
+    recordingUploadTimerRef.current = setInterval(() => { void uploadRecordingSnapshot(sessionId); }, 30000);
   }
 
   async function startQueueSession(task: TaskRow) {
@@ -343,20 +420,29 @@ export default function StaffDashboard() {
     setQueueSession(data);
     await supabase.from("task_activity_log").insert({ task_id: task.id, session_id: data.id, staff_id: staff.id, action: "session_start", details: {} });
     if (task.status === "pending") await updateTask(task.id, { status: "in_progress" } as Partial<TaskRow>);
+    await startScreenRecording(task, data.id);
   }
 
   async function endQueueSession(task: TaskRow, completed: boolean) {
     if (!queueSession) return;
+    const sessionId = queueSession.id;
+    if (recordingState === "recording") {
+      stopScreenRecording();
+      await new Promise((r) => setTimeout(r, 400)); // let the final ondataavailable flush land
+      await uploadRecordingSnapshot(sessionId);
+    }
+    setRecordingState("idle");
     await supabase.from("task_sessions").update({
       status: completed ? "completed" : "interrupted",
       ended_at: new Date().toISOString(),
       items_worked: queueItemsState.filter((i) => i.status !== "pending").length,
-    }).eq("id", queueSession.id);
-    await supabase.from("task_activity_log").insert({ task_id: task.id, session_id: queueSession.id, staff_id: staff?.id, action: "session_end", details: { completed } });
+    }).eq("id", sessionId);
+    await supabase.from("task_activity_log").insert({ task_id: task.id, session_id: sessionId, staff_id: staff?.id, action: "session_end", details: { completed } });
     setQueueSession(null);
     if (completed) await updateTask(task.id, { status: "done", progress: 100 } as Partial<TaskRow>);
     await load();
   }
+
 
   function openQueueItem(task: TaskRow, item: QueueItemRow) {
     setSelectedQueueItemId(item.id);
@@ -959,12 +1045,18 @@ export default function StaffDashboard() {
             {!queueSession ? (
               <div className="rounded-2xl border-2 border-dashed border-purple-200 bg-purple-50 p-6 text-center">
                 <p className="text-sm font-bold text-purple-900">Total items: {queueItemsState.length}</p>
-                <p className="text-xs text-purple-600 mt-1 mb-4">Starting begins tracking for this session — screen recording will be added in the next update.</p>
+                <p className="text-xs text-purple-600 mt-1 mb-4">Starting will ask your browser to share your screen and record this session (desktop browser required — Chrome/Edge).</p>
                 <button onClick={() => startQueueSession(task)} className="rounded-2xl bg-purple-600 text-white px-6 py-3 text-sm font-black">▶ Start</button>
               </div>
             ) : (
-              <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 flex items-center justify-between">
-                <p className="text-sm font-bold text-emerald-800">🟢 Session active — activity is being tracked</p>
+              <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 flex items-center justify-between flex-wrap gap-2">
+                <p className="text-sm font-bold text-emerald-800">
+                  {recordingState === "recording" && "🔴 Session active — screen recording in progress"}
+                  {recordingState === "requesting" && "🟡 Session active — waiting for screen-share permission..."}
+                  {recordingState === "denied" && "🟢 Session active — recording permission denied, working without recording"}
+                  {recordingState === "unsupported" && "🟢 Session active — recording not supported on this device"}
+                  {recordingState === "idle" && "🟢 Session active"}
+                </p>
                 <button onClick={() => endQueueSession(task, false)} className="rounded-xl border border-emerald-300 bg-white px-3 py-1.5 text-xs font-bold text-emerald-700">Pause / End session</button>
               </div>
             )}
