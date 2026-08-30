@@ -87,6 +87,21 @@ type AdminTask = {
   submission_screenshot_url?: string | null;
   submission_notes?: string | null;
   submitted_at?: string | null;
+  task_type?: "simple" | "queue";
+  queue_field_schema?: { key: string; label: string }[] | null;
+  created_at: string;
+};
+
+type TaskQueueItem = {
+  id: string;
+  task_id: string;
+  data: Record<string, string>;
+  status: "pending" | "red" | "orange" | "green";
+  proof_notes: string | null;
+  proof_screenshot_url: string | null;
+  proof_recording_url: string | null;
+  marked_at: string | null;
+  sort_order: number;
   created_at: string;
 };
 
@@ -227,95 +242,6 @@ const roleAccess: Record<AdminTeamMember["role"], string[]> = Object.fromEntries
   ])
 ) as Record<AdminTeamMember["role"], string[]>;
 
-// Ready-made task briefs for the three highest-volume recurring-content
-// departments (Content Creator, Sales/Promotion, Marketing). Picking one in
-// the Assign New Task form fills in title/description/priority instantly —
-// the only thing admin still has to do per task is attach the real
-// resource link/file (screenshot, data, pricing sheet, etc.), since that's
-// different every time and can't be templated.
-type TaskTemplate = {
-  id: string;
-  department: "content" | "sales" | "marketing";
-  label: string;
-  title: string;
-  description: string;
-  priority: "low" | "medium" | "high" | "urgent";
-  resourcesNeeded: string[];
-};
-
-const TASK_TEMPLATES: TaskTemplate[] = [
-  {
-    id: "content-feature-spotlight",
-    department: "content",
-    label: "✍️ Feature Spotlight post",
-    title: "Feature Spotlight — [feature name]",
-    description:
-      "Write a LinkedIn feature-spotlight post. Lead with the real pain point this feature solves, explain the fix in plain language, attach a real product screenshot, end with a clear CTA. No jargon, no filler.",
-    priority: "medium",
-    resourcesNeeded: ["Real product screenshot (PII-cropped)", "Any exact numbers/claims to include"],
-  },
-  {
-    id: "content-founder-story",
-    department: "content",
-    label: "✍️ Founder story / reflection",
-    title: "Founder Reflection post",
-    description:
-      "Personal, honest post in the founder's voice — one real challenge, one thing enjoyed, one lesson learned. End with a genuine question to the audience to drive comments. No generic 'entrepreneurship is hard' lines.",
-    priority: "medium",
-    resourcesNeeded: ["Founder's specific input (challenge / enjoyed / learned)"],
-  },
-  {
-    id: "content-milestone-recap",
-    department: "content",
-    label: "✍️ Milestone / recap post",
-    title: "Milestone Recap post",
-    description:
-      "Recap post covering the period's real numbers — one genuine win + one honest challenge, thank the community by name category, keep it transparent, not just promotional.",
-    priority: "medium",
-    resourcesNeeded: ["Real numbers for the period from founder"],
-  },
-  {
-    id: "sales-outreach-sequence",
-    department: "sales",
-    label: "📢 Outreach sequence",
-    title: "Cold outreach sequence — [segment name]",
-    description:
-      "Draft a 3-touch outreach sequence (initial + 2 follow-ups) for the target segment. Each message under 100 words, one clear ask per message, no generic templates — reference the segment's actual pain point.",
-    priority: "medium",
-    resourcesNeeded: ["Target segment/persona details", "List of leads or lead source"],
-  },
-  {
-    id: "sales-pricing-promo",
-    department: "sales",
-    label: "📢 Pricing / promo push",
-    title: "Pricing Promo — [offer name]",
-    description:
-      "Promote a specific pricing offer across the assigned channel. State exact savings numbers (not vague percentages), one-line comparison of plans, single clear CTA.",
-    priority: "high",
-    resourcesNeeded: ["Exact current pricing/discount numbers", "Pricing page screenshot"],
-  },
-  {
-    id: "marketing-campaign-brief",
-    department: "marketing",
-    label: "📣 Campaign brief",
-    title: "Campaign — [campaign name]",
-    description:
-      "Put together the campaign brief: audience, channel(s), key message, timeline, and the one metric that defines success for this campaign. Flag anything blocking launch.",
-    priority: "medium",
-    resourcesNeeded: ["Target audience/segment", "Any brand assets or prior campaign data"],
-  },
-  {
-    id: "marketing-competitor-scan",
-    department: "marketing",
-    label: "📣 Competitor / market scan",
-    title: "Competitor scan — [topic]",
-    description:
-      "Research how 3-5 named competitors are currently positioning around this topic. Summarize as a short comparison table plus a one-paragraph takeaway on where we have a gap or edge.",
-    priority: "low",
-    resourcesNeeded: ["List of competitors to check"],
-  },
-];
-
 function generatePassword() {
   const part = Math.random().toString(36).slice(2, 8);
   const digits = Math.floor(1000 + Math.random() * 9000);
@@ -415,8 +341,22 @@ export default function Admin() {
   const [teamSearch, setTeamSearch] = useState("");
   const [teamStatusFilter, setTeamStatusFilter] = useState<"all" | "active" | "disabled">("all");
   const [selectedTeamId, setSelectedTeamId] = useState<string | null>(null);
-  const [taskForm, setTaskForm] = useState({ title: "", description: "", assigned_to: "", department: "general", priority: "medium", due_date: "", requiresVerification: false, resourceLabel: "", resourceUrl: "", resources: [] as { label: string; url: string }[] });
-  const [taskTemplateId, setTaskTemplateId] = useState("");
+  const DEFAULT_QUEUE_FIELDS = [
+    { key: "name", label: "Name" },
+    { key: "company", label: "Company / Business" },
+    { key: "phone", label: "Phone" },
+    { key: "email", label: "Email" },
+    { key: "country", label: "Country" },
+  ];
+  const [taskForm, setTaskForm] = useState({
+    title: "", description: "", assigned_to: "", department: "general", priority: "medium", due_date: "",
+    requiresVerification: false, resourceLabel: "", resourceUrl: "", resources: [] as { label: string; url: string }[],
+    taskType: "simple" as "simple" | "queue",
+    queueFields: DEFAULT_QUEUE_FIELDS as { key: string; label: string }[],
+    queueNewFieldLabel: "",
+    queueItemDraft: {} as Record<string, string>,
+    queueItems: [] as Record<string, string>[],
+  });
   const [selectedAdminTaskId, setSelectedAdminTaskId] = useState<string | null>(null);
   const [adminTaskNote, setAdminTaskNote] = useState("");
   const [taskFileUploading, setTaskFileUploading] = useState(false);
@@ -1160,7 +1100,10 @@ export default function Admin() {
 
   async function handleAddTask(e: React.FormEvent) {
     e.preventDefault();
-    const { error: insertError } = await supabase.from("admin_tasks").insert({
+    if (taskForm.taskType === "queue" && taskForm.queueItems.length === 0) {
+      return setError("Add at least one item to the queue before creating the task.");
+    }
+    const { data: newTask, error: insertError } = await supabase.from("admin_tasks").insert({
       title: taskForm.title,
       description: taskForm.description || null,
       assigned_to: taskForm.assigned_to || null,
@@ -1172,13 +1115,22 @@ export default function Admin() {
       created_by: user?.id ?? null,
       resources: taskForm.resources,
       requires_verification: taskForm.requiresVerification,
-    });
+      task_type: taskForm.taskType,
+      queue_field_schema: taskForm.taskType === "queue" ? taskForm.queueFields : [],
+    }).select("id").single();
     if (insertError) return setError(insertError.message);
+
+    if (taskForm.taskType === "queue" && newTask) {
+      const { error: itemsError } = await supabase.from("task_queue_items").insert(
+        taskForm.queueItems.map((item, idx) => ({ task_id: newTask.id, data: item, sort_order: idx }))
+      );
+      if (itemsError) return setError(`Task created but items failed: ${itemsError.message}`);
+    }
+
     await logAction("create_task", "admin_tasks", taskForm.title);
     const assignee = team.find((m) => m.id === taskForm.assigned_to);
-    setTaskForm({ title: "", description: "", assigned_to: "", department: "general", priority: "medium", due_date: "", requiresVerification: false, resourceLabel: "", resourceUrl: "", resources: [] });
-    setTaskTemplateId("");
-    setNotice("Task created.");
+    setTaskForm({ title: "", description: "", assigned_to: "", department: "general", priority: "medium", due_date: "", requiresVerification: false, resourceLabel: "", resourceUrl: "", resources: [], taskType: "simple", queueFields: DEFAULT_QUEUE_FIELDS, queueNewFieldLabel: "", queueItemDraft: {}, queueItems: [] });
+    setNotice(taskForm.taskType === "queue" ? `Task created with ${taskForm.queueItems.length} items.` : "Task created.");
     showAssignToast(assignee ? `Assigned to ${assignee.name || assignee.email} ✓` : "Task created ✓");
     await load();
   }
@@ -1438,6 +1390,7 @@ export default function Admin() {
   }, [taskForm.department, taskForm.assigned_to]);
 
   const selectedAdminTask = selectedAdminTaskId ? tasks.find((task) => task.id === selectedAdminTaskId) ?? null : null;
+  const [queueItems, setQueueItems] = useState<TaskQueueItem[]>([]);
 
   useEffect(() => {
     if (!selectedAdminTask) return;
@@ -1451,6 +1404,11 @@ export default function Admin() {
       resourceUrl: "",
       resources: (selectedAdminTask.resources || []).map((r) => ({ label: r.label || "Resource", url: r.url || "" })),
     });
+    if (selectedAdminTask.task_type === "queue") {
+      void supabase.from("task_queue_items").select("*").eq("task_id", selectedAdminTask.id).order("sort_order").then(({ data }) => setQueueItems((data as TaskQueueItem[]) ?? []));
+    } else {
+      setQueueItems([]);
+    }
   }, [selectedAdminTaskId]); // eslint-disable-line react-hooks/exhaustive-deps
   const filteredAuditLogs = useMemo(() => {
     const q = auditSearch.trim().toLowerCase();
@@ -2144,7 +2102,84 @@ export default function Admin() {
                 <h2 className="text-lg font-semibold text-slate-900 mb-4">Assign New Task</h2>
                 <form onSubmit={handleAddTask} className="space-y-3">
                   <input className="input" required placeholder="Task title" value={taskForm.title} onChange={(e) => setTaskForm({ ...taskForm, title: e.target.value })} />
-                  <textarea className="input min-h-24" placeholder="Description" value={taskForm.description} onChange={(e) => setTaskForm({ ...taskForm, description: e.target.value })} />
+                  <textarea className="input min-h-24" placeholder="Description / guide for staff — what they should do" value={taskForm.description} onChange={(e) => setTaskForm({ ...taskForm, description: e.target.value })} />
+
+                  <div className="flex rounded-xl border border-slate-200 p-1 bg-slate-50">
+                    <button type="button" onClick={() => setTaskForm({ ...taskForm, taskType: "simple" })} className={`flex-1 rounded-lg px-3 py-2 text-xs font-bold ${taskForm.taskType === "simple" ? "bg-white shadow text-slate-900" : "text-slate-500"}`}>📄 Simple Task</button>
+                    <button type="button" onClick={() => setTaskForm({ ...taskForm, taskType: "queue" })} className={`flex-1 rounded-lg px-3 py-2 text-xs font-bold ${taskForm.taskType === "queue" ? "bg-white shadow text-slate-900" : "text-slate-500"}`}>📋 Lead / Item Queue</button>
+                  </div>
+
+                  {taskForm.taskType === "queue" && (
+                    <div className="rounded-xl bg-purple-50 border border-purple-100 p-3 space-y-3">
+                      <div>
+                        <p className="text-xs font-semibold text-purple-700 uppercase mb-1.5">Item fields</p>
+                        <div className="flex flex-wrap gap-1.5 mb-2">
+                          {taskForm.queueFields.map((f) => (
+                            <Pill key={f.key} className="bg-white text-slate-700 border-slate-200">
+                              {f.label}
+                              <button type="button" className="ml-1.5 text-slate-400 hover:text-red-600" onClick={() => setTaskForm({ ...taskForm, queueFields: taskForm.queueFields.filter((x) => x.key !== f.key) })}>×</button>
+                            </Pill>
+                          ))}
+                        </div>
+                        <div className="flex gap-2">
+                          <input className="input text-xs py-1.5" placeholder="Add a field (e.g. Budget)" value={taskForm.queueNewFieldLabel} onChange={(e) => setTaskForm({ ...taskForm, queueNewFieldLabel: e.target.value })} />
+                          <button
+                            type="button"
+                            className="btn-secondary text-xs py-1.5 px-3 shrink-0"
+                            onClick={() => {
+                              const label = taskForm.queueNewFieldLabel.trim();
+                              if (!label) return;
+                              const key = label.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "") || `field_${taskForm.queueFields.length}`;
+                              if (taskForm.queueFields.some((f) => f.key === key)) return;
+                              setTaskForm({ ...taskForm, queueFields: [...taskForm.queueFields, { key, label }], queueNewFieldLabel: "" });
+                            }}
+                          >
+                            Add field
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="pt-2 border-t border-purple-100">
+                        <p className="text-xs font-semibold text-purple-700 uppercase mb-1.5">Add items to the queue</p>
+                        <div className="grid grid-cols-2 gap-1.5">
+                          {taskForm.queueFields.map((f) => (
+                            <input
+                              key={f.key}
+                              className="input text-xs py-1.5"
+                              placeholder={f.label}
+                              value={taskForm.queueItemDraft[f.key] || ""}
+                              onChange={(e) => setTaskForm({ ...taskForm, queueItemDraft: { ...taskForm.queueItemDraft, [f.key]: e.target.value } })}
+                            />
+                          ))}
+                        </div>
+                        <button
+                          type="button"
+                          className="btn-secondary text-xs py-1.5 px-3 mt-1.5 w-full"
+                          onClick={() => {
+                            const hasAny = taskForm.queueFields.some((f) => (taskForm.queueItemDraft[f.key] || "").trim());
+                            if (!hasAny) return;
+                            setTaskForm({ ...taskForm, queueItems: [...taskForm.queueItems, taskForm.queueItemDraft], queueItemDraft: {} });
+                          }}
+                        >
+                          + Add item to list
+                        </button>
+                      </div>
+
+                      {taskForm.queueItems.length > 0 && (
+                        <div className="pt-2 border-t border-purple-100">
+                          <p className="text-xs font-semibold text-purple-700 uppercase mb-1.5">{taskForm.queueItems.length} item{taskForm.queueItems.length !== 1 ? "s" : ""} added</p>
+                          <div className="max-h-40 overflow-y-auto space-y-1">
+                            {taskForm.queueItems.map((item, i) => (
+                              <div key={i} className="flex items-center justify-between rounded-lg bg-white border border-purple-100 px-2.5 py-1.5 text-xs text-slate-700">
+                                <span className="truncate">{taskForm.queueFields.map((f) => item[f.key]).filter(Boolean).join(" · ") || "(empty)"}</span>
+                                <button type="button" className="text-slate-400 hover:text-red-600 ml-2 shrink-0" onClick={() => setTaskForm({ ...taskForm, queueItems: taskForm.queueItems.filter((_, idx) => idx !== i) })}>×</button>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
                   <select className="input" value={taskForm.assigned_to} onChange={(e) => setTaskForm({ ...taskForm, assigned_to: e.target.value })}>
                     <option value="">Unassigned</option>{team.map((m) => <option key={m.id} value={m.id}>{m.name || m.email}</option>)}
                   </select>
@@ -2159,7 +2194,7 @@ export default function Admin() {
                     </button>
                   )}
                   <div className="grid grid-cols-2 gap-2">
-                    <select className="input" value={taskForm.department} onChange={(e) => { setTaskTemplateId(""); setTaskForm({ ...taskForm, department: e.target.value, assigned_to: "" }); }}>
+                    <select className="input" value={taskForm.department} onChange={(e) => setTaskForm({ ...taskForm, department: e.target.value, assigned_to: "" })}>
                       <option value="general">📋 General</option><option value="support">🎧 Support</option><option value="finance">💰 Finance</option><option value="sales">📢 Sales</option><option value="engineering">⚙️ Engineering</option><option value="marketing">📣 Marketing</option><option value="hr">👤 HR</option><option value="legal">⚖️ Legal</option><option value="content">✍️ Content</option>
                     </select>
                     <div className="flex items-center gap-1">
@@ -2175,35 +2210,6 @@ export default function Admin() {
                       ))}
                     </div>
                   </div>
-                  {(taskForm.department === "content" || taskForm.department === "sales" || taskForm.department === "marketing") && (
-                    <div className="rounded-xl bg-primary-50 border border-primary-100 p-3 space-y-2">
-                      <p className="text-xs font-semibold text-primary-700 uppercase">Quick template (optional)</p>
-                      <select
-                        className="input text-sm"
-                        value={taskTemplateId}
-                        onChange={(e) => {
-                          const id = e.target.value;
-                          setTaskTemplateId(id);
-                          const tpl = TASK_TEMPLATES.find((t) => t.id === id);
-                          if (tpl) setTaskForm((cur) => ({ ...cur, title: tpl.title, description: tpl.description, priority: tpl.priority }));
-                        }}
-                      >
-                        <option value="">— Start blank —</option>
-                        {TASK_TEMPLATES.filter((t) => t.department === taskForm.department).map((t) => (
-                          <option key={t.id} value={t.id}>{t.label}</option>
-                        ))}
-                      </select>
-                      {taskTemplateId && (
-                        <div className="text-xs text-primary-800 bg-white rounded-lg border border-primary-100 p-2">
-                          <p className="font-semibold mb-1">Still needed for this task:</p>
-                          <ul className="list-disc list-inside space-y-0.5">
-                            {TASK_TEMPLATES.find((t) => t.id === taskTemplateId)?.resourcesNeeded.map((r) => <li key={r}>{r}</li>)}
-                          </ul>
-                          <p className="mt-1 text-primary-600">Edit the title (e.g. replace "[feature name]") and add the resource link/file below.</p>
-                        </div>
-                      )}
-                    </div>
-                  )}
                   <input className="input" type="date" value={taskForm.due_date} onChange={(e) => setTaskForm({ ...taskForm, due_date: e.target.value })} />
 
                   <div className="rounded-xl bg-slate-50 border border-slate-100 p-3 space-y-2">
@@ -2929,6 +2935,34 @@ export default function Admin() {
                     </div>
                     <button className="btn-primary w-full mt-4" disabled={editTaskSaving || !editTaskForm.title.trim()} onClick={() => saveTaskEdits(selectedAdminTask)}>{editTaskSaving ? "Saving..." : "Save changes"}</button>
                   </div>
+                  {selectedAdminTask.task_type === "queue" && (
+                    <div className="rounded-2xl border border-indigo-200 bg-indigo-50 p-5">
+                      <div className="flex items-center justify-between mb-3">
+                        <p className="text-xs font-bold uppercase tracking-wide text-indigo-700">Queue items ({queueItems.length})</p>
+                        <div className="flex gap-2 text-xs font-semibold">
+                          <span className="text-slate-500">⚪ {queueItems.filter((i) => i.status === "pending").length}</span>
+                          <span className="text-red-600">🔴 {queueItems.filter((i) => i.status === "red").length}</span>
+                          <span className="text-orange-600">🟠 {queueItems.filter((i) => i.status === "orange").length}</span>
+                          <span className="text-emerald-600">🟢 {queueItems.filter((i) => i.status === "green").length}</span>
+                        </div>
+                      </div>
+                      <div className="max-h-72 overflow-y-auto space-y-1.5">
+                        {queueItems.map((item) => {
+                          const dot = item.status === "red" ? "bg-red-500" : item.status === "orange" ? "bg-orange-400" : item.status === "green" ? "bg-emerald-500" : "bg-slate-300";
+                          return (
+                            <div key={item.id} className="flex items-center justify-between rounded-lg bg-white border border-indigo-100 px-3 py-2 text-xs">
+                              <div className="flex items-center gap-2 min-w-0">
+                                <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${dot}`} />
+                                <span className="truncate text-slate-700">{(selectedAdminTask.queue_field_schema || []).map((f) => item.data[f.key]).filter(Boolean).join(" · ") || "(no data)"}</span>
+                              </div>
+                              {item.proof_notes && <span className="text-slate-400 ml-2 shrink-0 max-w-[140px] truncate">{item.proof_notes}</span>}
+                            </div>
+                          );
+                        })}
+                        {queueItems.length === 0 && <p className="text-xs text-indigo-400">No items yet.</p>}
+                      </div>
+                    </div>
+                  )}
                   {selectedAdminTask.requires_verification && (
                     <div className="rounded-2xl border border-purple-200 bg-purple-50 p-5 space-y-3">
                       <p className="text-xs font-bold uppercase tracking-wide text-purple-700">AI content verification</p>
