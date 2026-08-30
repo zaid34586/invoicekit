@@ -17,6 +17,13 @@ interface TaskRow {
   submission_screenshot_url?: string | null;
   submission_notes?: string | null;
   submitted_at?: string | null;
+  task_type?: "simple" | "queue";
+  queue_field_schema?: { key: string; label: string }[] | null;
+}
+interface QueueItemRow {
+  id: string; task_id: string; data: Record<string, string>; status: "pending" | "red" | "orange" | "green";
+  proof_notes: string | null; proof_screenshot_url: string | null; proof_recording_url: string | null;
+  marked_at: string | null; sort_order: number;
 }
 interface TicketRow { id: string; user_id?: string | null; ticket_number?: string | null; subject: string; message?: string | null; status: string; priority: string; created_at: string; staff_notes?: string | null; sla_target_minutes?: number | null; first_admin_reply_at?: string | null; assigned_to?: string | null; resolution_summary?: string | null; category?: string | null; }
 interface TicketMessage { id: string; author_type: string; message: string; is_internal: boolean; created_at: string; }
@@ -116,6 +123,14 @@ export default function StaffDashboard() {
   const [submissionScreenshotUrl, setSubmissionScreenshotUrl] = useState("");
   const [submissionNotes, setSubmissionNotes] = useState("");
   const [submittingProof, setSubmittingProof] = useState(false);
+  const [queueTaskId, setQueueTaskId] = useState<string | null>(null);
+  const [queueItemsState, setQueueItemsState] = useState<QueueItemRow[]>([]);
+  const [queueSession, setQueueSession] = useState<{ id: string; started_at: string } | null>(null);
+  const [queueItemFilter, setQueueItemFilter] = useState<"all" | "pending" | "red" | "orange" | "green">("all");
+  const [selectedQueueItemId, setSelectedQueueItemId] = useState<string | null>(null);
+  const [queueDraft, setQueueDraft] = useState({ notes: "", screenshotUrl: "", recordingUrl: "" });
+  const [queueFileUploading, setQueueFileUploading] = useState<"screenshot" | "recording" | null>(null);
+  const [queueItemSaving, setQueueItemSaving] = useState(false);
   const [selectedTicketId, setSelectedTicketId] = useState<string | null>(null);
   const [ticketMessages, setTicketMessages] = useState<TicketMessage[]>([]);
   const [ticketReply, setTicketReply] = useState("");
@@ -150,7 +165,7 @@ export default function StaffDashboard() {
     if (hasStaffPermission(team.role, "tasks")) {
       const { data: taskData } = await supabase
         .from("admin_tasks")
-        .select("id, title, description, status, priority, due_date, progress, staff_notes, internal_notes, department, last_staff_update, resources, requires_verification, draft_content, ai_verification_status, ai_verification_feedback, submission_url, submission_screenshot_url, submission_notes, submitted_at")
+        .select("id, title, description, status, priority, due_date, progress, staff_notes, internal_notes, department, last_staff_update, resources, requires_verification, draft_content, ai_verification_status, ai_verification_feedback, submission_url, submission_screenshot_url, submission_notes, submitted_at, task_type, queue_field_schema")
         .or(`assigned_to.eq.${team.id},assigned_to.is.null`)
         .order("created_at", { ascending: false })
         .limit(40);
@@ -281,24 +296,7 @@ export default function StaffDashboard() {
     });
     setVerifying(false);
     if (error || data?.error) {
-      // supabase-js only fills `data` when the function returns 2xx. On a
-      // non-2xx response (e.g. 503 when GEMINI_API_KEY isn't set, or 502 on
-      // a Gemini call failure) it throws a FunctionsHttpError instead, whose
-      // .message is just a generic "Edge Function returned a non-2xx status
-      // code" — the real reason is in the response body, reachable via
-      // error.context (the raw Response). Try to read that first so staff
-      // (and admins debugging this) see the actual cause, not a dead end.
-      let realMessage = data?.error || error?.message || "Unknown error";
-      const ctx = (error as { context?: Response })?.context;
-      if (ctx && typeof ctx.json === "function") {
-        try {
-          const body = await ctx.clone().json();
-          if (body?.error) realMessage = body.error;
-        } catch {
-          // response body wasn't JSON — fall back to whatever we already have
-        }
-      }
-      setMessage(`AI verification failed: ${realMessage}`);
+      setMessage(`AI verification failed: ${data?.error || error?.message || "Unknown error"}`);
       await load();
       return;
     }
@@ -326,6 +324,85 @@ export default function StaffDashboard() {
     } as Partial<TaskRow>);
     setSubmittingProof(false);
     setMessage("Task submitted for review.");
+  }
+
+  // ---- Lead / Item Queue workspace ----------------------------------------
+
+  async function openQueueWorkspace(task: TaskRow) {
+    setQueueTaskId(task.id);
+    setQueueSession(null);
+    setQueueItemFilter("all");
+    const { data } = await supabase.from("task_queue_items").select("*").eq("task_id", task.id).order("sort_order");
+    setQueueItemsState((data as QueueItemRow[]) ?? []);
+  }
+
+  async function startQueueSession(task: TaskRow) {
+    if (!staff?.id) return;
+    const { data, error } = await supabase.from("task_sessions").insert({ task_id: task.id, staff_id: staff.id }).select("id, started_at").single();
+    if (error) { setMessage(error.message); return; }
+    setQueueSession(data);
+    await supabase.from("task_activity_log").insert({ task_id: task.id, session_id: data.id, staff_id: staff.id, action: "session_start", details: {} });
+    if (task.status === "pending") await updateTask(task.id, { status: "in_progress" } as Partial<TaskRow>);
+  }
+
+  async function endQueueSession(task: TaskRow, completed: boolean) {
+    if (!queueSession) return;
+    await supabase.from("task_sessions").update({
+      status: completed ? "completed" : "interrupted",
+      ended_at: new Date().toISOString(),
+      items_worked: queueItemsState.filter((i) => i.status !== "pending").length,
+    }).eq("id", queueSession.id);
+    await supabase.from("task_activity_log").insert({ task_id: task.id, session_id: queueSession.id, staff_id: staff?.id, action: "session_end", details: { completed } });
+    setQueueSession(null);
+    if (completed) await updateTask(task.id, { status: "done", progress: 100 } as Partial<TaskRow>);
+    await load();
+  }
+
+  function openQueueItem(task: TaskRow, item: QueueItemRow) {
+    setSelectedQueueItemId(item.id);
+    setQueueDraft({ notes: item.proof_notes || "", screenshotUrl: item.proof_screenshot_url || "", recordingUrl: item.proof_recording_url || "" });
+    if (queueSession) void supabase.from("task_activity_log").insert({ task_id: task.id, queue_item_id: item.id, session_id: queueSession.id, staff_id: staff?.id, action: "item_opened", details: {} });
+  }
+
+  async function uploadQueueProofFile(file: File, kind: "screenshot" | "recording") {
+    if (!user) return;
+    setQueueFileUploading(kind);
+    try {
+      const ext = file.name.split(".").pop() || "bin";
+      const path = `${user.id}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+      const { error: uploadError } = await supabase.storage.from("task-attachments").upload(path, file, { contentType: file.type, upsert: false });
+      if (uploadError) { setMessage(uploadError.message); return; }
+      const { data } = supabase.storage.from("task-attachments").getPublicUrl(path);
+      setQueueDraft((cur) => ({ ...cur, [kind === "screenshot" ? "screenshotUrl" : "recordingUrl"]: data.publicUrl }));
+    } finally {
+      setQueueFileUploading(null);
+    }
+  }
+
+  async function markQueueItem(task: TaskRow, item: QueueItemRow, status: "red" | "orange" | "green") {
+    if (!queueDraft.notes.trim() && !queueDraft.screenshotUrl.trim() && !queueDraft.recordingUrl.trim()) {
+      setMessage("Add proof (notes, chat screenshot, or call recording) before marking this item.");
+      return;
+    }
+    setQueueItemSaving(true);
+    const { error } = await supabase.from("task_queue_items").update({
+      status,
+      proof_notes: queueDraft.notes.trim() || null,
+      proof_screenshot_url: queueDraft.screenshotUrl.trim() || null,
+      proof_recording_url: queueDraft.recordingUrl.trim() || null,
+      marked_by: staff?.id ?? null,
+      marked_at: new Date().toISOString(),
+    }).eq("id", item.id);
+    setQueueItemSaving(false);
+    if (error) { setMessage(error.message); return; }
+
+    if (queueSession) {
+      await supabase.from("task_activity_log").insert({ task_id: task.id, queue_item_id: item.id, session_id: queueSession.id, staff_id: staff?.id, action: "item_marked", details: { status } });
+    }
+
+    setQueueItemsState((cur) => cur.map((i) => i.id === item.id ? { ...i, status, proof_notes: queueDraft.notes.trim() || null, proof_screenshot_url: queueDraft.screenshotUrl.trim() || null, proof_recording_url: queueDraft.recordingUrl.trim() || null, marked_at: new Date().toISOString() } : i));
+    setSelectedQueueItemId(null);
+    setQueueDraft({ notes: "", screenshotUrl: "", recordingUrl: "" });
   }
 
   async function updateTicket(ticketId: string, changes: Partial<TicketRow>) {
@@ -480,23 +557,8 @@ export default function StaffDashboard() {
 
   function TasksPage() {
     if (!hasStaffPermission(role, "tasks")) return <Blocked />;
-    const deptTip: Record<string, { icon: string; title: string; body: string }> = {
-      content: { icon: "✍️", title: "Content Creator workspace", body: "Every content task lists the key message and resources you need under \"Task Brief.\" Draft in the Content Draft box and run \"Verify with AI\" before submitting." },
-      sales: { icon: "📢", title: "Sales workspace", body: "Check the task brief for the target segment and any lead list before drafting outreach. Log calls/contacts from the Workspace Tools panel on each task." },
-      marketing: { icon: "📣", title: "Marketing workspace", body: "Campaign and research tasks list the audience/assets needed under \"Task Brief.\" Attach proof links or screenshots when you submit." },
-    };
-    const tip = staff?.department ? deptTip[staff.department] : undefined;
     return (
       <div className="space-y-6">
-        {tip && (
-          <div className="rounded-2xl border border-primary-100 bg-primary-50 px-5 py-4 flex items-start gap-3">
-            <span className="text-2xl leading-none">{tip.icon}</span>
-            <div>
-              <p className="font-bold text-primary-900 text-sm">{tip.title}</p>
-              <p className="text-primary-800 text-sm mt-0.5">{tip.body}</p>
-            </div>
-          </div>
-        )}
         <Section
           title="My Tasks"
           subtitle="Open a task, start work, add updates and submit it for admin review."
@@ -513,12 +575,13 @@ export default function StaffDashboard() {
             {filteredTasks.length === 0 ? (
               <div className="p-10 text-center text-slate-500">No tasks found.</div>
             ) : filteredTasks.map(task => (
-              <button key={task.id} onClick={() => { setSelectedTaskId(task.id); setTaskComment(""); }} className="w-full text-left p-5 hover:bg-slate-50 transition">
+              <button key={task.id} onClick={() => { if (task.task_type === "queue") { void openQueueWorkspace(task); } else { setSelectedTaskId(task.id); setTaskComment(""); } }} className="w-full text-left p-5 hover:bg-slate-50 transition">
                 <div className="flex flex-col xl:flex-row xl:items-start xl:justify-between gap-4">
                   <div>
                     <div className="flex flex-wrap gap-2 mb-2">
                       <Badge tone={task.priority === "urgent" || task.priority === "high" ? "red" : task.priority === "medium" ? "amber" : "slate"}>{task.priority}</Badge>
                       <Badge tone={task.status === "done" ? "green" : task.status === "blocked" ? "red" : task.status === "in_progress" ? "blue" : "purple"}>{taskStatusLabel(task.status)}</Badge>
+                      {task.task_type === "queue" && <Badge tone="purple">📋 Queue</Badge>}
                       {task.department && <Badge tone="slate">{task.department}</Badge>}
                     </div>
                     <div className="font-black text-slate-950">{task.title}</div>
@@ -844,6 +907,148 @@ export default function StaffDashboard() {
   function UsersPage() { return hasStaffPermission(role, "users") ? <Section title="Users" subtitle="Assigned customer support workspace."><div className="p-10 text-center text-slate-500">User support tools will show assigned customers here.</div></Section> : <Blocked />; }
   function Blocked() { return <div className="rounded-3xl bg-white border border-slate-200 p-10 text-center"><div className="text-4xl mb-3">🔒</div><h2 className="text-xl font-black text-slate-950">Access not available</h2><p className="text-slate-500 mt-2">This section is hidden for your role.</p></div>; }
 
+  function QueueWorkspace() {
+    const task = queueTaskId ? tasks.find((t) => t.id === queueTaskId) ?? null : null;
+    if (!task) return null;
+    const fields = task.queue_field_schema || [];
+    const counts = {
+      pending: queueItemsState.filter((i) => i.status === "pending").length,
+      red: queueItemsState.filter((i) => i.status === "red").length,
+      orange: queueItemsState.filter((i) => i.status === "orange").length,
+      green: queueItemsState.filter((i) => i.status === "green").length,
+    };
+    const allDone = queueItemsState.length > 0 && counts.pending === 0;
+    const shown = queueItemsState.filter((i) => queueItemFilter === "all" ? true : i.status === queueItemFilter);
+    const selectedItem = selectedQueueItemId ? queueItemsState.find((i) => i.id === selectedQueueItemId) ?? null : null;
+    const canMark = Boolean(queueDraft.notes.trim() || queueDraft.screenshotUrl.trim() || queueDraft.recordingUrl.trim());
+
+    return (
+      <div className="fixed inset-0 z-50 bg-white flex flex-col">
+        <div className="flex items-start justify-between gap-4 border-b border-slate-100 px-6 py-4">
+          <div>
+            <div className="flex flex-wrap gap-2 mb-2">
+              <Badge tone="purple">📋 Lead / Item Queue</Badge>
+              {task.department && <Badge tone="slate">{task.department}</Badge>}
+            </div>
+            <h2 className="text-xl font-black text-slate-950">{task.title}</h2>
+          </div>
+          <button
+            onClick={async () => {
+              if (queueSession && !allDone) { if (!confirm("End this session now? Remaining items stay pending for next time.")) return; }
+              if (queueSession) await endQueueSession(task, allDone);
+              setQueueTaskId(null); setSelectedQueueItemId(null);
+            }}
+            className="rounded-2xl border border-slate-200 px-4 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50"
+          >
+            ✕ Close
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto">
+          <div className="max-w-4xl mx-auto p-6 space-y-5">
+            <div className="rounded-2xl bg-slate-50 border border-slate-100 p-5">
+              <p className="text-xs font-bold uppercase tracking-wide text-slate-500 mb-2">Guide — what to do</p>
+              <p className="text-sm text-slate-700 whitespace-pre-wrap">{task.description || "No guide provided."}</p>
+              {task.resources && task.resources.length > 0 && (
+                <div className="flex flex-wrap gap-2 mt-3">
+                  {task.resources.map((r, i) => <a key={i} href={r.url || "#"} target="_blank" rel="noreferrer" className="rounded-full border border-primary-200 bg-white px-3 py-1 text-xs font-bold text-primary-700 hover:bg-primary-50">🔗 {r.label || r.url}</a>)}
+                </div>
+              )}
+            </div>
+
+            {!queueSession ? (
+              <div className="rounded-2xl border-2 border-dashed border-purple-200 bg-purple-50 p-6 text-center">
+                <p className="text-sm font-bold text-purple-900">Total items: {queueItemsState.length}</p>
+                <p className="text-xs text-purple-600 mt-1 mb-4">Starting begins tracking for this session — screen recording will be added in the next update.</p>
+                <button onClick={() => startQueueSession(task)} className="rounded-2xl bg-purple-600 text-white px-6 py-3 text-sm font-black">▶ Start</button>
+              </div>
+            ) : (
+              <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 flex items-center justify-between">
+                <p className="text-sm font-bold text-emerald-800">🟢 Session active — activity is being tracked</p>
+                <button onClick={() => endQueueSession(task, false)} className="rounded-xl border border-emerald-300 bg-white px-3 py-1.5 text-xs font-bold text-emerald-700">Pause / End session</button>
+              </div>
+            )}
+
+            {allDone && (
+              <div className="rounded-2xl border border-emerald-300 bg-emerald-50 p-5 text-center">
+                <p className="text-lg font-black text-emerald-800">✅ All items complete</p>
+                <p className="text-sm text-emerald-700 mt-1">Great work — every item in this queue has been marked.</p>
+              </div>
+            )}
+
+            <div>
+              <div className="flex items-center justify-between mb-3">
+                <p className="text-sm font-black text-slate-950">Items</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {([["all", "All", counts.pending + counts.red + counts.orange + counts.green, "bg-slate-950 text-white"], ["pending", "⚪ Pending", counts.pending, "bg-slate-100 text-slate-600"], ["red", "🔴 Red", counts.red, "bg-red-50 text-red-700"], ["orange", "🟠 Maybe Later", counts.orange, "bg-orange-50 text-orange-700"], ["green", "🟢 Converted", counts.green, "bg-emerald-50 text-emerald-700"]] as const).map(([key, label, count, cls]) => (
+                    <button key={key} onClick={() => setQueueItemFilter(key)} className={`rounded-full px-3 py-1 text-xs font-bold border ${queueItemFilter === key ? cls + " ring-2 ring-offset-1 ring-purple-300" : "bg-white text-slate-500 border-slate-200"}`}>{label} ({count})</button>
+                  ))}
+                </div>
+              </div>
+              <div className="space-y-2">
+                {shown.length === 0 && <div className="rounded-2xl border border-slate-100 p-8 text-center text-sm text-slate-400">No items in this filter.</div>}
+                {shown.map((item) => {
+                  const dot = item.status === "red" ? "bg-red-500" : item.status === "orange" ? "bg-orange-400" : item.status === "green" ? "bg-emerald-500" : "bg-slate-300";
+                  const primary = fields[0] ? item.data[fields[0].key] : null;
+                  return (
+                    <button key={item.id} onClick={() => openQueueItem(task, item)} className="w-full text-left rounded-2xl border border-slate-200 p-4 flex items-center justify-between gap-3 hover:bg-slate-50">
+                      <div className="flex items-center gap-3 min-w-0">
+                        <span className={`w-3 h-3 rounded-full shrink-0 ${dot}`} />
+                        <div className="min-w-0">
+                          <p className="font-bold text-slate-950 truncate">{primary || "(no name)"}</p>
+                          <p className="text-xs text-slate-500 truncate">{fields.slice(1).map((f) => item.data[f.key]).filter(Boolean).join(" · ")}</p>
+                        </div>
+                      </div>
+                      <span className="text-xs font-bold text-primary-700 shrink-0">Open →</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {selectedItem && (
+          <div className="fixed inset-0 z-[60] bg-slate-950/50 backdrop-blur-sm p-4 flex items-center justify-center" onClick={() => setSelectedQueueItemId(null)}>
+            <div className="w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-3xl bg-white shadow-2xl border border-slate-200 p-6" onClick={(e) => e.stopPropagation()}>
+              <div className="flex items-start justify-between mb-4">
+                <h3 className="text-lg font-black text-slate-950">Item detail</h3>
+                <button onClick={() => setSelectedQueueItemId(null)} className="text-slate-400 hover:text-slate-700">✕</button>
+              </div>
+              <div className="rounded-2xl bg-slate-50 border border-slate-100 p-4 mb-4 space-y-1.5">
+                {fields.map((f) => selectedItem.data[f.key] ? (
+                  <div key={f.key} className="flex justify-between text-sm gap-3"><span className="text-slate-500 font-semibold">{f.label}</span><span className="text-slate-950 font-bold text-right break-all">{selectedItem.data[f.key]}</span></div>
+                ) : null)}
+              </div>
+
+              <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Notes — what happened</label>
+              <textarea value={queueDraft.notes} onChange={(e) => setQueueDraft({ ...queueDraft, notes: e.target.value })} placeholder="What did you say, what did they say..." className="w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm min-h-[80px] mb-3" />
+
+              <div className="grid grid-cols-2 gap-2 mb-3">
+                <label className="flex items-center justify-center gap-1.5 rounded-xl border border-dashed border-slate-300 px-2 py-2.5 text-xs font-semibold text-slate-600 cursor-pointer hover:bg-slate-50 text-center">
+                  {queueFileUploading === "screenshot" ? "Uploading..." : queueDraft.screenshotUrl ? "✅ Chat screenshot added" : "💬 Upload chat screenshot"}
+                  <input type="file" accept="image/*" className="hidden" disabled={queueFileUploading !== null} onChange={async (e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) await uploadQueueProofFile(f, "screenshot"); }} />
+                </label>
+                <label className="flex items-center justify-center gap-1.5 rounded-xl border border-dashed border-slate-300 px-2 py-2.5 text-xs font-semibold text-slate-600 cursor-pointer hover:bg-slate-50 text-center">
+                  {queueFileUploading === "recording" ? "Uploading..." : queueDraft.recordingUrl ? "✅ Call recording added" : "📞 Upload call recording"}
+                  <input type="file" accept="audio/*,video/*" className="hidden" disabled={queueFileUploading !== null} onChange={async (e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) await uploadQueueProofFile(f, "recording"); }} />
+                </label>
+              </div>
+
+              {!canMark && <p className="text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-xl p-2 mb-3">Add notes, a chat screenshot, or a call recording before you can mark this item.</p>}
+
+              <div className="grid grid-cols-3 gap-2">
+                <button disabled={!canMark || queueItemSaving} onClick={() => markQueueItem(task, selectedItem, "red")} className="rounded-2xl bg-red-600 text-white py-3 text-sm font-black disabled:opacity-40">🔴 Red</button>
+                <button disabled={!canMark || queueItemSaving} onClick={() => markQueueItem(task, selectedItem, "orange")} className="rounded-2xl bg-orange-500 text-white py-3 text-sm font-black disabled:opacity-40">🟠 Later</button>
+                <button disabled={!canMark || queueItemSaving} onClick={() => markQueueItem(task, selectedItem, "green")} className="rounded-2xl bg-emerald-600 text-white py-3 text-sm font-black disabled:opacity-40">🟢 Green</button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
   function ActivePage() {
     if (active === "tasks") return TasksPage();
     if (active === "tickets") return TicketsPage();
@@ -861,6 +1066,7 @@ export default function StaffDashboard() {
     <>
       {ActivePage()}
       {TicketWorkspace()}
+      {QueueWorkspace()}
     </>
   );
 }
