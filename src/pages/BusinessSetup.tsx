@@ -49,7 +49,9 @@ export default function BusinessSetup() {
       setError("Business setup was saved but could not be loaded. Please refresh and try again.");
       return;
     }
-    navigate("/verify-phone", { replace: true });
+    // Phone/OTP verification is disabled for now, so we skip
+    // straight to the dashboard instead of /verify-phone.
+    navigate("/dashboard", { replace: true });
   }
 
   return (

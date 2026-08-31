@@ -48,11 +48,11 @@ export default function Login() {
     if (!profile?.country) {
       setLoadingText("Setting up your business...");
       navigate("/business-setup", { replace: true });
-    } else if (profile.phone_verified === true) {
+    } else {
+      // Phone/OTP verification is disabled for now, so we skip
+      // straight to the dashboard regardless of phone_verified.
       setLoadingText("Taking you to dashboard...");
       navigate("/dashboard", { replace: true });
-    } else {
-      navigate("/verify-phone", { replace: true });
     }
   }
 
