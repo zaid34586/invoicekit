@@ -19,6 +19,7 @@ import AdminProductionQA from "../components/AdminProductionQA";
 import AdminOperationsCommand from "../components/AdminOperationsCommand";
 import AdminUnifiedKPI from "../components/AdminUnifiedKPI";
 import { STAFF_ROLE_PERMISSIONS, STAFF_PERMISSION_LABELS, type StaffRole } from "../lib/staffPermissions";
+import * as XLSX from "xlsx";
 import AdminTeamWorkload from "../components/AdminTeamWorkload";
 import AdminRevenueIntelligence from "../components/AdminRevenueIntelligence";
 import AdminCustomerSuccess from "../components/AdminCustomerSuccess";
@@ -323,6 +324,26 @@ function appendAdminTaskNote(existing: string | null | undefined, author: string
   return `${existing ? `${existing}\n\n` : ""}[${stamp}] ${author}: ${clean}`;
 }
 
+async function parseSpreadsheetFile(file: File): Promise<{ headers: string[]; rows: Record<string, string>[] }> {
+  const buffer = await file.arrayBuffer();
+  const workbook = XLSX.read(buffer, { type: "array" });
+  const sheet = workbook.Sheets[workbook.SheetNames[0]];
+  const rows = XLSX.utils.sheet_to_json<Record<string, string>>(sheet, { defval: "", raw: false });
+  const headers = rows.length > 0 ? Object.keys(rows[0]) : [];
+  return { headers, rows: rows.map((r) => Object.fromEntries(Object.entries(r).map(([k, v]) => [k, String(v ?? "").trim()]))) };
+}
+
+function guessColumnMapping(fields: { key: string; label: string }[], headers: string[]): Record<string, string> {
+  const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
+  const mapping: Record<string, string> = {};
+  for (const f of fields) {
+    const target = norm(f.label) + "|" + norm(f.key);
+    const match = headers.find((h) => target.includes(norm(h)) || norm(h).includes(norm(f.key)) || norm(h).includes(norm(f.label)));
+    mapping[f.key] = match || "";
+  }
+  return mapping;
+}
+
 function emptyFormFinance(): Omit<AdminFinanceEntry, "id" | "created_at"> {
   return {
     entry_date: new Date().toISOString().slice(0, 10),
@@ -379,6 +400,8 @@ export default function Admin() {
     queueItemDraft: {} as Record<string, string>,
     queueItems: [] as Record<string, string>[],
   });
+  const [queueImport, setQueueImport] = useState<{ headers: string[]; rows: Record<string, string>[]; mapping: Record<string, string>; parsing: boolean }>({ headers: [], rows: [], mapping: {}, parsing: false });
+  const [editQueueImport, setEditQueueImport] = useState<{ headers: string[]; rows: Record<string, string>[]; mapping: Record<string, string>; parsing: boolean; importing: boolean }>({ headers: [], rows: [], mapping: {}, parsing: false, importing: false });
   const [selectedAdminTaskId, setSelectedAdminTaskId] = useState<string | null>(null);
   const [adminTaskNote, setAdminTaskNote] = useState("");
   const [taskFileUploading, setTaskFileUploading] = useState(false);
@@ -1117,6 +1140,65 @@ export default function Admin() {
     await logAction("delete_team_member", "admin_team_members", member.id, { email: member.email, auth_user_id: member.auth_user_id });
     setSelectedTeamId(null);
     setNotice("Team member record aur uska login dono delete ho gaye. Email ab dobara register/invite ke liye free hai.");
+    await load();
+  }
+
+  async function handleQueueFileSelected(file: File, fields: { key: string; label: string }[]) {
+    setQueueImport((cur) => ({ ...cur, parsing: true }));
+    try {
+      const { headers, rows } = await parseSpreadsheetFile(file);
+      if (rows.length === 0) { setError("No rows found in that file."); setQueueImport({ headers: [], rows: [], mapping: {}, parsing: false }); return; }
+      setQueueImport({ headers, rows, mapping: guessColumnMapping(fields, headers), parsing: false });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not read that file.");
+      setQueueImport({ headers: [], rows: [], mapping: {}, parsing: false });
+    }
+  }
+
+  function confirmQueueImport() {
+    const mapped = queueImport.rows.map((row) => {
+      const item: Record<string, string> = {};
+      for (const f of taskForm.queueFields) {
+        const col = queueImport.mapping[f.key];
+        item[f.key] = col ? row[col] || "" : "";
+      }
+      return item;
+    }).filter((item) => Object.values(item).some((v) => v.trim()));
+    setTaskForm((cur) => ({ ...cur, queueItems: [...cur.queueItems, ...mapped] }));
+    setQueueImport({ headers: [], rows: [], mapping: {}, parsing: false });
+    setNotice(`${mapped.length} rows imported into the queue.`);
+  }
+
+  async function handleEditQueueFileSelected(file: File, fields: { key: string; label: string }[]) {
+    setEditQueueImport((cur) => ({ ...cur, parsing: true }));
+    try {
+      const { headers, rows } = await parseSpreadsheetFile(file);
+      if (rows.length === 0) { setError("No rows found in that file."); setEditQueueImport({ headers: [], rows: [], mapping: {}, parsing: false, importing: false }); return; }
+      setEditQueueImport({ headers, rows, mapping: guessColumnMapping(fields, headers), parsing: false, importing: false });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not read that file.");
+      setEditQueueImport({ headers: [], rows: [], mapping: {}, parsing: false, importing: false });
+    }
+  }
+
+  async function confirmEditQueueImport(task: AdminTask) {
+    const fields = task.queue_field_schema || [];
+    const mapped = editQueueImport.rows.map((row, idx) => {
+      const item: Record<string, string> = {};
+      for (const f of fields) {
+        const col = editQueueImport.mapping[f.key];
+        item[f.key] = col ? row[col] || "" : "";
+      }
+      return { task_id: task.id, data: item, sort_order: queueItems.length + idx };
+    }).filter((r) => Object.values(r.data).some((v) => v.trim()));
+    if (mapped.length === 0) { setEditQueueImport({ headers: [], rows: [], mapping: {}, parsing: false, importing: false }); return; }
+    setEditQueueImport((cur) => ({ ...cur, importing: true }));
+    const { error: insertError } = await supabase.from("task_queue_items").insert(mapped);
+    setEditQueueImport({ headers: [], rows: [], mapping: {}, parsing: false, importing: false });
+    if (insertError) { setError(insertError.message); return; }
+    setNotice(`${mapped.length} items added to the queue.`);
+    const { data } = await supabase.from("task_queue_items").select("*").eq("task_id", task.id).order("sort_order");
+    setQueueItems((data as TaskQueueItem[]) ?? []);
     await load();
   }
 
@@ -2223,6 +2305,38 @@ export default function Admin() {
                         >
                           + Add item to list
                         </button>
+
+                        <div className="mt-2 pt-2 border-t border-purple-100">
+                          <label className="flex items-center justify-center gap-2 rounded-lg border border-dashed border-purple-300 bg-white px-3 py-2.5 text-xs font-bold text-purple-700 cursor-pointer hover:bg-purple-50">
+                            {queueImport.parsing ? "Reading file..." : "📁 Upload Excel / CSV — bulk add"}
+                            <input
+                              type="file"
+                              accept=".xlsx,.xls,.csv"
+                              className="hidden"
+                              disabled={queueImport.parsing}
+                              onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) void handleQueueFileSelected(f, taskForm.queueFields); }}
+                            />
+                          </label>
+                        </div>
+
+                        {queueImport.rows.length > 0 && (
+                          <div className="mt-2 rounded-xl border border-purple-200 bg-white p-3 space-y-2">
+                            <p className="text-xs font-bold text-purple-800">{queueImport.rows.length} rows found — match columns:</p>
+                            {taskForm.queueFields.map((f) => (
+                              <div key={f.key} className="flex items-center gap-2 text-xs">
+                                <span className="w-28 shrink-0 font-semibold text-slate-600">{f.label}</span>
+                                <select className="input text-xs py-1 flex-1" value={queueImport.mapping[f.key] || ""} onChange={(e) => setQueueImport({ ...queueImport, mapping: { ...queueImport.mapping, [f.key]: e.target.value } })}>
+                                  <option value="">— skip —</option>
+                                  {queueImport.headers.map((h) => <option key={h} value={h}>{h}</option>)}
+                                </select>
+                              </div>
+                            ))}
+                            <div className="flex gap-2 pt-1">
+                              <button type="button" className="btn-secondary text-xs py-1.5 px-3 flex-1" onClick={() => setQueueImport({ headers: [], rows: [], mapping: {}, parsing: false })}>Cancel</button>
+                              <button type="button" className="btn-primary text-xs py-1.5 px-3 flex-1" onClick={confirmQueueImport}>Import {queueImport.rows.length} rows</button>
+                            </div>
+                          </div>
+                        )}
                       </div>
 
                       {taskForm.queueItems.length > 0 && (
@@ -3024,6 +3138,37 @@ export default function Admin() {
                           );
                         })}
                         {queueItems.length === 0 && <p className="text-xs text-indigo-400">No items yet.</p>}
+                      </div>
+
+                      <div className="mt-3 pt-3 border-t border-indigo-100">
+                        <label className="flex items-center justify-center gap-2 rounded-lg border border-dashed border-indigo-300 bg-white px-3 py-2.5 text-xs font-bold text-indigo-700 cursor-pointer hover:bg-indigo-50">
+                          {editQueueImport.parsing ? "Reading file..." : "📁 Upload Excel / CSV — add more items"}
+                          <input
+                            type="file"
+                            accept=".xlsx,.xls,.csv"
+                            className="hidden"
+                            disabled={editQueueImport.parsing}
+                            onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) void handleEditQueueFileSelected(f, selectedAdminTask.queue_field_schema || []); }}
+                          />
+                        </label>
+                        {editQueueImport.rows.length > 0 && (
+                          <div className="mt-2 rounded-xl border border-indigo-200 bg-white p-3 space-y-2">
+                            <p className="text-xs font-bold text-indigo-800">{editQueueImport.rows.length} rows found — match columns:</p>
+                            {(selectedAdminTask.queue_field_schema || []).map((f) => (
+                              <div key={f.key} className="flex items-center gap-2 text-xs">
+                                <span className="w-28 shrink-0 font-semibold text-slate-600">{f.label}</span>
+                                <select className="input text-xs py-1 flex-1" value={editQueueImport.mapping[f.key] || ""} onChange={(e) => setEditQueueImport({ ...editQueueImport, mapping: { ...editQueueImport.mapping, [f.key]: e.target.value } })}>
+                                  <option value="">— skip —</option>
+                                  {editQueueImport.headers.map((h) => <option key={h} value={h}>{h}</option>)}
+                                </select>
+                              </div>
+                            ))}
+                            <div className="flex gap-2 pt-1">
+                              <button type="button" className="btn-secondary text-xs py-1.5 px-3 flex-1" onClick={() => setEditQueueImport({ headers: [], rows: [], mapping: {}, parsing: false, importing: false })}>Cancel</button>
+                              <button type="button" disabled={editQueueImport.importing} className="btn-primary text-xs py-1.5 px-3 flex-1" onClick={() => confirmEditQueueImport(selectedAdminTask)}>{editQueueImport.importing ? "Importing..." : `Import ${editQueueImport.rows.length} rows`}</button>
+                            </div>
+                          </div>
+                        )}
                       </div>
                     </div>
                   )}
