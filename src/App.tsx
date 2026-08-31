@@ -1,51 +1,56 @@
-import type { ReactNode } from "react";
+import { type ReactNode, Suspense, lazy } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
 import { useAuth } from "./context/AuthContext";
 
-import Landing from "./pages/Landing";
-import Login from "./pages/Login";
-import Signup from "./pages/Signup";
-import CheckEmail from "./pages/CheckEmail";
-import BusinessSetup from "./pages/BusinessSetup";
-import VerifyPhone from "./pages/VerifyPhone";
-import ForgotPassword from "./pages/ForgotPassword";
-import ResetPassword from "./pages/ResetPassword";
+// Every route below is code-split (React.lazy) so the first page a visitor
+// hits only downloads the JS it actually needs — a customer landing on the
+// marketing page no longer pulls in the entire Admin panel or Staff
+// dashboard bundle (previously ~2MB of JS on every single load).
+const Landing = lazy(() => import("./pages/Landing"));
+const Login = lazy(() => import("./pages/Login"));
+const Signup = lazy(() => import("./pages/Signup"));
+const CheckEmail = lazy(() => import("./pages/CheckEmail"));
+const BusinessSetup = lazy(() => import("./pages/BusinessSetup"));
+const VerifyPhone = lazy(() => import("./pages/VerifyPhone"));
+const ForgotPassword = lazy(() => import("./pages/ForgotPassword"));
+const ResetPassword = lazy(() => import("./pages/ResetPassword"));
 
-import AppLayout from "./components/AppLayout";
-import Dashboard from "./pages/Dashboard";
-import NewInvoice from "./pages/NewInvoice";
-import InvoicePreview from "./pages/InvoicePreview";
-import Invoices from "./pages/Invoices";
-import Clients from "./pages/Clients";
-import Account from "./pages/Account";
-import Billing from "./pages/Billing";
-import Reports from "./pages/Reports";
-import Settings from "./pages/Settings";
-import TeamMembers from "./pages/TeamMembers";
-import Support from "./pages/Support";
-import KnowledgeBase from "./pages/KnowledgeBase";
-import Business from "./pages/Business";
-import AcceptInvitation from "./pages/AcceptInvitation";
-import ChangeTemporaryPassword from "./pages/ChangeTemporaryPassword";
-import Admin from "./pages/Admin";
-import AdminLogin from "./pages/AdminLogin";
-import StaffLogin from "./pages/StaffLogin";
-import StaffDashboard from "./pages/StaffDashboard";
-import AdminLayout from "./components/AdminLayout";
-import StaffLayout from "./components/StaffLayout";
+const AppLayout = lazy(() => import("./components/AppLayout"));
+const Dashboard = lazy(() => import("./pages/Dashboard"));
+const NewInvoice = lazy(() => import("./pages/NewInvoice"));
+const InvoicePreview = lazy(() => import("./pages/InvoicePreview"));
+const Invoices = lazy(() => import("./pages/Invoices"));
+const Clients = lazy(() => import("./pages/Clients"));
+const Account = lazy(() => import("./pages/Account"));
+const Billing = lazy(() => import("./pages/Billing"));
+const Reports = lazy(() => import("./pages/Reports"));
+const Settings = lazy(() => import("./pages/Settings"));
+const TeamMembers = lazy(() => import("./pages/TeamMembers"));
+const Support = lazy(() => import("./pages/Support"));
+const KnowledgeBase = lazy(() => import("./pages/KnowledgeBase"));
+const Business = lazy(() => import("./pages/Business"));
+const AcceptInvitation = lazy(() => import("./pages/AcceptInvitation"));
+const ChangeTemporaryPassword = lazy(() => import("./pages/ChangeTemporaryPassword"));
+const Admin = lazy(() => import("./pages/Admin"));
+const AdminLogin = lazy(() => import("./pages/AdminLogin"));
+const StaffLogin = lazy(() => import("./pages/StaffLogin"));
+const StaffDashboard = lazy(() => import("./pages/StaffDashboard"));
+const AdminLayout = lazy(() => import("./components/AdminLayout"));
+const StaffLayout = lazy(() => import("./components/StaffLayout"));
 import StaffRoute from "./components/StaffRoute";
-import ShareInvoice from "./pages/ShareInvoice";
+const ShareInvoice = lazy(() => import("./pages/ShareInvoice"));
 import { ADMIN_EMAIL } from "./lib/constants";
-import Terms from "./pages/Terms";
-import Privacy from "./pages/Privacy";
-import RefundPolicy from "./pages/RefundPolicy";
-import PricingPage from "./pages/PricingPage";
-import About from "./pages/About";
-import Contact from "./pages/Contact";
-import Security from "./pages/Security";
-import NotFound from "./pages/NotFound";
+const Terms = lazy(() => import("./pages/Terms"));
+const Privacy = lazy(() => import("./pages/Privacy"));
+const RefundPolicy = lazy(() => import("./pages/RefundPolicy"));
+const PricingPage = lazy(() => import("./pages/PricingPage"));
+const About = lazy(() => import("./pages/About"));
+const Contact = lazy(() => import("./pages/Contact"));
+const Security = lazy(() => import("./pages/Security"));
+const NotFound = lazy(() => import("./pages/NotFound"));
 import ScrollToTop from "./components/ScrollToTop";
-import MaintenancePage from "./pages/MaintenancePage";
+import AnalyticsTracker from "./components/AnalyticsTracker";
+const MaintenancePage = lazy(() => import("./pages/MaintenancePage"));
 import { usePlatformSettings } from "./lib/platformSettings";
 
 
@@ -255,6 +260,8 @@ export default function App() {
   return (
     <>
       <ScrollToTop />
+      <AnalyticsTracker />
+      <Suspense fallback={<LoadingScreen />}>
       <Routes>
       <Route path="/" element={<HostHomeRedirect />} />
       <Route path="/pricing" element={<PricingPage />} />
@@ -405,6 +412,7 @@ export default function App() {
       <Route path="/share/:token" element={<ShareInvoice />} />
       <Route path="*" element={<NotFound />} />
       </Routes>
+      </Suspense>
     </>
   );
 }
