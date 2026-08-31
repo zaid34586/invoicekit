@@ -14,4 +14,4 @@ Disallow: /team-members
 Disallow: /business
 Disallow: /support
 
-Sitemap: https://rivox.com/sitemap.xml
+Sitemap: https://rivoxcloud.com/sitemap.xml

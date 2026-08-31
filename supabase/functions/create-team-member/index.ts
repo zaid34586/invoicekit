@@ -2,8 +2,8 @@ import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const ADMIN_EMAIL = "mz7123272@gmail.com";
-const DEFAULT_STAFF_PORTAL_URL = "https://staff.rivox.com";
-const DEFAULT_ADMIN_PORTAL_URL = "https://admin.rivox.com";
+const DEFAULT_STAFF_PORTAL_URL = "https://staff.rivoxcloud.com";
+const DEFAULT_ADMIN_PORTAL_URL = "https://admin.rivoxcloud.com";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",

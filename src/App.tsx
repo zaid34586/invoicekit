@@ -57,8 +57,8 @@ import { usePlatformSettings } from "./lib/platformSettings";
 function getPortalHost() {
   const host = window.location.hostname.toLowerCase();
   return {
-    isStaffHost: host === "staff.rivox.com" || host.startsWith("staff."),
-    isAdminHost: host === "admin.rivox.com" || host.startsWith("admin."),
+    isStaffHost: host === "staff.rivoxcloud.com" || host.startsWith("staff."),
+    isAdminHost: host === "admin.rivoxcloud.com" || host.startsWith("admin."),
   };
 }
 

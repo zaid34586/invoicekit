@@ -2083,7 +2083,7 @@ export default function Admin() {
                   <button className="btn-primary w-full" type="submit">Create Team Member + Send Email</button>
                 </form>
                 <div className="text-xs text-slate-500 mt-3 space-y-1">
-                  <p>Staff portal URL: <b>https://staff.rivox.com</b></p>
+                  <p>Staff portal URL: <b>https://staff.rivoxcloud.com</b></p>
                   <p>Set the Supabase secret <b>RESEND_API_KEY</b> to email the staff portal URL, work email, and temporary password automatically.</p>
                 </div>
               </Card>
@@ -2183,7 +2183,7 @@ export default function Admin() {
                         <Info label="Auth User" value={selectedTeam.auth_user_id ? "Created" : "Not linked"} />
                         <Info label="Temp Password" value={selectedTeam.temporary_password || "—"} />
                         <Info label="Invite Email" value={selectedTeam.invite_status ? `${selectedTeam.invite_status}${selectedTeam.invite_email_sent_at ? ` • ${formatDate(selectedTeam.invite_email_sent_at)}` : ""}` : "—"} />
-                        <Info label="Staff Portal" value={selectedTeam.staff_portal_url || "https://staff.rivox.com"} />
+                        <Info label="Staff Portal" value={selectedTeam.staff_portal_url || "https://staff.rivoxcloud.com"} />
                       </div>
                       <div className="rounded-xl bg-slate-50 border border-slate-100 p-4">
                         <p className="text-xs font-semibold text-slate-500 uppercase mb-2">Allowed Modules</p>

@@ -59,7 +59,7 @@ export default function Hero() {
             <div className="overflow-hidden rounded-[1.55rem] bg-slate-50">
               <div className="flex h-10 items-center gap-2 border-b border-slate-200 bg-white px-3 sm:h-12 sm:px-5">
                 <span className="h-3 w-3 rounded-full bg-rose-400" /><span className="h-3 w-3 rounded-full bg-amber-400" /><span className="h-3 w-3 rounded-full bg-emerald-400" />
-                <div className="ml-auto hidden rounded-lg border border-slate-200 bg-slate-50 px-6 py-1.5 text-xs sm:block font-medium text-slate-400">app.rivox.com/dashboard</div>
+                <div className="ml-auto hidden rounded-lg border border-slate-200 bg-slate-50 px-6 py-1.5 text-xs sm:block font-medium text-slate-400">app.rivoxcloud.com/dashboard</div>
               </div>
 
               <div className="grid min-h-[390px] lg:min-h-[430px] lg:grid-cols-[230px_1fr]">

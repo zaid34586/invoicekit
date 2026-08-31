@@ -129,7 +129,7 @@ export default function AdminLogin() {
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     className="w-full rounded-2xl border border-white/10 bg-slate-950/60 px-4 py-4 text-sm text-white outline-none transition placeholder:text-slate-600 focus:border-blue-400/70 focus:ring-4 focus:ring-blue-500/20"
-                    placeholder="owner@rivox.com"
+                    placeholder="owner@rivoxcloud.com"
                     autoComplete="username"
                   />
                 </div>
