@@ -198,6 +198,7 @@ type AdminSystemSettings = {
   team_portal: boolean;
   ai_insights: boolean;
   ads_enabled: boolean;
+  phone_verification_required: boolean;
   default_currency: string;
   security_level: "standard" | "strict" | "locked";
 };
@@ -212,6 +213,13 @@ const DEFAULT_SYSTEM_SETTINGS: AdminSystemSettings = {
   team_portal: false,
   ai_insights: true,
   ads_enabled: false,
+  // Default stays true so nothing changes unless someone explicitly
+  // flips this OFF from Admin -> System Center (e.g. while the SMS
+  // provider is in trial mode). Turning it off does NOT touch the
+  // phone_verified data on any profile — it just stops the app from
+  // requiring it before letting a user into the dashboard, so it's
+  // safe to flip back ON later with zero side effects.
+  phone_verification_required: true,
   default_currency: "INR",
   security_level: "standard",
 };
@@ -2870,6 +2878,7 @@ export default function Admin() {
                     ["team_portal", "Team Portal"],
                     ["ai_insights", "AI Insights"],
                     ["ads_enabled", "Ads Enabled"],
+                    ["phone_verification_required", "Phone (OTP) Verification"],
                   ].map(([key, label]) => (
                     <label key={key} className="flex items-center justify-between gap-3 rounded-xl border border-slate-100 p-3 text-sm font-medium text-slate-700">
                       {label}

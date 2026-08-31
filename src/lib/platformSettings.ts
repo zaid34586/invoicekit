@@ -6,6 +6,11 @@ export type PlatformSettings = {
   maintenance_message: string;
   allow_admin_bypass: boolean;
   public_signup: boolean;
+  // Admin -> System Center -> Feature Flags -> "Phone (OTP) Verification".
+  // Defaults to true (unchanged behavior). When flipped off from the admin
+  // panel, the app stops requiring phone_verified before dashboard access —
+  // no profile data is touched, so switching it back on is instant and safe.
+  phone_verification_required: boolean;
 };
 
 const DEFAULTS: PlatformSettings = {
@@ -13,6 +18,7 @@ const DEFAULTS: PlatformSettings = {
   maintenance_message: "We are improving Rivox. Please check back soon.",
   allow_admin_bypass: true,
   public_signup: true,
+  phone_verification_required: true,
 };
 
 // admin_system_settings.value is one JSONB blob keyed "platform" holding
