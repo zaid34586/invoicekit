@@ -105,6 +105,28 @@ type TaskQueueItem = {
   created_at: string;
 };
 
+type TaskSession = {
+  id: string;
+  task_id: string;
+  staff_id: string;
+  status: "recording" | "completed" | "interrupted";
+  recording_url: string | null;
+  started_at: string;
+  ended_at: string | null;
+  items_worked: number;
+};
+
+type TaskActivityLogEntry = {
+  id: string;
+  task_id: string;
+  queue_item_id: string | null;
+  session_id: string | null;
+  staff_id: string | null;
+  action: string;
+  details: Record<string, unknown>;
+  created_at: string;
+};
+
 type AdminFinanceEntry = {
   id: string;
   entry_date: string;
@@ -1391,6 +1413,15 @@ export default function Admin() {
 
   const selectedAdminTask = selectedAdminTaskId ? tasks.find((task) => task.id === selectedAdminTaskId) ?? null : null;
   const [queueItems, setQueueItems] = useState<TaskQueueItem[]>([]);
+  const [taskSessions, setTaskSessions] = useState<TaskSession[]>([]);
+  const [taskActivity, setTaskActivity] = useState<TaskActivityLogEntry[]>([]);
+  const [showActivityLog, setShowActivityLog] = useState(false);
+  const [queuePerformance, setQueuePerformance] = useState<{ status: string; marked_by: string | null }[]>([]);
+
+  useEffect(() => {
+    if (active !== "tasks") return;
+    void supabase.from("task_queue_items").select("status, marked_by").neq("status", "pending").then(({ data }) => setQueuePerformance(data ?? []));
+  }, [active]);
 
   useEffect(() => {
     if (!selectedAdminTask) return;
@@ -1406,9 +1437,14 @@ export default function Admin() {
     });
     if (selectedAdminTask.task_type === "queue") {
       void supabase.from("task_queue_items").select("*").eq("task_id", selectedAdminTask.id).order("sort_order").then(({ data }) => setQueueItems((data as TaskQueueItem[]) ?? []));
+      void supabase.from("task_sessions").select("*").eq("task_id", selectedAdminTask.id).order("started_at", { ascending: false }).then(({ data }) => setTaskSessions((data as TaskSession[]) ?? []));
+      void supabase.from("task_activity_log").select("*").eq("task_id", selectedAdminTask.id).order("created_at", { ascending: false }).limit(200).then(({ data }) => setTaskActivity((data as TaskActivityLogEntry[]) ?? []));
     } else {
       setQueueItems([]);
+      setTaskSessions([]);
+      setTaskActivity([]);
     }
+    setShowActivityLog(false);
   }, [selectedAdminTaskId]); // eslint-disable-line react-hooks/exhaustive-deps
   const filteredAuditLogs = useMemo(() => {
     const q = auditSearch.trim().toLowerCase();
@@ -2097,6 +2133,30 @@ export default function Admin() {
               <Metric title="Blocked" value={String(tasks.filter((t) => t.status === "blocked").length)} icon="🛑" />
               <Metric title="Done" value={String(tasks.filter((t) => t.status === "done").length)} icon="✅" />
             </div>
+            {queuePerformance.length > 0 && (
+              <Card className="p-5">
+                <h2 className="text-sm font-bold uppercase tracking-wide text-slate-500 mb-4">Queue performance by staff</h2>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead><tr className="text-left text-xs font-bold text-slate-400 uppercase"><th className="pb-2">Staff</th><th className="pb-2">🔴 Red</th><th className="pb-2">🟠 Maybe Later</th><th className="pb-2">🟢 Converted</th><th className="pb-2">Total worked</th></tr></thead>
+                    <tbody>
+                      {team.filter((m) => queuePerformance.some((q) => q.marked_by === m.id)).map((m) => {
+                        const mine = queuePerformance.filter((q) => q.marked_by === m.id);
+                        return (
+                          <tr key={m.id} className="border-t border-slate-100">
+                            <td className="py-2 font-semibold text-slate-800">{m.name || m.email}</td>
+                            <td className="py-2 text-red-600 font-bold">{mine.filter((q) => q.status === "red").length}</td>
+                            <td className="py-2 text-orange-600 font-bold">{mine.filter((q) => q.status === "orange").length}</td>
+                            <td className="py-2 text-emerald-600 font-bold">{mine.filter((q) => q.status === "green").length}</td>
+                            <td className="py-2 text-slate-500">{mine.length}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </Card>
+            )}
             <div className="grid xl:grid-cols-[420px_1fr] gap-6">
               <Card className="p-5 h-fit">
                 <h2 className="text-lg font-semibold text-slate-900 mb-4">Assign New Task</h2>
@@ -2955,12 +3015,66 @@ export default function Admin() {
                                 <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${dot}`} />
                                 <span className="truncate text-slate-700">{(selectedAdminTask.queue_field_schema || []).map((f) => item.data[f.key]).filter(Boolean).join(" · ") || "(no data)"}</span>
                               </div>
-                              {item.proof_notes && <span className="text-slate-400 ml-2 shrink-0 max-w-[140px] truncate">{item.proof_notes}</span>}
+                              <div className="flex items-center gap-2 shrink-0 ml-2">
+                                {item.proof_screenshot_url && <a href={item.proof_screenshot_url} target="_blank" rel="noreferrer" title="Chat screenshot" className="text-primary-600">💬</a>}
+                                {item.proof_recording_url && <a href={item.proof_recording_url} target="_blank" rel="noreferrer" title="Call recording" className="text-primary-600">📞</a>}
+                                {item.proof_notes && <span className="text-slate-400 max-w-[140px] truncate" title={item.proof_notes}>{item.proof_notes}</span>}
+                              </div>
                             </div>
                           );
                         })}
                         {queueItems.length === 0 && <p className="text-xs text-indigo-400">No items yet.</p>}
                       </div>
+                    </div>
+                  )}
+                  {selectedAdminTask.task_type === "queue" && (
+                    <div className="rounded-2xl border border-slate-200 p-5">
+                      <p className="text-xs font-bold uppercase tracking-wide text-slate-500 mb-3">Sessions & recordings ({taskSessions.length})</p>
+                      <div className="space-y-2">
+                        {taskSessions.map((s) => {
+                          const member = team.find((m) => m.id === s.staff_id);
+                          const durationMin = s.ended_at ? Math.round((new Date(s.ended_at).getTime() - new Date(s.started_at).getTime()) / 60000) : null;
+                          return (
+                            <div key={s.id} className="rounded-xl bg-slate-50 border border-slate-100 p-3">
+                              <div className="flex items-center justify-between text-xs mb-1.5 flex-wrap gap-1">
+                                <span className="font-bold text-slate-800">{member?.name || member?.email || "Unknown staff"}</span>
+                                <div className="flex items-center gap-2">
+                                  <Pill className={s.status === "completed" ? "bg-emerald-100 text-emerald-700 border-emerald-200" : s.status === "recording" ? "bg-red-100 text-red-700 border-red-200 animate-pulse" : "bg-amber-100 text-amber-700 border-amber-200"}>
+                                    {s.status === "recording" ? "🔴 Live" : s.status === "completed" ? "✅ Completed" : "⏸ Paused/Interrupted"}
+                                  </Pill>
+                                  <span className="text-slate-400">{formatDate(s.started_at)}{durationMin !== null ? ` · ${durationMin} min` : ""} · {s.items_worked} items</span>
+                                </div>
+                              </div>
+                              {s.recording_url ? (
+                                <video src={s.recording_url} controls className="w-full rounded-lg max-h-64 bg-black" />
+                              ) : (
+                                <p className="text-xs text-slate-400">No recording captured for this session.</p>
+                              )}
+                            </div>
+                          );
+                        })}
+                        {taskSessions.length === 0 && <p className="text-xs text-slate-400">No work sessions yet.</p>}
+                      </div>
+
+                      <button type="button" onClick={() => setShowActivityLog((v) => !v)} className="text-xs font-bold text-primary-700 underline mt-4">
+                        {showActivityLog ? "Hide" : "Show"} full activity log ({taskActivity.length})
+                      </button>
+                      {showActivityLog && (
+                        <div className="mt-2 max-h-56 overflow-y-auto space-y-1 rounded-xl bg-slate-50 border border-slate-100 p-3">
+                          {taskActivity.map((a) => {
+                            const member = team.find((m) => m.id === a.staff_id);
+                            return (
+                              <div key={a.id} className="text-xs text-slate-600 flex items-center gap-2">
+                                <span className="text-slate-400 shrink-0">{new Date(a.created_at).toLocaleTimeString()}</span>
+                                <span className="font-semibold text-slate-800 shrink-0">{member?.name || "—"}</span>
+                                <span>{a.action.replace(/_/g, " ")}</span>
+                                {typeof a.details?.status === "string" && <Pill className="bg-white border-slate-200">{a.details.status}</Pill>}
+                              </div>
+                            );
+                          })}
+                          {taskActivity.length === 0 && <p className="text-xs text-slate-400">No activity logged yet.</p>}
+                        </div>
+                      )}
                     </div>
                   )}
                   {selectedAdminTask.requires_verification && (
