@@ -339,6 +339,14 @@ export const COUNTRIES: CountryData[] = COUNTRY_CATALOG.map((country) => ({
 export const FREE_PLAN_LIMIT = 3;
 export const PRO_PLAN_PRICE = 399;
 export const ADMIN_EMAIL = "mz7123272@gmail.com";
+// Temporarily off for launch: Twilio is on a trial account, which can only
+// send OTPs to numbers manually verified in the Twilio console -- real
+// signups would get stuck at phone verification. Flip this back to true
+// once Twilio is upgraded to a paid account (see chat history). Nothing
+// else needs to change -- send-otp/verify-otp and the /verify-phone page
+// stay fully working, this only controls whether the app REQUIRES it
+// before letting someone into their dashboard.
+export const REQUIRE_PHONE_VERIFICATION = false;
 
 export function formatINR(amount: number): string {
   const rounded = Math.round(amount * 100) / 100;

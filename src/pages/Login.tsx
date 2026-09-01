@@ -2,6 +2,7 @@ import { useState, type FormEvent } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { supabase } from "../lib/supabase";
+import { REQUIRE_PHONE_VERIFICATION } from "../lib/constants";
 import PasswordField from "../components/PasswordField";
 
 type Stage = "form" | "loading";
@@ -48,11 +49,11 @@ export default function Login() {
     if (!profile?.country) {
       setLoadingText("Setting up your business...");
       navigate("/business-setup", { replace: true });
-    } else {
-      // Phone/OTP verification is disabled for now, so we skip
-      // straight to the dashboard regardless of phone_verified.
+    } else if (!REQUIRE_PHONE_VERIFICATION || profile.phone_verified === true) {
       setLoadingText("Taking you to dashboard...");
       navigate("/dashboard", { replace: true });
+    } else {
+      navigate("/verify-phone", { replace: true });
     }
   }
 

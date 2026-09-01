@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { supabase } from "../lib/supabase";
 import { GLOBAL_COUNTRIES, getGlobalCountryConfig } from "../lib/globalConfig";
+import { REQUIRE_PHONE_VERIFICATION } from "../lib/constants";
 import CountrySelect from "../components/CountrySelect";
 
 export default function BusinessSetup() {
@@ -49,9 +50,7 @@ export default function BusinessSetup() {
       setError("Business setup was saved but could not be loaded. Please refresh and try again.");
       return;
     }
-    // Phone/OTP verification is disabled for now, so we skip
-    // straight to the dashboard instead of /verify-phone.
-    navigate("/dashboard", { replace: true });
+    navigate(REQUIRE_PHONE_VERIFICATION ? "/verify-phone" : "/dashboard", { replace: true });
   }
 
   return (

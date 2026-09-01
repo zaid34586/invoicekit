@@ -31,6 +31,24 @@ interface AuthContextValue {
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
 const VERIFICATION_PENDING_KEY = "rivox_email_verification_pending";
+// A pending-verification flag older than this is treated as stale (an
+// abandoned/never-completed signup) and ignored, instead of being able to
+// silently force-sign-out a completely unrelated future login on the same
+// browser. Without this, a stuck flag from one signup attempt could bounce
+// every subsequent login (login -> verify-phone -> forced back to /login)
+// forever, since the flag never expired or got cleared on a normal login.
+const VERIFICATION_PENDING_TTL_MS = 30 * 60 * 1000; // 30 minutes
+
+function isVerificationPending() {
+  const raw = localStorage.getItem(VERIFICATION_PENDING_KEY);
+  if (!raw) return false;
+  const setAt = Number(raw);
+  if (!Number.isFinite(setAt) || Date.now() - setAt > VERIFICATION_PENDING_TTL_MS) {
+    localStorage.removeItem(VERIFICATION_PENDING_KEY);
+    return false;
+  }
+  return true;
+}
 
 function isVerificationCallbackUrl() {
   if (typeof window === "undefined") return false;
@@ -378,8 +396,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } = supabase.auth.onAuthStateChange(async (event, nextSession) => {
       if (!mounted) return;
 
-      const verificationPending =
-        localStorage.getItem(VERIFICATION_PENDING_KEY) === "1";
+      const verificationPending = isVerificationPending();
       const cameFromVerificationLink = isVerificationCallbackUrl();
       const isAutoVerificationSession =
         event === "SIGNED_IN" &&
@@ -497,7 +514,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return { error: "This email is already registered. Please sign in or reset your password." };
     }
 
-    localStorage.setItem(VERIFICATION_PENDING_KEY, "1");
+    localStorage.setItem(VERIFICATION_PENDING_KEY, String(Date.now()));
     return { error: null };
   };
 
@@ -509,6 +526,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     });
 
     if (error) return { error: error.message };
+
+    // A deliberate password login from the login form is never the
+    // "auto-signed-in from an email confirmation link" case that
+    // VERIFICATION_PENDING_KEY exists to detect -- clear it so a stuck flag
+    // from an earlier abandoned signup can never force-sign-out this login.
+    localStorage.removeItem(VERIFICATION_PENDING_KEY);
 
     if (data.user?.email_confirmed_at) {
       if (options?.skipProfile) {

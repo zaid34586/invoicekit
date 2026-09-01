@@ -2,6 +2,14 @@ import { type ReactNode, Suspense, lazy } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
 import { useAuth } from "./context/AuthContext";
 
+// Single gate for the phone-verification requirement -- see the
+// REQUIRE_PHONE_VERIFICATION comment in lib/constants.ts. When it's off,
+// every route below treats phone as "verified enough to proceed" without
+// touching the actual profile.phone_verified value or the OTP flow itself.
+function isPhoneVerifiedEnough(phoneVerified: boolean | null | undefined) {
+  return !REQUIRE_PHONE_VERIFICATION || Boolean(phoneVerified);
+}
+
 // Every route below is code-split (React.lazy) so the first page a visitor
 // hits only downloads the JS it actually needs — a customer landing on the
 // marketing page no longer pulls in the entire Admin panel or Staff
@@ -39,7 +47,7 @@ const AdminLayout = lazy(() => import("./components/AdminLayout"));
 const StaffLayout = lazy(() => import("./components/StaffLayout"));
 import StaffRoute from "./components/StaffRoute";
 const ShareInvoice = lazy(() => import("./pages/ShareInvoice"));
-import { ADMIN_EMAIL } from "./lib/constants";
+import { ADMIN_EMAIL, REQUIRE_PHONE_VERIFICATION } from "./lib/constants";
 const Terms = lazy(() => import("./pages/Terms"));
 const Privacy = lazy(() => import("./pages/Privacy"));
 const RefundPolicy = lazy(() => import("./pages/RefundPolicy"));
@@ -54,27 +62,11 @@ const MaintenancePage = lazy(() => import("./pages/MaintenancePage"));
 import { usePlatformSettings } from "./lib/platformSettings";
 
 
-// Single place that decides whether phone verification is "satisfied".
-// True whenever the admin has turned the requirement off (Admin -> System
-// Center -> Feature Flags -> "Phone (OTP) Verification"), regardless of
-// what's actually stored on the profile — so nobody gets stuck at
-// /verify-phone while the flag is off. profile.phone_verified itself is
-// never modified by this, so re-enabling the flag later immediately goes
-// back to requiring it exactly as before.
-function phoneVerificationSatisfied(
-  phoneVerified: boolean | undefined,
-  settingsLoaded: boolean,
-  phoneVerificationRequired: boolean
-): boolean {
-  if (settingsLoaded && !phoneVerificationRequired) return true;
-  return Boolean(phoneVerified);
-}
-
 function getPortalHost() {
   const host = window.location.hostname.toLowerCase();
   return {
-    isStaffHost: host === "staff.rivoxcloud.com" || host.startsWith("staff."),
-    isAdminHost: host === "admin.rivoxcloud.com" || host.startsWith("admin."),
+    isStaffHost: host === "staff.rivox.com" || host.startsWith("staff."),
+    isAdminHost: host === "admin.rivox.com" || host.startsWith("admin."),
   };
 }
 
@@ -162,7 +154,7 @@ if (!profile.country) {
   return <Navigate to="/business-setup" replace />;
 }
 
-if (!phoneVerificationSatisfied(profile.phone_verified, loaded, settings.phone_verification_required)) {
+if (!profile.phone_verified && REQUIRE_PHONE_VERIFICATION) {
   return <Navigate to="/verify-phone" replace />;
 }
 
@@ -184,9 +176,7 @@ function ProtectedRoute({ children }: { children: ReactNode }) {
   if (workspaceStatus === "disabled" || workspaceStatus === "removed") return <>{children}</>;
   if (workspaceRole && workspaceRole !== "owner" && workspaceStatus === "active") return <>{children}</>;
   if (!profile?.country) return <Navigate to="/business-setup" replace />;
-  if (!phoneVerificationSatisfied(profile?.phone_verified, loaded, settings.phone_verification_required)) {
-    return <Navigate to="/verify-phone" replace />;
-  }
+  if (!isPhoneVerifiedEnough(profile?.phone_verified)) return <Navigate to="/verify-phone" replace />;
   return <>{children}</>;
 }
 
@@ -230,12 +220,11 @@ function AdminRoute({ children }: { children: ReactNode }) {
 // This is what guarantees Phone Verification never runs without a country.
 function BusinessSetupRoute() {
   const { user, profile, loading } = useAuth();
-  const { settings, loaded } = usePlatformSettings();
   if (loading) return <LoadingScreen />;
   if (!user) return <Navigate to="/login" replace />;
   if (!user.email_confirmed_at) return <Navigate to="/check-email" replace />;
   if (profile?.country) {
-    return phoneVerificationSatisfied(profile.phone_verified, loaded, settings.phone_verification_required)
+    return isPhoneVerifiedEnough(profile.phone_verified)
       ? <Navigate to="/dashboard" replace />
       : <Navigate to="/verify-phone" replace />;
   }
@@ -245,14 +234,11 @@ function BusinessSetupRoute() {
 // Phone verify route: email confirmed + country set, but phone not verified
 function PhoneRoute() {
   const { user, profile, loading } = useAuth();
-  const { settings, loaded } = usePlatformSettings();
   if (loading) return <LoadingScreen />;
   if (!user) return <Navigate to="/login" replace />;
   if (!user.email_confirmed_at) return <Navigate to="/check-email" replace />;
   if (!profile?.country) return <Navigate to="/business-setup" replace />;
-  if (phoneVerificationSatisfied(profile?.phone_verified, loaded, settings.phone_verification_required)) {
-    return <Navigate to="/dashboard" replace />;
-  }
+  if (isPhoneVerifiedEnough(profile?.phone_verified)) return <Navigate to="/dashboard" replace />;
   return <VerifyPhone />;
 }
 
@@ -270,7 +256,7 @@ function CheckEmailRoute() {
 
   if (!user) return <Navigate to="/signup" replace />;
 
-  if (user.email_confirmed_at && profile?.phone_verified) {
+  if (user.email_confirmed_at && isPhoneVerifiedEnough(profile?.phone_verified)) {
     return <Navigate to="/dashboard" replace />;
   }
 
