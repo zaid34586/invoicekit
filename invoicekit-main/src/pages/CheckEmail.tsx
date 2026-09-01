@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
+import { supabase } from "../lib/supabase";
 
 export default function CheckEmail() {
   const { user, signOut } = useAuth();
@@ -13,10 +14,26 @@ const email =
   "your email address";
 
 const [seconds, setSeconds] = useState(60);
+const [sending, setSending] = useState(false);
+const [message, setMessage] = useState("");
+const [error, setError] = useState("");
 
   async function handleSignOut() {
     await signOut();
     navigate("/signup");
+  }
+  async function resendVerification() {
+    if (!email || email === "your email address") return;
+    setSending(true); setMessage(""); setError("");
+    const { error: resendError } = await supabase.auth.resend({
+      type: "signup",
+      email,
+      options: { emailRedirectTo: `${window.location.origin}/login?confirmed=1` },
+    });
+    setSending(false);
+    if (resendError) { setError(resendError.message); return; }
+    setMessage("A new Rivox verification email has been sent.");
+    setSeconds(60);
   }
 useEffect(() => {
   if (seconds === 0) return;
@@ -50,19 +67,15 @@ useEffect(() => {
           Verify your email
         </h1>
 
-        <p className="text-sm text-slate-500 mb-2">
-          We've sent a verification link to
-          <p className="text-sm text-slate-500 mt-5 leading-6">
-Click the verification link in your email.
-Once verified, return here and sign in to continue.
-</p>
-        </p>
+        <p className="text-sm text-slate-500 mb-2">We've sent a verification link to</p>
         <p className="text-sm font-semibold text-slate-800 mb-6">
           {email}
         </p>
 
+        {message && <div className="mb-4 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700">{message}</div>}
+        {error && <div className="mb-4 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div>}
         <div className="rounded-xl bg-slate-100 p-4 mb-6">
-            <div className="rounded-lg bg-slate-100 py-3 text-sm text-slate-600 mb-6">
+            <div className="rounded-lg bg-slate-100 py-3 text-sm text-slate-600 mb-3">
   Didn't receive the email?
 
   <div className="mt-2 font-semibold">
@@ -71,19 +84,15 @@ Once verified, return here and sign in to continue.
     ) : (
       <button
         className="text-primary-600 hover:underline"
-        onClick={() => {
-          setSeconds(60);
-
-          // resend email next step
-        }}
+        disabled={sending}
+        onClick={resendVerification}
       >
-        Resend verification email
+        {sending ? "Sending…" : "Resend verification email"}
       </button>
     )}
   </div>
 </div>
-          Click the link in the email to verify your account. After verification
-          you'll be redirected to sign in.
+          Click the link in the email, then return to Rivox and sign in.
         </div>
 
         <a

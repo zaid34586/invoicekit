@@ -18,8 +18,8 @@ export default function HowItWorks() {
   ];
 
   return (
-    <section id="how-it-works" className="scroll-mt-24 py-24 bg-white">
-      <div className="max-w-7xl mx-auto px-6">
+    <section id="how-it-works" className="scroll-mt-20 bg-white section-shell">
+      <div className="page-container">
 
         <div className="text-center">
           <h2 className="text-4xl font-bold text-slate-900">
@@ -31,12 +31,12 @@ export default function HowItWorks() {
           </p>
         </div>
 
-        <div className="grid md:grid-cols-3 gap-8 mt-16">
+        <div className="mt-9 grid gap-4 sm:mt-12 md:grid-cols-3 sm:gap-6 lg:mt-16 lg:gap-8">
 
           {steps.map((step) => (
             <div
               key={step.number}
-              className="rounded-2xl border border-slate-200 p-8 text-center hover:shadow-xl transition"
+              className="rounded-2xl border border-slate-200 p-5 text-center transition hover:shadow-xl sm:p-7 lg:p-8"
             >
               <div className="w-16 h-16 rounded-full bg-primary-600 text-white flex items-center justify-center text-2xl font-bold mx-auto">
                 {step.number}

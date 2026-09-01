@@ -32,21 +32,27 @@ export type GrowthBanner = {
 export type GrowthEventName = "offer_view" | "offer_click" | "checkout_start" | "checkout_success" | "banner_view" | "banner_click";
 
 export async function loadActiveBanners(placement: GrowthBanner["placement"]) {
-  const now = new Date().toISOString();
+  // Fetch by the simple, unambiguous filters server-side (active + placement),
+  // then apply the starts_at/ends_at window check in JS. This avoids any
+  // ambiguity from chaining two separate .or() date-range filters and makes
+  // the "is this banner live right now" check impossible to get wrong.
   const { data, error } = await supabase
     .from("growth_banners")
     .select("*")
     .eq("active", true)
     .eq("placement", placement)
-    .or(`starts_at.is.null,starts_at.lte.${now}`)
-    .or(`ends_at.is.null,ends_at.gte.${now}`)
-    .order("priority", { ascending: false })
-    .limit(1);
+    .order("priority", { ascending: false });
   if (error) {
     console.warn("Unable to load growth banner:", error.message);
     return [] as GrowthBanner[];
   }
-  return (data ?? []) as GrowthBanner[];
+  const now = Date.now();
+  const live = (data ?? []).filter((banner) => {
+    const startsOk = !banner.starts_at || new Date(banner.starts_at).getTime() <= now;
+    const endsOk = !banner.ends_at || new Date(banner.ends_at).getTime() >= now;
+    return startsOk && endsOk;
+  });
+  return live.slice(0, 1) as GrowthBanner[];
 }
 
 export async function trackGrowthEvent(input: {

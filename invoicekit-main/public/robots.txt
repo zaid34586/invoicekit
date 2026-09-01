@@ -1,0 +1,17 @@
+User-agent: *
+Allow: /
+Disallow: /dashboard
+Disallow: /admin
+Disallow: /staff
+Disallow: /invoice/
+Disallow: /account
+Disallow: /billing
+Disallow: /settings
+Disallow: /reports
+Disallow: /clients
+Disallow: /invoices
+Disallow: /team-members
+Disallow: /business
+Disallow: /support
+
+Sitemap: https://rivoxcloud.com/sitemap.xml

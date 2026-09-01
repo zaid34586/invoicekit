@@ -1,42 +1,65 @@
-import type { ReactNode } from "react";
+import { type ReactNode, Suspense, lazy } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
 import { useAuth } from "./context/AuthContext";
 
-import Landing from "./pages/Landing";
-import Login from "./pages/Login";
-import Signup from "./pages/Signup";
-import CheckEmail from "./pages/CheckEmail";
-import BusinessSetup from "./pages/BusinessSetup";
-import VerifyPhone from "./pages/VerifyPhone";
+// Single gate for the phone-verification requirement -- see the
+// REQUIRE_PHONE_VERIFICATION comment in lib/constants.ts. When it's off,
+// every route below treats phone as "verified enough to proceed" without
+// touching the actual profile.phone_verified value or the OTP flow itself.
+function isPhoneVerifiedEnough(phoneVerified: boolean | null | undefined) {
+  return !REQUIRE_PHONE_VERIFICATION || Boolean(phoneVerified);
+}
 
-import AppLayout from "./components/AppLayout";
-import Dashboard from "./pages/Dashboard";
-import NewInvoice from "./pages/NewInvoice";
-import InvoicePreview from "./pages/InvoicePreview";
-import Invoices from "./pages/Invoices";
-import Clients from "./pages/Clients";
-import Account from "./pages/Account";
-import Billing from "./pages/Billing";
-import Reports from "./pages/Reports";
-import Settings from "./pages/Settings";
-import Admin from "./pages/Admin";
-import AdminLogin from "./pages/AdminLogin";
-import StaffLogin from "./pages/StaffLogin";
-import StaffDashboard from "./pages/StaffDashboard";
-import AdminLayout from "./components/AdminLayout";
-import StaffLayout from "./components/StaffLayout";
+// Every route below is code-split (React.lazy) so the first page a visitor
+// hits only downloads the JS it actually needs — a customer landing on the
+// marketing page no longer pulls in the entire Admin panel or Staff
+// dashboard bundle (previously ~2MB of JS on every single load).
+const Landing = lazy(() => import("./pages/Landing"));
+const Login = lazy(() => import("./pages/Login"));
+const Signup = lazy(() => import("./pages/Signup"));
+const CheckEmail = lazy(() => import("./pages/CheckEmail"));
+const BusinessSetup = lazy(() => import("./pages/BusinessSetup"));
+const VerifyPhone = lazy(() => import("./pages/VerifyPhone"));
+const ForgotPassword = lazy(() => import("./pages/ForgotPassword"));
+const ResetPassword = lazy(() => import("./pages/ResetPassword"));
+
+const AppLayout = lazy(() => import("./components/AppLayout"));
+const Dashboard = lazy(() => import("./pages/Dashboard"));
+const NewInvoice = lazy(() => import("./pages/NewInvoice"));
+const InvoicePreview = lazy(() => import("./pages/InvoicePreview"));
+const Invoices = lazy(() => import("./pages/Invoices"));
+const Clients = lazy(() => import("./pages/Clients"));
+const Account = lazy(() => import("./pages/Account"));
+const Billing = lazy(() => import("./pages/Billing"));
+const Reports = lazy(() => import("./pages/Reports"));
+const Settings = lazy(() => import("./pages/Settings"));
+const TeamMembers = lazy(() => import("./pages/TeamMembers"));
+const Support = lazy(() => import("./pages/Support"));
+const KnowledgeBase = lazy(() => import("./pages/KnowledgeBase"));
+const Business = lazy(() => import("./pages/Business"));
+const AcceptInvitation = lazy(() => import("./pages/AcceptInvitation"));
+const ChangeTemporaryPassword = lazy(() => import("./pages/ChangeTemporaryPassword"));
+const Admin = lazy(() => import("./pages/Admin"));
+const AdminLogin = lazy(() => import("./pages/AdminLogin"));
+const StaffLogin = lazy(() => import("./pages/StaffLogin"));
+const StaffDashboard = lazy(() => import("./pages/StaffDashboard"));
+const AdminLayout = lazy(() => import("./components/AdminLayout"));
+const StaffLayout = lazy(() => import("./components/StaffLayout"));
 import StaffRoute from "./components/StaffRoute";
-import ShareInvoice from "./pages/ShareInvoice";
-import { ADMIN_EMAIL } from "./lib/constants";
-import Terms from "./pages/Terms";
-import Privacy from "./pages/Privacy";
-import RefundPolicy from "./pages/RefundPolicy";
-import PricingPage from "./pages/PricingPage";
-import About from "./pages/About";
-import Contact from "./pages/Contact";
-import Security from "./pages/Security";
-import NotFound from "./pages/NotFound";
+const ShareInvoice = lazy(() => import("./pages/ShareInvoice"));
+import { ADMIN_EMAIL, REQUIRE_PHONE_VERIFICATION } from "./lib/constants";
+const Terms = lazy(() => import("./pages/Terms"));
+const Privacy = lazy(() => import("./pages/Privacy"));
+const RefundPolicy = lazy(() => import("./pages/RefundPolicy"));
+const PricingPage = lazy(() => import("./pages/PricingPage"));
+const About = lazy(() => import("./pages/About"));
+const Contact = lazy(() => import("./pages/Contact"));
+const Security = lazy(() => import("./pages/Security"));
+const NotFound = lazy(() => import("./pages/NotFound"));
 import ScrollToTop from "./components/ScrollToTop";
+import AnalyticsTracker from "./components/AnalyticsTracker";
+const MaintenancePage = lazy(() => import("./pages/MaintenancePage"));
+import { usePlatformSettings } from "./lib/platformSettings";
 
 
 function getPortalHost() {
@@ -60,11 +83,7 @@ function HostHomeRedirect() {
   // Funnel straight into the login form with the confirmed banner instead,
   // so the user re-enters their credentials and the normal post-login flow
   // (business-setup → verify-phone → dashboard) takes over from there.
-  if (loading) {
-    return <LoadingScreen />;
-  }
-
-  if (user) {
+  if (!loading && user) {
     return <Navigate to="/login?confirmed=1" replace />;
   }
 
@@ -106,8 +125,15 @@ function LoadingScreen() {
 // Only accessible when NOT logged in
 function PublicOnlyRoute({ children }: { children: ReactNode }) {
   const { user, profile, loading } = useAuth();
+  const { settings, loaded } = usePlatformSettings();
   if (loading && !user) return <LoadingScreen />;
-  if (!user) return <>{children}</>;
+  if (!user) {
+    if (loaded && settings.maintenance_mode) return <MaintenancePage message={settings.maintenance_message} />;
+    if (loaded && !settings.public_signup && window.location.pathname === "/signup") {
+      return <MaintenancePage message="New signups are temporarily closed. Please check back soon." />;
+    }
+    return <>{children}</>;
+  }
 
 const confirmed =
   new URLSearchParams(window.location.search).get("confirmed") === "1";
@@ -128,7 +154,7 @@ if (!profile.country) {
   return <Navigate to="/business-setup" replace />;
 }
 
-if (!profile.phone_verified) {
+if (!profile.phone_verified && REQUIRE_PHONE_VERIFICATION) {
   return <Navigate to="/verify-phone" replace />;
 }
 
@@ -137,12 +163,40 @@ return <Navigate to="/dashboard" replace />;
 
 // Full auth: email confirmed + business country set + phone verified
 function ProtectedRoute({ children }: { children: ReactNode }) {
-  const { user, profile, loading } = useAuth();
+  const { user, profile, loading, workspaceRole, workspaceStatus } = useAuth();
+  const { settings, loaded } = usePlatformSettings();
   if (loading) return <LoadingScreen />;
   if (!user) return <Navigate to="/login" replace />;
+  const isOwnerAccount = user.email?.toLowerCase() === ADMIN_EMAIL.toLowerCase();
+  if (loaded && settings.maintenance_mode && !(settings.allow_admin_bypass && isOwnerAccount)) {
+    return <MaintenancePage message={settings.maintenance_message} />;
+  }
+  if (user.user_metadata?.force_password_change === true) return <Navigate to="/change-temporary-password" replace />;
   if (!user.email_confirmed_at) return <Navigate to="/check-email" replace />;
+  if (workspaceStatus === "disabled" || workspaceStatus === "removed") return <>{children}</>;
+  if (workspaceRole && workspaceRole !== "owner" && workspaceStatus === "active") return <>{children}</>;
   if (!profile?.country) return <Navigate to="/business-setup" replace />;
-  if (!profile?.phone_verified) return <Navigate to="/verify-phone" replace />;
+  if (!isPhoneVerifiedEnough(profile?.phone_verified)) return <Navigate to="/verify-phone" replace />;
+  return <>{children}</>;
+}
+
+function SignedInRoute({ children }: { children: ReactNode }) {
+  const { user, loading } = useAuth();
+  if (loading) return <LoadingScreen />;
+  if (!user) return <Navigate to="/login" replace />;
+  return <>{children}</>;
+}
+
+type WorkspaceRole = "owner" | "manager" | "accountant" | "staff";
+function WorkspaceRoute({ children, allow, permission }: { children: ReactNode; allow: WorkspaceRole[]; permission?: string }) {
+  const { workspaceRole, workspaceStatus, workspacePermissions, signOut } = useAuth();
+  if (workspaceStatus === "disabled" || workspaceStatus === "removed") {
+    return <div className="min-h-screen grid place-items-center bg-slate-100 px-4"><div className="card max-w-md p-8 text-center"><h1 className="text-2xl font-black text-slate-900">Workspace access unavailable</h1><p className="mt-3 text-slate-600">Your access was {workspaceStatus}. Contact the workspace owner if this was unexpected.</p><button className="btn-primary mt-6" onClick={() => void signOut()}>Sign out</button></div></div>;
+  }
+  if (workspaceRole && !allow.includes(workspaceRole)) return <Navigate to={workspaceRole === "accountant" || workspaceRole === "staff" ? "/clients" : "/dashboard"} replace />;
+  if (workspaceRole && workspaceRole !== "owner" && permission && !workspacePermissions.includes("*") && !workspacePermissions.includes(permission)) {
+    return <div className="min-h-screen grid place-items-center bg-slate-100 px-4"><div className="card max-w-md p-8 text-center"><h1 className="text-2xl font-black text-slate-900">Permission required</h1><p className="mt-3 text-slate-600">Your workspace role does not allow access to this page. Contact the workspace owner.</p><button className="btn-primary mt-6" onClick={() => void signOut()}>Sign out</button></div></div>;
+  }
   return <>{children}</>;
 }
 
@@ -170,7 +224,7 @@ function BusinessSetupRoute() {
   if (!user) return <Navigate to="/login" replace />;
   if (!user.email_confirmed_at) return <Navigate to="/check-email" replace />;
   if (profile?.country) {
-    return profile.phone_verified
+    return isPhoneVerifiedEnough(profile.phone_verified)
       ? <Navigate to="/dashboard" replace />
       : <Navigate to="/verify-phone" replace />;
   }
@@ -184,7 +238,7 @@ function PhoneRoute() {
   if (!user) return <Navigate to="/login" replace />;
   if (!user.email_confirmed_at) return <Navigate to="/check-email" replace />;
   if (!profile?.country) return <Navigate to="/business-setup" replace />;
-  if (profile?.phone_verified) return <Navigate to="/dashboard" replace />;
+  if (isPhoneVerifiedEnough(profile?.phone_verified)) return <Navigate to="/dashboard" replace />;
   return <VerifyPhone />;
 }
 
@@ -202,7 +256,7 @@ function CheckEmailRoute() {
 
   if (!user) return <Navigate to="/signup" replace />;
 
-  if (user.email_confirmed_at && profile?.phone_verified) {
+  if (user.email_confirmed_at && isPhoneVerifiedEnough(profile?.phone_verified)) {
     return <Navigate to="/dashboard" replace />;
   }
 
@@ -214,6 +268,8 @@ export default function App() {
   return (
     <>
       <ScrollToTop />
+      <AnalyticsTracker />
+      <Suspense fallback={<LoadingScreen />}>
       <Routes>
       <Route path="/" element={<HostHomeRedirect />} />
       <Route path="/pricing" element={<PricingPage />} />
@@ -242,15 +298,20 @@ export default function App() {
         }
       />
 
+      <Route path="/forgot-password" element={<ForgotPassword />} />
+      <Route path="/reset-password" element={<ResetPassword />} />
+
       <Route path="/check-email" element={<CheckEmailRoute />} />
       <Route path="/business-setup" element={<BusinessSetupRoute />} />
       <Route path="/verify-phone" element={<PhoneRoute />} />
+      <Route path="/accept-invitation" element={<AcceptInvitation />} />
+      <Route path="/change-temporary-password" element={<SignedInRoute><ChangeTemporaryPassword /></SignedInRoute>} />
 
       <Route
         path="/dashboard"
         element={
           <ProtectedRoute>
-            <AppLayout><Dashboard /></AppLayout>
+            <WorkspaceRoute allow={["owner","manager","accountant","staff"]} permission="dashboard.view"><AppLayout><Dashboard /></AppLayout></WorkspaceRoute>
           </ProtectedRoute>
         }
       />
@@ -258,7 +319,7 @@ export default function App() {
         path="/new"
         element={
           <ProtectedRoute>
-            <AppLayout><NewInvoice /></AppLayout>
+            <WorkspaceRoute allow={["owner","manager","accountant","staff"]} permission="invoices.create"><AppLayout><NewInvoice /></AppLayout></WorkspaceRoute>
           </ProtectedRoute>
         }
       />
@@ -266,7 +327,7 @@ export default function App() {
         path="/invoice/:id"
         element={
           <ProtectedRoute>
-            <AppLayout><InvoicePreview /></AppLayout>
+            <WorkspaceRoute allow={["owner","manager","accountant","staff"]} permission="invoices.view"><AppLayout><InvoicePreview /></AppLayout></WorkspaceRoute>
           </ProtectedRoute>
         }
       />
@@ -274,7 +335,7 @@ export default function App() {
         path="/invoices"
         element={
           <ProtectedRoute>
-            <AppLayout><Invoices /></AppLayout>
+            <WorkspaceRoute allow={["owner","manager","accountant","staff"]} permission="invoices.view"><AppLayout><Invoices /></AppLayout></WorkspaceRoute>
           </ProtectedRoute>
         }
       />
@@ -282,7 +343,7 @@ export default function App() {
         path="/clients"
         element={
           <ProtectedRoute>
-            <AppLayout><Clients /></AppLayout>
+            <WorkspaceRoute allow={["owner","manager","accountant","staff"]} permission="clients.view"><AppLayout><Clients /></AppLayout></WorkspaceRoute>
           </ProtectedRoute>
         }
       />
@@ -290,7 +351,7 @@ export default function App() {
         path="/account"
         element={
           <ProtectedRoute>
-            <AppLayout><Account /></AppLayout>
+            <WorkspaceRoute allow={["owner"]}><AppLayout><Account /></AppLayout></WorkspaceRoute>
           </ProtectedRoute>
         }
       />
@@ -298,7 +359,15 @@ export default function App() {
         path="/billing"
         element={
           <ProtectedRoute>
-            <AppLayout><Billing /></AppLayout>
+            <WorkspaceRoute allow={["owner"]}><AppLayout><Billing /></AppLayout></WorkspaceRoute>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/team-members"
+        element={
+          <ProtectedRoute>
+            <WorkspaceRoute allow={["owner"]}><AppLayout><TeamMembers /></AppLayout></WorkspaceRoute>
           </ProtectedRoute>
         }
       />
@@ -306,7 +375,7 @@ export default function App() {
         path="/reports"
         element={
           <ProtectedRoute>
-            <AppLayout><Reports /></AppLayout>
+            <WorkspaceRoute allow={["owner","manager","accountant","staff"]} permission="reports.view"><AppLayout><Reports /></AppLayout></WorkspaceRoute>
           </ProtectedRoute>
         }
       />
@@ -314,10 +383,13 @@ export default function App() {
         path="/settings"
         element={
           <ProtectedRoute>
-            <AppLayout><Settings /></AppLayout>
+            <WorkspaceRoute allow={["owner"]}><AppLayout><Settings /></AppLayout></WorkspaceRoute>
           </ProtectedRoute>
         }
       />
+      <Route path="/support" element={<ProtectedRoute><WorkspaceRoute allow={["owner","manager","accountant","staff"]}><AppLayout><Support /></AppLayout></WorkspaceRoute></ProtectedRoute>} />
+      <Route path="/support/knowledge-base" element={<ProtectedRoute><WorkspaceRoute allow={["owner","manager","accountant","staff"]}><AppLayout><KnowledgeBase /></AppLayout></WorkspaceRoute></ProtectedRoute>} />
+      <Route path="/business" element={<ProtectedRoute><WorkspaceRoute allow={["owner"]}><AppLayout><Business /></AppLayout></WorkspaceRoute></ProtectedRoute>} />
       <Route
         path="/admin"
         element={
@@ -348,6 +420,7 @@ export default function App() {
       <Route path="/share/:token" element={<ShareInvoice />} />
       <Route path="*" element={<NotFound />} />
       </Routes>
+      </Suspense>
     </>
   );
 }

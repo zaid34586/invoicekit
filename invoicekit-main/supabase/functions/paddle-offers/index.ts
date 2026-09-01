@@ -29,8 +29,18 @@ async function decrypt(encryptedKey: string, ivValue: string) {
   return decoder.decode(decrypted);
 }
 
+// Same environment switch already used correctly by paddle-admin-settings
+// and paddle-subscriptions. This was previously hardcoded to production
+// only, which silently fails (wrong-environment 401/403) for any account
+// still using a Paddle *sandbox* key -- sandbox keys only work against
+// sandbox-api.paddle.com, never api.paddle.com.
+function paddleBaseUrl() {
+  const environment = String(Deno.env.get("PADDLE_ENV") || "production").toLowerCase();
+  return environment === "sandbox" ? "https://sandbox-api.paddle.com" : "https://api.paddle.com";
+}
+
 async function paddleRequest(apiKey: string, path: string, method = "GET", body?: Record<string, unknown>) {
-  const response = await fetch(`https://api.paddle.com${path}`, {
+  const response = await fetch(`${paddleBaseUrl()}${path}`, {
     method,
     headers: {
       Authorization: `Bearer ${apiKey}`,
@@ -110,26 +120,46 @@ Deno.serve(async (req) => {
       ? offer.paddle_restrict_to
       : null;
     const isFlat = offer.discount_type === "fixed";
+    // Paddle's discount schema rejects currency_code as an explicit key
+    // (even set to null) when type is "percentage" -- it must be omitted
+    // entirely, not just empty. Sending it unconditionally was a likely
+    // cause of "Paddle 400: Request does not pass validation."
     const discountPayload: Record<string, unknown> = {
       description: offer.description || offer.label || `Rivox offer ${offer.code}`,
       enabled_for_checkout: Boolean(offer.active),
       code: String(offer.code).replace(/[^a-zA-Z0-9]/g, "").slice(0, 32),
       type: isFlat ? "flat" : "percentage",
       amount: isFlat ? String(Math.round(Number(offer.discount_value) * 100)) : String(Number(offer.discount_value)),
-      currency_code: isFlat ? (offer.paddle_currency_code || "USD") : null,
       recur: Boolean(offer.paddle_recur),
-      maximum_recurring_intervals: offer.paddle_recur ? (offer.paddle_max_recurring_intervals || null) : null,
-      usage_limit: offer.usage_limit || null,
-      restrict_to: restrictTo,
-      expires_at: offer.expires_at || null,
       custom_data: { rivox_offer_id: offer.id, applies_to: offer.applies_to, billing_scope: offer.billing_scope },
     };
+    if (isFlat) discountPayload.currency_code = offer.paddle_currency_code || "USD";
+    if (offer.paddle_recur && offer.paddle_max_recurring_intervals) discountPayload.maximum_recurring_intervals = offer.paddle_max_recurring_intervals;
+    if (offer.usage_limit) discountPayload.usage_limit = offer.usage_limit;
+    if (restrictTo) discountPayload.restrict_to = restrictTo;
+    // A past expires_at is also rejected by Paddle on create/update -- only
+    // send it if it's still in the future; an already-expired offer simply
+    // won't be resent here (it's inactive/expired locally either way).
+    if (offer.expires_at && new Date(offer.expires_at).getTime() > Date.now()) discountPayload.expires_at = offer.expires_at;
 
     let result;
     if (offer.paddle_discount_id) {
       result = await paddleRequest(apiKey, `/discounts/${offer.paddle_discount_id}`, "PATCH", discountPayload);
     } else {
-      result = await paddleRequest(apiKey, "/discounts", "POST", discountPayload);
+      try {
+        result = await paddleRequest(apiKey, "/discounts", "POST", discountPayload);
+      } catch (createError) {
+        // A discount with this code can already exist in Paddle from an
+        // earlier sync attempt that succeeded on Paddle's side but failed
+        // to save the ID back into our DB (e.g. a transient error right
+        // after creation). Paddle's 409 conflict message includes the
+        // existing discount's ID -- adopt it and PATCH it instead of
+        // failing forever on every retry.
+        const message = createError instanceof Error ? createError.message : "";
+        const conflictMatch = message.match(/Discount ID (dsc_[a-zA-Z0-9_]+)/i);
+        if (!conflictMatch) throw createError;
+        result = await paddleRequest(apiKey, `/discounts/${conflictMatch[1]}`, "PATCH", discountPayload);
+      }
     }
 
     const discount = result.data;

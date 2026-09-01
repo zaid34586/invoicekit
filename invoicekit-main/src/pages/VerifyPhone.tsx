@@ -1,9 +1,29 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { RecaptchaVerifier, signInWithPhoneNumber, type ConfirmationResult } from "firebase/auth";
 import { useAuth } from "../context/AuthContext";
 import { supabase } from "../lib/supabase";
+import { firebaseAuth, isFirebaseConfigured } from "../lib/firebase";
 
 type Stage = "phone" | "otp" | "verifying" | "success";
+
+// Firebase requires an invisible reCAPTCHA to be attached to a real DOM node
+// before signInWithPhoneNumber will work. We create it once and reuse it;
+// if a send fails we reset it (Firebase's own recommendation) so the next
+// attempt gets a fresh challenge instead of silently failing.
+let recaptchaVerifier: RecaptchaVerifier | null = null;
+
+function getRecaptchaVerifier(): RecaptchaVerifier {
+  if (!firebaseAuth) {
+    throw new Error("Firebase is not configured.");
+  }
+  if (!recaptchaVerifier) {
+    recaptchaVerifier = new RecaptchaVerifier(firebaseAuth, "recaptcha-container", {
+      size: "invisible",
+    });
+  }
+  return recaptchaVerifier;
+}
 
 export default function VerifyPhone() {
   const [phone, setPhone] = useState("");
@@ -12,6 +32,7 @@ export default function VerifyPhone() {
   const [loading, setLoading] = useState(false);
   const [resendTimer, setResendTimer] = useState(0);
   const [error, setError] = useState("");
+  const confirmationResultRef = useRef<ConfirmationResult | null>(null);
 
   const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
   const navigate = useNavigate();
@@ -26,9 +47,29 @@ export default function VerifyPhone() {
   const countryCode = profile?.country_code ?? "";
 const fullPhone = countryCode + phone;
 
+  // Firebase error codes -> plain-language messages.
+  // (Full list: https://firebase.google.com/docs/reference/js/auth#autherrorcodes)
+  function friendlyFirebaseError(err: unknown): string {
+    const code = (err as { code?: string })?.code || "";
+    if (code === "auth/invalid-phone-number") return "Enter a valid mobile number.";
+    if (code === "auth/too-many-requests") return "Too many attempts. Please try again later.";
+    if (code === "auth/quota-exceeded") return "SMS limit reached for today. Please try again tomorrow.";
+    if (code === "auth/code-expired") return "This code has expired. Please request a new one.";
+    if (code === "auth/invalid-verification-code") return "Invalid OTP. Please try again.";
+    if (code === "auth/billing-not-enabled" || code === "auth/operation-not-allowed") {
+      return "Phone verification is not fully set up yet. Please contact support.";
+    }
+    return (err as Error)?.message || "Something went wrong. Please try again.";
+  }
+
   async function sendOTP() {
     setError("");
     setOtp("");
+
+    if (!isFirebaseConfigured || !firebaseAuth) {
+      setError("Phone verification is not set up yet. Please contact support.");
+      return;
+    }
 
     if (phone.replace(/\D/g, "").length < 8) {
       setError("Enter a valid mobile number.");
@@ -37,23 +78,22 @@ const fullPhone = countryCode + phone;
 
     setLoading(true);
 
-    const { data, error } = await supabase.functions.invoke("send-otp", {
-      body: { phone: fullPhone },
-    });
+    try {
+      const verifier = getRecaptchaVerifier();
+      const confirmationResult = await signInWithPhoneNumber(firebaseAuth, fullPhone, verifier);
+      confirmationResultRef.current = confirmationResult;
 
-    setLoading(false);
-
-    if (error) {
-      setError(error.message);
-      return;
-    }
-
-    if (data?.success) {
       setStage("otp");
       setResendTimer(30);
       setTimeout(() => inputRefs.current[0]?.focus(), 100);
-    } else {
-      setError(data?.error || "Failed to send OTP.");
+    } catch (err) {
+      // Reset the reCAPTCHA widget so the next attempt starts clean —
+      // Firebase's own docs recommend this after any send failure.
+      recaptchaVerifier?.clear();
+      recaptchaVerifier = null;
+      setError(friendlyFirebaseError(err));
+    } finally {
+      setLoading(false);
     }
   }
 
@@ -65,19 +105,19 @@ const fullPhone = countryCode + phone;
       return;
     }
 
-    setStage("verifying");
-
-    const { data, error } = await supabase.functions.invoke("verify-otp", {
-      body: { phone: fullPhone, code: otp },
-    });
-
-    if (error) {
-      setStage("otp");
-      setError(error.message);
+    if (!confirmationResultRef.current) {
+      setError("Session expired. Please request a new OTP.");
+      setStage("phone");
       return;
     }
 
-    if (data?.success) {
+    setStage("verifying");
+
+    try {
+      await confirmationResultRef.current.confirm(otp);
+
+      // Firebase only verifies the phone number — Supabase profile stays
+      // the single source of truth for the app, so we write the result there.
       await supabase
         .from("profiles")
         .update({
@@ -93,9 +133,9 @@ const fullPhone = countryCode + phone;
       setTimeout(() => {
         navigate("/dashboard", { replace: true });
       }, 1500);
-    } else {
+    } catch (err) {
       setStage("otp");
-      setError("Invalid OTP. Please try again.");
+      setError(friendlyFirebaseError(err));
     }
   }
 
@@ -158,9 +198,11 @@ const fullPhone = countryCode + phone;
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-violet-950 px-4 py-10 flex items-center justify-center">
-      <div className="w-full max-w-5xl grid lg:grid-cols-[1.05fr_.95fr] overflow-hidden rounded-3xl border border-white/10 bg-white shadow-2xl shadow-violet-950/30">
-        <section className="hidden lg:flex flex-col justify-between p-10 text-white bg-[radial-gradient(circle_at_top_left,_rgba(139,92,246,.42),_transparent_42%),linear-gradient(145deg,#0f172a,#111827)]">
+    <div className="auth-page">
+      {/* Invisible reCAPTCHA anchor required by Firebase before it will send an SMS. Stays hidden. */}
+      <div id="recaptcha-container" />
+      <div className="auth-shell">
+        <section className="auth-aside">
           <div>
             <div className="inline-flex items-center gap-3">
               <img src="/rivox-logo.svg" alt="Rivox" className="h-10 w-10 rounded-xl" />
@@ -185,11 +227,11 @@ const fullPhone = countryCode + phone;
           </div>
         </section>
 
-        <section className="p-6 sm:p-10 lg:p-12">
-          <div className="mb-8 flex items-center justify-between">
+        <section className="auth-content">
+          <div className="mb-6 flex min-w-0 items-start justify-between gap-3 sm:mb-8">
             <div>
               <p className="text-xs font-semibold uppercase tracking-[.2em] text-violet-600">Step 2 of 2</p>
-              <h2 className="mt-2 text-3xl font-bold text-slate-950">
+              <h2 className="mt-2 auth-heading font-bold text-slate-950">
                 {stage === "otp" ? "Enter your code" : "Verify Mobile Number"}
               </h2>
               <p className="mt-2 text-sm text-slate-500">

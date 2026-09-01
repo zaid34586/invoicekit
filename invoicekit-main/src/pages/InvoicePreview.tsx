@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { supabase } from "../lib/supabase";
+import { deliverPendingWebhooks } from "../lib/webhooks";
 import { useAuth } from "../context/AuthContext";
 import type { Invoice, InvoiceStatus } from "../lib/types";
 import { formatDate, getCountryFlag } from "../lib/constants";
@@ -11,6 +12,7 @@ import StatusBadge from "../components/StatusBadge";
 import { decideTax, type TaxDecision } from "../lib/tax";
 import { formatMoney, convertCurrency } from "../lib/currency";
 import { getTaxLabel } from "../lib/international";
+import { DEFAULT_BRANDING, brandingFont, type WorkspaceBranding } from "../lib/branding";
 
 const STATUS_OPTIONS: { value: InvoiceStatus; label: string }[] = [
   { value: "draft", label: "Draft" },
@@ -21,14 +23,14 @@ const STATUS_OPTIONS: { value: InvoiceStatus; label: string }[] = [
 
 export default function InvoicePreview() {
   const { id } = useParams<{ id: string }>();
-  const { user, profile } = useAuth();
+  const { user, profile, workspaceOwnerId } = useAuth();
   const navigate = useNavigate();
   const [invoice, setInvoice] = useState<Invoice | null>(null);
   const [loading, setLoading] = useState(true);
   const [updating, setUpdating] = useState(false);
-  const [showPayModal, setShowPayModal] = useState(false);
   const [shareCopied, setShareCopied] = useState(false);
   const [emailSent, setEmailSent] = useState(false);
+  const [branding, setBranding] = useState<WorkspaceBranding | null>(null);
 
   useEffect(() => {
     async function load() {
@@ -37,15 +39,22 @@ export default function InvoicePreview() {
         .from("invoices")
         .select("*")
         .eq("id", id)
-        .eq("user_id", user.id)
+        .eq("user_id", workspaceOwnerId || user.id)
         .maybeSingle();
       if (!error && data) {
         setInvoice(data as Invoice);
       }
+      if (profile?.plan === "business") {
+        const { data: workspace } = await supabase.from("workspaces").select("id").eq("owner_user_id", profile.user_id).maybeSingle();
+        if (workspace?.id) {
+          const { data: brand } = await supabase.from("workspace_branding").select("*").eq("workspace_id",workspace.id).maybeSingle();
+          if (brand) setBranding({ ...DEFAULT_BRANDING, ...brand } as WorkspaceBranding);
+        }
+      }
       setLoading(false);
     }
     load();
-  }, [id, user]);
+  }, [id, user, workspaceOwnerId, profile?.plan, profile?.user_id]);
 
   async function updateStatus(newStatus: InvoiceStatus) {
     if (!invoice || !user) return;
@@ -56,7 +65,7 @@ export default function InvoicePreview() {
       .from("invoices")
       .update({ status: newStatus })
       .eq("id", invoice.id)
-      .eq("user_id", user.id)
+      .eq("user_id", workspaceOwnerId || user.id)
       .select("*")
       .single();
 
@@ -69,6 +78,7 @@ export default function InvoicePreview() {
 
     if (data) {
       setInvoice(data as Invoice);
+      deliverPendingWebhooks();
     }
   }
 
@@ -132,11 +142,12 @@ export default function InvoicePreview() {
       .delete()
       .eq("id", invoice.id);
     if (!error) {
+      deliverPendingWebhooks();
       navigate("/invoices");
     }
   }
 
-  function handleDownloadPDF() {
+  async function handleDownloadPDF() {
     if (!invoice || !profile) return;
     const extras: InvoicePDFExtras = {
       businessCountry,
@@ -162,7 +173,7 @@ export default function InvoicePreview() {
       clientTaxLabel,
       isIndiaLineItemLabels,
     };
-    generateInvoicePDF(invoice, profile, extras);
+    await generateInvoicePDF(invoice, profile, extras, branding);
   }
 
   function handleWhatsApp() {
@@ -260,22 +271,31 @@ export default function InvoicePreview() {
   const isForeignCurrency = invoiceCurrency !== baseCurrency;
   const exchangeRate = invoice.exchange_rate ?? 1;
 
-  // Prefer the pre-converted, locked invoice-currency amounts (new fields).
-  // Fall back to computing them from the locked base amounts for invoices
-  // saved before these snapshot fields existed.
-  const baseSubtotal = invoice.base_subtotal ?? Number(invoice.subtotal);
-  const baseTotalRaw = invoice.base_total ?? Number(invoice.total);
+  // Item rates are stored in invoice currency. The item sum is therefore the
+  // authoritative invoice-currency subtotal. This also self-repairs display
+  // for older foreign-currency invoices whose snapshot was accidentally
+  // multiplied by the exchange rate twice.
+  const itemSubtotal = invoice.items.reduce(
+    (sum, item) => sum + lineAmount(item),
+    0
+  );
 
-  const displaySubtotal =
+  const storedInvoiceSubtotal =
     invoice.invoice_subtotal ??
-    (isForeignCurrency ? convertCurrency(baseSubtotal, exchangeRate) : baseSubtotal);
-  const displayTotal =
-    invoice.invoice_total ??
-    (isForeignCurrency ? convertCurrency(baseTotalRaw, exchangeRate) : baseTotalRaw);
+    (isForeignCurrency
+      ? convertCurrency(Number(invoice.subtotal), exchangeRate)
+      : Number(invoice.subtotal));
 
-  // No locked per-tax-line (CGST/SGST/IGST) invoice-currency fields exist in
-  // the current model, so these are still derived from the locked base
-  // amounts on the invoice row itself (never from Profile/Clients).
+  const subtotalMismatch =
+    Math.abs(storedInvoiceSubtotal - itemSubtotal) >
+    Math.max(0.01, Math.abs(itemSubtotal) * 0.001);
+
+  const displaySubtotal = subtotalMismatch
+    ? itemSubtotal
+    : storedInvoiceSubtotal;
+
+  // Tax columns remain stored in base currency, so convert them once for
+  // invoice display. Never convert item rates or item amounts.
   const displayCgst = isForeignCurrency
     ? convertCurrency(Number(invoice.cgst), exchangeRate)
     : Number(invoice.cgst);
@@ -285,7 +305,17 @@ export default function InvoicePreview() {
   const displayIgst = isForeignCurrency
     ? convertCurrency(Number(invoice.igst), exchangeRate)
     : Number(invoice.igst);
-  const baseTotalDisplay = baseTotalRaw;
+  const displayDiscountAmount = isForeignCurrency
+    ? convertCurrency(Number(invoice.discount_amount ?? 0), exchangeRate)
+    : Number(invoice.discount_amount ?? 0);
+
+  const displayTotal =
+    displaySubtotal - displayDiscountAmount + displayCgst + displaySgst + displayIgst;
+
+  const baseTotalDisplay =
+    isForeignCurrency && exchangeRate > 0
+      ? Math.round((displayTotal / exchangeRate) * 100) / 100
+      : displayTotal;
 
   // ── Tax: use the LOCKED tax_label/tax_note/tax_type from the invoice row.
   // decideTax() is invoked ONLY as a fallback for legacy invoices that were
@@ -458,12 +488,12 @@ invoice.client_country ?? "United States",
         )}
       </div>
 
-      <div className="card p-6 sm:p-10">
-        <div className="flex flex-col sm:flex-row sm:justify-between gap-6 pb-6 border-b border-slate-200">
+      <div className={`card overflow-hidden p-6 sm:p-10 ${branding?.pdf_template==="luxury"?"border-amber-300 bg-[#fffdf7]":branding?.pdf_template==="minimal"?"rounded-none shadow-none":branding?.pdf_template==="corporate"?"border-t-[10px] border-t-blue-700":""}`} style={{fontFamily:branding?brandingFont(branding.font_family):undefined}}>
+        <div className={`flex flex-col sm:flex-row sm:justify-between gap-6 pb-6 border-b border-slate-200 ${branding?.pdf_template==="luxury"?"-mx-6 -mt-6 bg-stone-950 p-6 text-amber-50 sm:-mx-10 sm:-mt-10 sm:p-10 [&_h1]:!text-amber-50 [&_p]:!text-amber-100/70":branding?.pdf_template==="executive"?"-mx-6 -mt-6 bg-slate-950 p-6 text-white sm:-mx-10 sm:-mt-10 sm:p-10 [&_h1]:!text-white [&_p]:!text-slate-300":branding?.pdf_template==="modern"?"rounded-2xl bg-gradient-to-r from-violet-50 to-indigo-50 p-5":""}`}>
           <div className="flex items-start gap-4">
-            {profile?.logo_url ? (
+            {(branding?.logo_url||profile?.logo_url) ? (
               <img
-                src={profile.logo_url}
+                src={branding?.logo_url||profile?.logo_url||""}
                 alt="Logo"
                 className="w-16 h-16 rounded-lg object-cover border border-slate-200"
               />
@@ -500,8 +530,8 @@ invoice.client_country ?? "United States",
           </div>
 
           <div className="sm:text-right">
-            <span className="inline-block bg-primary-600 text-white px-4 py-1.5 rounded-lg text-sm font-bold tracking-wide">
-              INVOICE
+            <span className="inline-block text-white px-4 py-1.5 rounded-lg text-sm font-bold tracking-wide" style={{backgroundColor:branding?.brand_color||"#4f46e5"}}>
+              {branding?.invoice_title||"INVOICE"}
             </span>
             <p className="text-lg font-bold text-slate-900 mt-3">
               {invoice.invoice_number}
@@ -551,7 +581,7 @@ invoice.client_country ?? "United States",
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead>
-                <tr className="bg-primary-600 text-white">
+                <tr className="text-white" style={{backgroundColor:branding?.brand_color||"#4f46e5"}}>
                   <th className="text-left text-xs font-semibold uppercase tracking-wide px-4 py-3 rounded-l-lg">
                     Description
                   </th>
@@ -620,6 +650,7 @@ invoice.client_country ?? "United States",
                     };
                   })}
                   type="igst"
+                  taxLabel={businessCountry === "India" ? "IGST" : effectiveTaxLabel}
                 />
               ) : (
                 <GSTBreakupTable
@@ -646,6 +677,14 @@ invoice.client_country ?? "United States",
                 {formatMoney(displaySubtotal, invoiceCurrency)}
               </span>
             </div>
+            {displayDiscountAmount > 0 && (
+              <div className="flex justify-between">
+                <span className="text-slate-500">Discount</span>
+                <span className="font-medium text-emerald-600">
+                  −{formatMoney(displayDiscountAmount, invoiceCurrency)}
+                </span>
+              </div>
+            )}
             {isInterState ? (
               <div className="flex justify-between">
                 <span className="text-slate-500">{effectiveTaxLabel}</span>
@@ -691,10 +730,11 @@ invoice.client_country ?? "United States",
 
             {invoice.status !== "paid" && invoice.status !== "draft" && (
               <button
-                onClick={() => setShowPayModal(true)}
-                className="w-full mt-3 bg-green-600 text-white font-semibold rounded-lg px-4 py-2.5 hover:bg-green-700 transition active:scale-[0.98]"
+                onClick={() => invoice.share_token && window.open(`/share/${invoice.share_token}`, "_blank", "noopener,noreferrer")}
+                disabled={!invoice.share_token}
+                className="w-full mt-3 bg-green-600 text-white font-semibold rounded-lg px-4 py-2.5 hover:bg-green-700 transition active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-slate-300"
               >
-                Pay Invoice
+                {invoice.share_token ? "Preview Client Payment Page" : "Share Invoice to Enable Payments"}
               </button>
             )}
           </div>
@@ -711,11 +751,15 @@ invoice.client_country ?? "United States",
           </div>
         )}
 
+        {branding?.payment_instructions&&<div className="py-4 border-t border-slate-200"><p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Payment instructions</p><p className="mt-1 whitespace-pre-line text-sm text-slate-600">{branding.payment_instructions}</p></div>}
+        {branding?.terms_text&&<div className="py-4 border-t border-slate-200"><p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Terms & conditions</p><p className="mt-1 whitespace-pre-line text-xs text-slate-500">{branding.terms_text}</p></div>}
+        {branding&&((branding.show_signature&&branding.signature_url)||(branding.show_stamp&&branding.stamp_url))&&<div className="flex justify-end gap-5 border-t border-slate-200 py-4">{branding.show_signature&&branding.signature_url&&<img src={branding.signature_url} className="h-16 object-contain" alt="Signature"/>}{branding.show_stamp&&branding.stamp_url&&<img src={branding.stamp_url} className="h-16 object-contain" alt="Company stamp"/>}</div>}
+
         <div className="pt-6 border-t border-slate-200 text-center">
-          <p className="text-base font-semibold text-primary-600">
-            Thank you for your business!
+          <p className="text-base font-semibold" style={{color:branding?.accent_color||"#4f46e5"}}>
+            {branding?.footer_text||"Thank you for your business!"}
           </p>
-          {!profile?.is_pro && (
+          {!branding?.remove_rivox_branding&&!profile?.is_pro && (
             <p className="text-xs text-slate-400 mt-2">
               Created with Rivox
             </p>
@@ -723,45 +767,6 @@ invoice.client_country ?? "United States",
         </div>
       </div>
 
-      {showPayModal && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center p-4"
-          onClick={() => setShowPayModal(false)}
-        >
-          <div className="absolute inset-0 bg-slate-900/50 backdrop-blur-sm" />
-          <div
-            className="relative card max-w-md w-full p-8 text-center animate-scale-in"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <button
-              onClick={() => setShowPayModal(false)}
-              className="absolute top-4 right-4 text-slate-400 hover:text-slate-600 transition"
-            >
-              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
-            <div className="w-14 h-14 bg-green-50 rounded-full flex items-center justify-center mx-auto mb-4">
-              <svg className="w-7 h-7 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
-              </svg>
-            </div>
-            <h2 className="text-xl font-bold text-slate-900 mb-2">Pay Invoice</h2>
-            <p className="text-sm text-slate-500 mb-1">
-              Amount due: {formatMoney(displayTotal, invoiceCurrency)}
-            </p>
-            <p className="text-sm text-amber-600 font-medium mt-4">
-              Payment gateway coming soon
-            </p>
-            <button
-              onClick={() => setShowPayModal(false)}
-              className="btn-secondary w-full mt-6"
-            >
-              Close
-            </button>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
@@ -771,11 +776,13 @@ function GSTBreakupTable({
   rows,
   type,
   currency,
+  taxLabel = "IGST",
 }: {
   title: string;
   rows: { rate: number; taxable: number; tax: number }[];
   type: "igst" | "cgstsgst";
   currency: string;
+  taxLabel?: string;
 }) {
   const merged = new Map<number, { taxable: number; tax: number }>();
   for (const r of rows) {
@@ -802,7 +809,7 @@ function GSTBreakupTable({
             </th>
             {type === "igst" ? (
               <th className="text-right text-xs font-medium text-slate-500 px-3 py-2">
-                IGST
+                {taxLabel}
               </th>
             ) : (
               <>

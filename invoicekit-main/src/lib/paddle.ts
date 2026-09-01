@@ -2,6 +2,8 @@ import { initializePaddle, type Paddle, type PaddleEventData } from "@paddle/pad
 import type { BillingCycle, Plan } from "./pricing";
 
 const clientToken = import.meta.env.VITE_PADDLE_CLIENT_TOKEN?.trim();
+const configuredEnvironment = import.meta.env.VITE_PADDLE_ENV?.trim().toLowerCase();
+export const paddleEnvironment = configuredEnvironment === "sandbox" || clientToken?.startsWith("test_") ? "sandbox" : "production";
 
 const priceIds: Record<Exclude<Plan, "free">, Record<BillingCycle, string | undefined>> = {
   pro: {
@@ -27,7 +29,7 @@ export function getPaddleConfigurationStatus() {
   if (!priceIds.pro.yearly) missing.push("VITE_PADDLE_PRO_YEARLY_PRICE_ID");
   if (!priceIds.business.monthly) missing.push("VITE_PADDLE_BUSINESS_MONTHLY_PRICE_ID");
   if (!priceIds.business.yearly) missing.push("VITE_PADDLE_BUSINESS_YEARLY_PRICE_ID");
-  return { configured: missing.length === 0, missing };
+  return { configured: missing.length === 0, missing, environment: paddleEnvironment };
 }
 
 export async function getPaddle() {
@@ -37,7 +39,7 @@ export async function getPaddle() {
 
   if (!paddlePromise) {
     paddlePromise = initializePaddle({
-      environment: "production",
+      environment: paddleEnvironment,
       token: clientToken,
       eventCallback: handlePaddleEvent,
       checkout: {
@@ -67,6 +69,7 @@ export async function openPaddleCheckout({
   discountCode,
   discountId,
   offerId,
+  priceId: dynamicPriceId,
 }: {
   plan: Exclude<Plan, "free">;
   cycle: BillingCycle;
@@ -75,8 +78,16 @@ export async function openPaddleCheckout({
   discountCode?: string;
   discountId?: string;
   offerId?: string;
+  // Region-aware Paddle Price ID synced from admin_pricing_plans (see
+  // src/lib/paddlePrices.ts). Previously checkout ALWAYS used the static
+  // VITE_PADDLE_*_PRICE_ID env vars below, which point at a fixed Paddle
+  // Price created once and never updated -- so admin price edits (and
+  // India vs Global region) never reached checkout. When the plan has been
+  // synced to Paddle, its live price ID is passed in here and takes
+  // priority; the static env var stays as a fallback for unsynced plans.
+  priceId?: string;
 }) {
-  const priceId = priceIds[plan][cycle];
+  const priceId = dynamicPriceId?.trim() || priceIds[plan][cycle];
   if (!priceId) throw new Error(`Paddle ${plan} ${cycle} price ID is missing.`);
 
   const paddle = await getPaddle();
@@ -95,6 +106,7 @@ export async function openPaddleCheckout({
       plan,
       billing_cycle: cycle,
       source: "rivox_web",
+      environment: paddleEnvironment,
       offer_id: offerId ?? null,
       offer_code: discountCode?.trim() || null,
       paddle_discount_id: discountId?.trim() || null,

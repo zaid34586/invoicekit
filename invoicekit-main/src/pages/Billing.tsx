@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { useRegion } from "../context/RegionContext";
 import { FREE_PLAN_LIMIT } from "../lib/constants";
@@ -10,16 +11,19 @@ import {
   PricingPlan,
   formatPlanPrice,
   getAnnualTotal,
+  getPlanPrice,
   getPlanLimitLabel,
 } from "../lib/pricing";
 import { supabase } from "../lib/supabase";
-import { openPaddleCheckout } from "../lib/paddle";
-import { formatOfferDiscount, getOfferForPlanCycle, loadActiveMarketingOffers, type MarketingOffer } from "../lib/offers";
+import { openPaddleCheckout, paddleEnvironment } from "../lib/paddle";
+import { formatOfferDiscount, filterOffersForUser, getOfferForPlanCycle, loadActiveMarketingOffers, type MarketingOffer } from "../lib/offers";
 import { trackGrowthEvent } from "../lib/growth";
 import {
   cancelPaddleSubscription,
   createPaddlePortalSession,
   loadPaddleSubscriptionStatus,
+  reportPaddleActivationDelay,
+  syncPaddleTransaction,
   undoScheduledPaddleCancellation,
   type BillingEventRecord,
   type PaddleSubscriptionRecord,
@@ -96,6 +100,7 @@ function PlanCard({
   onUpgrade,
   loading,
   offer,
+  highlighted,
 }: {
   plan: PricingPlan;
   cycle: BillingCycle;
@@ -103,11 +108,12 @@ function PlanCard({
   onUpgrade: (plan: PricingPlan, offer?: MarketingOffer) => void;
   loading?: boolean;
   offer?: MarketingOffer;
+  highlighted?: boolean;
 }) {
   const isCurrent = currentPlan === plan.id;
   const isFree = plan.id === "free";
   return (
-    <div className={`relative flex flex-col rounded-2xl border bg-white p-6 shadow-sm ${plan.featured ? "border-primary-500 ring-4 ring-primary-100" : "border-slate-200"}`}>
+    <div className={`relative flex flex-col rounded-2xl border bg-white p-6 shadow-sm ${highlighted ? "border-primary-500 ring-4 ring-primary-200" : plan.featured ? "border-primary-500 ring-4 ring-primary-100" : "border-slate-200"}`}>
       {plan.featured && (
         <span className="absolute -top-3 left-6 rounded-full bg-primary-600 px-3 py-1 text-xs font-bold text-white">
           Most Popular
@@ -120,11 +126,31 @@ function PlanCard({
       </div>
 
       <div className="mt-5">
-        <span className="text-4xl font-black text-slate-950">{formatPlanPrice(plan, cycle)}</span>
-        {!isFree && <span className="ml-1 text-sm text-slate-500">/month</span>}
+        {offer && !isFree ? (
+          <>
+            <span className="text-lg font-bold text-slate-400 line-through">{formatPlanPrice(plan, cycle)}</span>
+            <span className="ml-2 text-4xl font-black text-emerald-600">{plan.symbol}{Math.max(0, getPlanPrice(plan, cycle) - (offer.discountType === "percentage" ? Math.round(getPlanPrice(plan, cycle) * offer.discountValue / 100) : offer.discountValue)).toLocaleString("en-US")}</span>
+            <span className="ml-1 text-sm text-slate-500">/month</span>
+          </>
+        ) : (
+          <>
+            <span className="text-4xl font-black text-slate-950">{formatPlanPrice(plan, cycle)}</span>
+            {!isFree && <span className="ml-1 text-sm text-slate-500">/month</span>}
+          </>
+        )}
         {cycle === "yearly" && !isFree && (
           <p className="mt-1 text-xs font-semibold text-emerald-600">
-            {plan.symbol}{getAnnualTotal(plan).toLocaleString("en-US")}/year billed yearly
+            {plan.symbol}
+            {(
+              // When a yearly offer is showing, the annual total must match
+              // the discounted monthly-equivalent price above it (that
+              // price * 12) -- not the plan's undiscounted base total,
+              // which is what getAnnualTotal() alone gives.
+              offer
+                ? Math.max(0, getPlanPrice(plan, cycle) - (offer.discountType === "percentage" ? Math.round(getPlanPrice(plan, cycle) * offer.discountValue / 100) : offer.discountValue)) * 12
+                : getAnnualTotal(plan)
+            ).toLocaleString("en-US")}
+            /year billed yearly
           </p>
         )}
       </div>
@@ -144,7 +170,7 @@ function PlanCard({
       </div>
 
       <ul className="mt-5 flex-1 space-y-2">
-        {plan.features.slice(0, 6).map((feature) => (
+        {plan.features.map((feature) => (
           <li key={feature} className="flex gap-2 text-sm text-slate-700">
             <span className="text-emerald-600">✓</span>
             <span>{feature}</span>
@@ -170,12 +196,15 @@ function PlanCard({
 }
 
 export default function Billing() {
-  const { user, profile } = useAuth();
+  const { user, profile, refreshProfile } = useAuth();
   const region = useRegion();
-  const [cycle, setCycle] = useState<BillingCycle>("yearly");
+  const [searchParams] = useSearchParams();
+  const highlightPlan = searchParams.get("plan"); // deep link from UpgradeModal, e.g. ?plan=business&cycle=yearly
+  const [cycle, setCycle] = useState<BillingCycle>(searchParams.get("cycle") === "yearly" ? "yearly" : "monthly");
   const [invoicesThisMonth, setInvoicesThisMonth] = useState(0);
   const [promoCode, setPromoCode] = useState("");
   const [promoMessage, setPromoMessage] = useState<string | null>(null);
+  const [appliedCode, setAppliedCode] = useState<string | null>(null);
   const [offers, setOffers] = useState<MarketingOffer[]>([]);
   const [checkoutLoading, setCheckoutLoading] = useState<Plan | null>(null);
   const [checkoutError, setCheckoutError] = useState<string | null>(null);
@@ -183,20 +212,80 @@ export default function Billing() {
   const [billingEvents, setBillingEvents] = useState<BillingEventRecord[]>([]);
   const [subscriptionLoading, setSubscriptionLoading] = useState(false);
   const [subscriptionMessage, setSubscriptionMessage] = useState<string | null>(null);
+  const subscriptionReady = Boolean(subscription?.provider_subscription_id && subscription?.provider_customer_id);
   const [modal, setModal] = useState<null | { title: string; message: string; confirmLabel: string; onConfirm: () => void; variant?: "primary" | "danger" }>(null);
+  // Tracks the post-checkout "waiting for webhook" banner. Previously this
+  // banner was driven ONLY by the `?checkout=success` URL param, so it
+  // stayed up forever (even after activation succeeded, or if it never
+  // will) — and the polling loop below gave up silently after 30s with no
+  // visible error, leaving the user staring at "activating..." with no way
+  // to know something was actually wrong. Now it has real states.
+  const [activationStatus, setActivationStatus] = useState<"idle" | "waiting" | "success" | "timeout">("idle");
 
-  const plans = region === "india" ? INDIA_PLANS : GLOBAL_PLANS;
+  const [priceOverrides, setPriceOverrides] = useState<Record<string, { monthly_price: number; yearly_price: number; invoice_limit: number | null; client_limit: number | null; team_limit: number | null; paddle_synced: boolean; paddle_monthly_price_id: string | null; paddle_yearly_price_id: string | null }>>({});
+
+  useEffect(() => {
+    void supabase.from("admin_pricing_plans").select("plan_key,region,monthly_price,yearly_price,invoice_limit,client_limit,team_limit,paddle_synced,paddle_monthly_price_id,paddle_yearly_price_id").eq("active", true).then(({ data }) => {
+      const map: typeof priceOverrides = {};
+      for (const row of (data as Array<{ plan_key: string; region: string; monthly_price: number; yearly_price: number; invoice_limit: number | null; client_limit: number | null; team_limit: number | null; paddle_synced: boolean; paddle_monthly_price_id: string | null; paddle_yearly_price_id: string | null }>) ?? []) {
+        map[`${row.plan_key}:${row.region}`] = row;
+      }
+      setPriceOverrides(map);
+    });
+  }, []);
+
+  // Looks up the region-aware, admin-synced Paddle Price ID for a plan/cycle
+  // so checkout charges what the Admin dashboard actually shows. Falls back
+  // to undefined (static env var) if that plan hasn't been synced yet.
+  function dynamicPaddlePriceId(planKey: Plan, billingCycle: BillingCycle) {
+    const regionKey = region === "india" ? "india" : "global";
+    const override = priceOverrides[`${planKey}:${regionKey}`];
+    if (!override?.paddle_synced) return undefined;
+    return (billingCycle === "yearly" ? override.paddle_yearly_price_id : override.paddle_monthly_price_id) ?? undefined;
+  }
+
+  const plans = useMemo(() => {
+    // Admin's Plans & Pricing editor writes to admin_pricing_plans -- this
+    // was previously never read anywhere, so price changes there silently
+    // never reached customers. This overlays those live numbers onto the
+    // static plan data (features/description/etc stay from the static file,
+    // since the DB table doesn't store those).
+    const base = region === "india" ? INDIA_PLANS : GLOBAL_PLANS;
+    const regionKey = region === "india" ? "india" : "global";
+    const merged = { ...base };
+    (Object.keys(merged) as Plan[]).forEach((key) => {
+      const override = priceOverrides[`${key}:${regionKey}`];
+      if (!override) return;
+      merged[key] = {
+        ...merged[key],
+        monthlyPrice: Number(override.monthly_price),
+        // admin_pricing_plans.yearly_price is the literal annual total (the
+        // "Yearly total" field admin enters, e.g. 1800) -- but this plan
+        // object's yearlyMonthlyPrice slot is the monthly-equivalent rate,
+        // which getAnnualTotal() below multiplies by 12 to show the total.
+        // Divide here so that round-trip recovers the admin's actual total
+        // instead of multiplying it by 12 again (1800 -> was showing 21600).
+        yearlyMonthlyPrice: Number(override.yearly_price) / 12,
+        invoiceLimit: override.invoice_limit === null ? "unlimited" : override.invoice_limit,
+        clientLimit: override.client_limit === null ? "unlimited" : override.client_limit,
+        teamMembers: override.team_limit === null ? "unlimited" : override.team_limit,
+      };
+    });
+    return merged;
+  }, [region, priceOverrides]);
   const planId: Plan = profile?.plan === "business" ? "business" : profile?.plan === "pro" || profile?.is_pro ? "pro" : "free";
   const current = plans[planId];
   const invoiceBalance = Number(profile?.credits ?? 0);
-  const isUnlimited = current.invoiceLimit === "unlimited" || planId !== "free";
+  const isUnlimited = current.invoiceLimit === "unlimited";
+  const planLimit = isUnlimited ? Number.POSITIVE_INFINITY : Number(current.invoiceLimit || FREE_PLAN_LIMIT);
 
   useEffect(() => {
-    loadActiveMarketingOffers().then((items) => {
-      setOffers(items);
-      items.forEach((offer) => void trackGrowthEvent({ event: "offer_view", offerId: offer.id }));
+    loadActiveMarketingOffers().then(async (items) => {
+      const eligible = await filterOffersForUser(items, user?.id);
+      setOffers(eligible);
+      eligible.forEach((offer) => void trackGrowthEvent({ event: "offer_view", offerId: offer.id }));
     });
-  }, []);
+  }, [user?.id]);
 
   useEffect(() => {
     async function loadUsage() {
@@ -215,21 +304,175 @@ export default function Billing() {
   }, [user]);
 
   async function refreshSubscription() {
-    if (!user) return;
+    if (!user) return null;
     setSubscriptionLoading(true);
     try {
       const status = await loadPaddleSubscriptionStatus();
       setSubscription(status.subscription);
       setBillingEvents(status.billingEvents);
+      return status.subscription;
     } catch (error) {
       setSubscriptionMessage(error instanceof Error ? error.message : "Unable to load billing status.");
+      return null;
     } finally {
       setSubscriptionLoading(false);
     }
   }
 
+  // Initial load + "opened while webhook still processing" watcher.
+  //
+  // Previously this only did a single one-shot fetch. If the profile
+  // already showed a paid plan but the `subscriptions` row hadn't yet
+  // received its Paddle IDs (webhook still catching up), the page would
+  // stay on "Awaiting Paddle sync" forever until the user manually
+  // refreshed — nothing here ever re-checked. This now polls automatically
+  // (every 2s, capped at 30s) in exactly that situation, and skips entirely
+  // if the checkout-redirect effect below already owns the "waiting" flow
+  // (so the two never poll the same thing at once).
   useEffect(() => {
-    void refreshSubscription();
+    if (!user) return;
+    let cancelled = false;
+    let timer: number | undefined;
+
+    (async () => {
+      const fresh = await refreshSubscription();
+      if (cancelled) return;
+
+      const url = new URL(window.location.href);
+      const cameFromCheckout =
+        url.searchParams.get("checkout") === "success" ||
+        Boolean(url.searchParams.get("_ptxn")) ||
+        Boolean(url.searchParams.get("transaction_id")) ||
+        Boolean(window.sessionStorage.getItem("rivox:last-paddle-transaction"));
+      if (cameFromCheckout) return; // the effect below handles this case
+
+      const ready = Boolean(fresh?.provider_subscription_id && fresh?.provider_customer_id);
+      const planLooksPaid = profile?.is_pro || profile?.plan === "pro" || profile?.plan === "business";
+      if (ready || !planLooksPaid) return; // already synced, or genuinely free — nothing to watch
+
+      let attempts = 0;
+      timer = window.setInterval(async () => {
+        attempts += 1;
+        const latest = await refreshSubscription();
+        if (cancelled) return;
+        const nowReady = Boolean(latest?.provider_subscription_id && latest?.provider_customer_id);
+        if (nowReady || attempts >= 15) {
+          if (timer) window.clearInterval(timer);
+        }
+      }, 2000);
+    })();
+
+    return () => {
+      cancelled = true;
+      if (timer) window.clearInterval(timer);
+    };
+  }, [user?.id]);
+
+  useEffect(() => {
+    if (!user) return;
+
+    const url = new URL(window.location.href);
+    const transactionFromUrl =
+      url.searchParams.get("_ptxn") ||
+      url.searchParams.get("transaction_id") ||
+      "";
+    const transactionFromSession = window.sessionStorage.getItem("rivox:last-paddle-transaction") || "";
+    const transactionId = transactionFromUrl.startsWith("txn_")
+      ? transactionFromUrl
+      : transactionFromSession.startsWith("txn_")
+        ? transactionFromSession
+        : "";
+    const checkoutSucceeded = url.searchParams.get("checkout") === "success" || Boolean(transactionId);
+    if (!checkoutSucceeded) return;
+
+    url.searchParams.delete("checkout");
+    url.searchParams.delete("_ptxn");
+    url.searchParams.delete("transaction_id");
+    window.history.replaceState({}, "", url.toString());
+
+    let cancelled = false;
+    let timer: number | undefined;
+    let attempts = 0;
+    let escalationReported = false;
+    setActivationStatus("waiting");
+    setSubscriptionMessage(null);
+
+    const finishActivation = async (escalate = false) => {
+      if (transactionId) {
+        try {
+          const synced = escalate
+            ? await reportPaddleActivationDelay(transactionId, paddleEnvironment)
+            : await syncPaddleTransaction(transactionId, paddleEnvironment);
+          if (cancelled) return true;
+          setSubscription(synced.subscription);
+          setBillingEvents(synced.billingEvents);
+          window.sessionStorage.removeItem("rivox:last-paddle-transaction");
+          const freshProfile = await refreshProfile();
+          if (cancelled) return true;
+          const active = freshProfile?.is_pro || freshProfile?.plan === "pro" || freshProfile?.plan === "business";
+          const ready = Boolean(
+            synced.subscription?.provider_subscription_id && synced.subscription?.provider_customer_id
+          );
+          // Previously this declared "success" as soon as the PROFILE showed
+          // a paid plan, without checking whether the subscription record's
+          // Paddle IDs had actually been written yet. If those two updates
+          // landed in slightly different order, polling stopped here while
+          // the badge/buttons (which key off the IDs, not the plan) stayed
+          // stuck on "Awaiting Paddle sync" forever — exactly the reported
+          // bug. Now both must be true before we stop polling.
+          if (active && ready) {
+            setActivationStatus("success");
+            return true;
+          }
+        } catch (error) {
+          const message = error instanceof Error ? error.message : "Unable to verify the Paddle payment.";
+          setSubscriptionMessage(message);
+          // 409 can be temporary while Paddle finishes creating identifiers.
+          if (!message.toLowerCase().includes("not ready") && !message.toLowerCase().includes("not completed")) {
+            setActivationStatus("timeout");
+            return true;
+          }
+        }
+      }
+
+      const [freshSub, freshProfile] = await Promise.all([refreshSubscription(), refreshProfile()]);
+      if (cancelled) return true;
+      const active = freshProfile?.is_pro || freshProfile?.plan === "pro" || freshProfile?.plan === "business";
+      const ready = Boolean(freshSub?.provider_subscription_id && freshSub?.provider_customer_id);
+      if (active && ready) {
+        setActivationStatus("success");
+        return true;
+      }
+      return false;
+    };
+
+    const poll = async () => {
+      attempts += 1;
+      if (attempts === 6) {
+        setSubscriptionMessage("Payment received. Rivox is running a secure Paddle recovery check.");
+      }
+      const shouldEscalate = attempts >= 11 && !escalationReported;
+      if (shouldEscalate) {
+        escalationReported = true;
+        setSubscriptionMessage("Activation is taking longer than expected. Secure recovery is running and the Rivox team will be notified if review is needed.");
+      }
+      const done = await finishActivation(shouldEscalate);
+      if (done) {
+        if (timer) window.clearInterval(timer);
+        return;
+      }
+      if (attempts >= 15) {
+        setActivationStatus("timeout");
+        if (timer) window.clearInterval(timer);
+      }
+    };
+
+    void poll();
+    timer = window.setInterval(() => void poll(), 2000);
+    return () => {
+      cancelled = true;
+      if (timer) window.clearInterval(timer);
+    };
   }, [user?.id]);
 
   async function openPortal(mode: "overview" | "cancel" | "payment_method") {
@@ -276,14 +519,13 @@ export default function Billing() {
   }
 
   const usage = useMemo(() => {
-    const freeUsed = Math.min(invoicesThisMonth, FREE_PLAN_LIMIT);
-    const freeRemaining = Math.max(0, FREE_PLAN_LIMIT - freeUsed);
-    const extraRemaining = Math.max(0, invoiceBalance);
-    const totalRemaining = isUnlimited ? Number.POSITIVE_INFINITY : freeRemaining + extraRemaining;
-    const totalLimit = isUnlimited ? Number.POSITIVE_INFINITY : FREE_PLAN_LIMIT + invoiceBalance;
+    const baseLimit = planId === "free" ? FREE_PLAN_LIMIT : planLimit;
+    const extraRemaining = planId === "free" ? Math.max(0, invoiceBalance) : 0;
+    const totalLimit = isUnlimited ? Number.POSITIVE_INFINITY : baseLimit + extraRemaining;
+    const totalRemaining = isUnlimited ? Number.POSITIVE_INFINITY : Math.max(0, totalLimit - invoicesThisMonth);
     const percentage = isUnlimited ? 0 : Math.min(100, (invoicesThisMonth / Math.max(totalLimit, 1)) * 100);
-    return { freeUsed, freeRemaining, extraRemaining, totalRemaining, totalLimit, percentage };
-  }, [invoiceBalance, invoicesThisMonth, isUnlimited]);
+    return { baseLimit, extraRemaining, totalRemaining, totalLimit, percentage };
+  }, [invoiceBalance, invoicesThisMonth, isUnlimited, planId, planLimit]);
 
   function handleUpgrade(plan: PricingPlan, offer?: MarketingOffer) {
     if (plan.id === "free") return;
@@ -305,6 +547,7 @@ export default function Billing() {
             discountCode: promoCode.trim() || (offer?.paddleDiscountId ? undefined : offer?.code) || undefined,
             discountId: promoCode.trim() ? undefined : offer?.paddleDiscountId ?? undefined,
             offerId: offer?.id,
+            priceId: dynamicPaddlePriceId(plan.id, cycle),
           });
         } catch (error) {
           setCheckoutError(error instanceof Error ? error.message : "Unable to start checkout.");
@@ -318,17 +561,45 @@ export default function Billing() {
     const code = promoCode.trim().toUpperCase();
     const offer = offers.find((item) => item.code.toUpperCase() === code);
     if (!offer) {
-      setPromoMessage("This offer is not active or is not available from Rivox Admin.");
+      setAppliedCode(null);
+      setPromoMessage("This code is not active or not available for your account. Check for typos, or it may have expired.");
       return;
     }
-    setPromoMessage(`${offer.code}: ${formatOfferDiscount(offer)} on ${offer.appliesTo.join("/")} ${offer.billingScope === "all" ? "monthly and yearly" : offer.billingScope} plans.`);
+    setAppliedCode(offer.code);
+    setPromoMessage(`${offer.code} applied: ${formatOfferDiscount(offer)} on ${offer.appliesTo.join(" & ")} (${offer.billingScope === "all" ? "monthly and yearly" : offer.billingScope}). See it on the matching plan card below.`);
   }
 
   return (
     <div className="mx-auto max-w-6xl space-y-8">
-      {new URLSearchParams(window.location.search).get("checkout") === "success" && (
+      {activationStatus === "waiting" && (
         <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-5 py-4 text-sm font-medium text-emerald-800">
-          Payment received. Your subscription is being activated; this page will update after the Paddle webhook is processed.
+          Payment received. Your subscription is being activated; this page will update automatically in a few seconds.
+        </div>
+      )}
+      {activationStatus === "success" && (
+        <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-5 py-4 text-sm font-medium text-emerald-800">
+          🎉 Your plan is now active.
+        </div>
+      )}
+      {activationStatus === "timeout" && (
+        <div className="rounded-2xl border border-amber-200 bg-amber-50 px-5 py-4 text-sm font-medium text-amber-800">
+          Payment received, but activation is taking longer than expected. This can happen if the confirmation is
+          delayed — it should still complete shortly. If your plan doesn't update within a few minutes, please
+          contact support with your payment receipt.
+          <button
+            type="button"
+            onClick={() => {
+              setActivationStatus("waiting");
+              void Promise.all([refreshSubscription(), refreshProfile()]).then(([freshSub, freshProfile]) => {
+                const active = freshProfile?.is_pro || freshProfile?.plan === "pro" || freshProfile?.plan === "business";
+                const ready = Boolean(freshSub?.provider_subscription_id && freshSub?.provider_customer_id);
+                setActivationStatus(active && ready ? "success" : "timeout");
+              });
+            }}
+            className="ml-3 font-semibold underline underline-offset-2"
+          >
+            Check again
+          </button>
         </div>
       )}
       {checkoutError && (
@@ -356,19 +627,19 @@ export default function Billing() {
           <p className="mt-1 text-sm text-slate-500">{planId === "free" ? "Manual/free access" : "Active access"}</p>
         </div>
         <div className="card p-5">
-          <p className="text-xs font-bold uppercase tracking-wide text-slate-400">Monthly Free</p>
-          <p className="mt-2 text-2xl font-black text-slate-950">{usage.freeRemaining}/{FREE_PLAN_LIMIT}</p>
-          <p className="mt-1 text-sm text-slate-500">Free invoices remaining</p>
+          <p className="text-xs font-bold uppercase tracking-wide text-slate-400">Monthly Limit</p>
+          <p className="mt-2 text-2xl font-black text-slate-950">{isUnlimited ? "Unlimited" : usage.baseLimit}</p>
+          <p className="mt-1 text-sm text-slate-500">Invoices included in your plan</p>
         </div>
         <div className="card p-5">
-          <p className="text-xs font-bold uppercase tracking-wide text-slate-400">Extra Balance</p>
-          <p className="mt-2 text-2xl font-black text-slate-950">{isUnlimited ? "Unlimited" : usage.extraRemaining}</p>
-          <p className="mt-1 text-sm text-slate-500">Admin-added invoice balance</p>
+          <p className="text-xs font-bold uppercase tracking-wide text-slate-400">Used This Month</p>
+          <p className="mt-2 text-2xl font-black text-slate-950">{invoicesThisMonth}</p>
+          <p className="mt-1 text-sm text-slate-500">Invoices created this month</p>
         </div>
         <div className="card p-5">
-          <p className="text-xs font-bold uppercase tracking-wide text-slate-400">Total Remaining</p>
+          <p className="text-xs font-bold uppercase tracking-wide text-slate-400">Remaining</p>
           <p className="mt-2 text-2xl font-black text-slate-950">{isUnlimited ? "∞" : usage.totalRemaining}</p>
-          <p className="mt-1 text-sm text-slate-500">Invoices you can still create</p>
+          <p className="mt-1 text-sm text-slate-500">Invoices still available</p>
         </div>
       </section>
 
@@ -410,12 +681,29 @@ export default function Billing() {
         {promoMessage && <p className="mb-4 rounded-xl bg-primary-50 p-3 text-sm font-medium text-primary-700">{promoMessage}</p>}
         <div className="grid gap-6 lg:grid-cols-3">
           {(["free", "pro", "business"] as Plan[]).map((id) => (
-            <PlanCard key={id} plan={plans[id]} cycle={cycle} currentPlan={planId} onUpgrade={handleUpgrade} loading={checkoutLoading === id} offer={getOfferForPlanCycle(offers, id, cycle)} />
+            <PlanCard key={id} plan={plans[id]} cycle={cycle} currentPlan={planId} onUpgrade={handleUpgrade} loading={checkoutLoading === id} offer={getOfferForPlanCycle(offers, id, cycle) ?? (appliedCode ? getOfferForPlanCycle(offers.filter(o => o.code === appliedCode), id, cycle) : undefined)} highlighted={highlightPlan === id} />
           ))}
         </div>
       </section>
 
-      {planId !== "free" && (
+      {planId !== "free" && (profile as unknown as { free_pro_until?: string | null })?.free_pro_until && (
+        <section className="card border-2 border-violet-200 bg-violet-50 p-6">
+          <div className="flex items-start gap-3">
+            <div className="mt-0.5 flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full bg-violet-600 text-white">🎁</div>
+            <div>
+              <h2 className="text-lg font-bold text-slate-950">You have free {planId === "business" ? "Business" : "Pro"} access</h2>
+              <p className="mt-1 text-sm text-slate-600">
+                This was granted by the Rivox team, not a paid subscription — there's nothing to sync with Paddle or pay for.
+              </p>
+              <p className="mt-2 text-sm font-semibold text-violet-700">
+                Expires on {new Date((profile as unknown as { free_pro_until: string }).free_pro_until).toLocaleDateString("en-IN", { day: "numeric", month: "long", year: "numeric" })}
+              </p>
+            </div>
+          </div>
+        </section>
+      )}
+
+      {planId !== "free" && !(profile as unknown as { free_pro_until?: string | null })?.free_pro_until && (
         <section className="card p-6">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
             <div>
@@ -423,7 +711,7 @@ export default function Billing() {
               <p className="mt-1 text-sm text-slate-500">Manage payment methods, receipts, invoices, and cancellation through secure Paddle billing tools.</p>
             </div>
             <div className={`rounded-full px-3 py-1 text-xs font-black ${subscription?.status === "active" ? "bg-emerald-100 text-emerald-700" : subscription?.status === "past_due" ? "bg-amber-100 text-amber-700" : "bg-slate-100 text-slate-600"}`}>
-              {subscriptionLoading ? "Refreshing..." : (subscription?.status || "Awaiting Paddle sync").replace(/_/g, " ")}
+              {subscriptionLoading ? "Refreshing..." : (subscriptionReady ? (subscription?.status || "active") : "Awaiting Paddle sync").replace(/_/g, " ")}
             </div>
           </div>
 
@@ -439,13 +727,13 @@ export default function Billing() {
           {subscriptionMessage && <div className="mt-4 rounded-xl border border-primary-200 bg-primary-50 px-4 py-3 text-sm font-medium text-primary-700">{subscriptionMessage}</div>}
 
           <div className="mt-5 flex flex-wrap gap-3">
-            <button disabled={!subscription || subscriptionLoading} className="btn-secondary disabled:cursor-not-allowed disabled:opacity-50" onClick={() => void openPortal("overview")}>Manage Subscription</button>
-            <button disabled={!subscription || subscriptionLoading} className="btn-secondary disabled:cursor-not-allowed disabled:opacity-50" onClick={() => void openPortal("payment_method")}>Update Payment Method</button>
-            <button disabled={!subscription || subscriptionLoading} className="btn-secondary disabled:cursor-not-allowed disabled:opacity-50" onClick={() => void openPortal("overview")}>View Receipts & Invoices</button>
+            <button disabled={!subscriptionReady || subscriptionLoading} className="btn-secondary disabled:cursor-not-allowed disabled:opacity-50" onClick={() => void openPortal("overview")}>Manage Subscription</button>
+            <button disabled={!subscriptionReady || subscriptionLoading} className="btn-secondary disabled:cursor-not-allowed disabled:opacity-50" onClick={() => void openPortal("payment_method")}>Update Payment Method</button>
+            <button disabled={!subscriptionReady || subscriptionLoading} className="btn-secondary disabled:cursor-not-allowed disabled:opacity-50" onClick={() => void openPortal("overview")}>View Receipts & Invoices</button>
             {subscription?.cancelled && subscription.status === "active" ? (
               <button disabled={subscriptionLoading} className="rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-bold text-white hover:bg-emerald-700 disabled:opacity-50" onClick={() => setModal({ title: "Keep subscription active", message: "Remove the scheduled cancellation and continue renewing this subscription?", confirmLabel: "Keep active", onConfirm: () => void undoCancellation() })}>Keep Subscription</button>
             ) : (
-              <button disabled={!subscription || subscriptionLoading} className="btn-danger disabled:cursor-not-allowed disabled:opacity-50" onClick={() => setModal({ title: "Cancel at period end", message: "Your subscription will remain active until the end of the current billing period. You can undo this before the effective date.", confirmLabel: "Schedule cancellation", variant: "danger", onConfirm: () => void requestCancellation() })}>Cancel Subscription</button>
+              <button disabled={!subscriptionReady || subscriptionLoading} className="btn-danger disabled:cursor-not-allowed disabled:opacity-50" onClick={() => setModal({ title: "Cancel at period end", message: "Your subscription will remain active until the end of the current billing period. You can undo this before the effective date.", confirmLabel: "Schedule cancellation", variant: "danger", onConfirm: () => void requestCancellation() })}>Cancel Subscription</button>
             )}
           </div>
         </section>

@@ -39,8 +39,9 @@ async function decrypt(encryptedKey: string, ivValue: string) {
   return decoder.decode(decrypted);
 }
 
-async function testPaddleKey(apiKey: string) {
-  const response = await fetch("https://api.paddle.com/products?per_page=1", {
+async function testPaddleKey(apiKey: string, environment = String(Deno.env.get("PADDLE_ENV") || "production").toLowerCase()) {
+  const baseUrl = environment === "sandbox" ? "https://sandbox-api.paddle.com" : "https://api.paddle.com";
+  const response = await fetch(`${baseUrl}/products?per_page=1`, {
     headers: { Authorization: `Bearer ${apiKey}`, Accept: "application/json" },
   });
   const body = await response.text();
@@ -84,7 +85,12 @@ Deno.serve(async (req) => {
     if (action === "update_key") {
       const apiKey = String(payload.api_key || "").trim();
       const expiresAt = String(payload.expires_at || "").trim();
-      if (!apiKey.startsWith("pdl_") && !apiKey.startsWith("pdl_live_")) throw new Error("This does not look like a Paddle API key.");
+      // Paddle's key format isn't a fixed "pdl_" prefix -- current keys can
+      // look like "apikey_...". A hardcoded prefix check here was rejecting
+      // genuinely valid keys. Only do a basic sanity check (non-empty, no
+      // stray whitespace) and let testPaddleKey() below -- a real call to
+      // the Paddle API -- be the actual source of truth for validity.
+      if (!apiKey || /\s/.test(apiKey)) throw new Error("Paste the Paddle API key with no extra spaces or line breaks.");
       if (!expiresAt || Number.isNaN(new Date(expiresAt).getTime())) throw new Error("A valid expiry date is required.");
       await testPaddleKey(apiKey);
       const encrypted = await encrypt(apiKey);

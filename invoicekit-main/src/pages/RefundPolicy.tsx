@@ -13,6 +13,7 @@ export default function RefundPolicy() {
       updated="10 July 2026"
     >
       <Section title="1. Merchant of Record">
+        <p>Rivox is a brand operated by <b>Mohd Zaid</b>, a sole proprietor. References to "Rivox," "we," "us," or "our" in this policy refer to Mohd Zaid, trading as Rivox.</p>
         <p>Paid Rivox subscriptions may be sold and processed by Paddle as Merchant of Record. Paddle handles checkout, payment collection, applicable indirect taxes, receipts, chargebacks, and approved refunds. Paddle’s buyer terms and mandatory consumer laws also apply.</p>
       </Section>
 
@@ -33,7 +34,7 @@ export default function RefundPolicy() {
       </Section>
 
       <Section title="6. How to request a refund">
-        <p>For Paddle-processed purchases, use the support link in your Paddle receipt or Paddle’s buyer support portal. You may also email <a className="font-bold text-primary-600 hover:underline" href="mailto:support@rivox.com">support@rivox.com</a> with your order email and transaction details. Do not send full card information.</p>
+        <p>For Paddle-processed purchases, use the support link in your Paddle receipt or Paddle’s buyer support portal. You may also email <a className="font-bold text-primary-600 hover:underline" href="mailto:support@rivoxcloud.com">support@rivoxcloud.com</a> with your order email and transaction details. Do not send full card information.</p>
       </Section>
 
       <Section title="7. Chargebacks">

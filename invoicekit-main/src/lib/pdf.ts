@@ -3,6 +3,7 @@ import type { Invoice, Profile } from "./types";
 import { formatDate } from "./constants";
 import { lineAmount } from "./gst";
 import { getCurrencySymbol, getCurrencyDecimals } from "./currency";
+import { hexToRgb, type WorkspaceBranding } from "./branding";
 
 // Computed once in InvoicePreview.tsx and passed in here, so the PDF NEVER
 // recalculates currency/tax independently — it only renders numbers and
@@ -76,38 +77,97 @@ function pdfMoney(value: number, currency: string): string {
   return `${symbol}${formatted}`;
 }
 
-export function generateInvoicePDF(
+type PDFImageAsset = { data: string; format: "PNG" | "JPEG" | "WEBP" };
+
+async function loadPDFImage(url?: string | null): Promise<PDFImageAsset | null> {
+  if (!url) return null;
+  try {
+    const response = await fetch(url, { cache: "no-store" });
+    if (!response.ok) return null;
+    const blob = await response.blob();
+
+    // jsPDF cannot embed a remote URL and does not reliably support SVG.
+    // Rasterise SVG assets first; keep raster images at their original quality.
+    if (blob.type.includes("svg") || url.toLowerCase().includes(".svg")) {
+      const objectUrl = URL.createObjectURL(blob);
+      try {
+        const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+          const element = new Image();
+          element.onload = () => resolve(element);
+          element.onerror = reject;
+          element.src = objectUrl;
+        });
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.max(image.naturalWidth || 512, 512);
+        canvas.height = Math.max(image.naturalHeight || 512, 512);
+        const context = canvas.getContext("2d");
+        if (!context) return null;
+        context.drawImage(image, 0, 0, canvas.width, canvas.height);
+        return { data: canvas.toDataURL("image/png"), format: "PNG" };
+      } finally {
+        URL.revokeObjectURL(objectUrl);
+      }
+    }
+
+    const data = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result));
+      reader.onerror = () => reject(reader.error);
+      reader.readAsDataURL(blob);
+    });
+    const format = blob.type.includes("jpeg") || blob.type.includes("jpg")
+      ? "JPEG"
+      : blob.type.includes("webp") ? "WEBP" : "PNG";
+    return { data, format };
+  } catch {
+    return null;
+  }
+}
+
+export async function generateInvoicePDF(
   invoice: Invoice,
   profile: Profile,
-  extras: InvoicePDFExtras
-): void {
+  extras: InvoicePDFExtras,
+  branding?: WorkspaceBranding | null
+): Promise<void> {
   const doc = new jsPDF({ unit: "pt", format: "a4" });
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
   const margin = 40;
   let y = margin;
 
-  const primary: [number, number, number] = [37, 99, 235];
+  const primary: [number, number, number] = branding ? hexToRgb(branding.brand_color) : [37, 99, 235];
   const dark: [number, number, number] = [15, 23, 42];
   const gray: [number, number, number] = [100, 116, 139];
   const lightGray: [number, number, number] = [241, 245, 249];
+  const hiddenBlocks = new Set(branding?.hidden_blocks || []);
+  const darkHeader = branding?.pdf_template === "executive" || branding?.pdf_template === "luxury";
+  const headerText: [number, number, number] = branding?.pdf_template === "luxury" ? [253, 230, 138] : darkHeader ? [255, 255, 255] : dark;
+  const headerMuted: [number, number, number] = darkHeader ? [203, 213, 225] : gray;
+  const [logoAsset, signatureAsset, stampAsset] = await Promise.all([
+    loadPDFImage(branding?.logo_url || profile.logo_url),
+    branding?.show_signature ? loadPDFImage(branding.signature_url) : Promise.resolve(null),
+    branding?.show_stamp ? loadPDFImage(branding.stamp_url) : Promise.resolve(null),
+  ]);
+  if (darkHeader) {
+    doc.setFillColor(...(branding?.pdf_template === "luxury" ? [24, 18, 11] as [number,number,number] : [15, 23, 42] as [number,number,number]));
+    doc.rect(0, 0, pageWidth, 125, "F");
+  } else if (branding?.pdf_template === "corporate") {
+    doc.setFillColor(...primary); doc.rect(0, 0, pageWidth, 10, "F");
+  }
 
-  if (profile.logo_url) {
-    try {
-      doc.addImage(profile.logo_url, "PNG", margin, y, 60, 60);
-    } catch {
-      // logo may be jpg or unsupported; skip silently
-    }
+  if (logoAsset) {
+    doc.addImage(logoAsset.data, logoAsset.format, margin, y, 60, 60);
   }
 
   doc.setFont("helvetica", "bold");
   doc.setFontSize(18);
-  doc.setTextColor(...dark);
+  doc.setTextColor(...headerText);
   doc.text(profile.business_name || "Your Business", margin + 72, y + 18);
 
   doc.setFont("helvetica", "normal");
   doc.setFontSize(9);
-  doc.setTextColor(...gray);
+  doc.setTextColor(...headerMuted);
   let addrY = y + 34;
   if (profile.address) {
     const addrLines = doc.splitTextToSize(profile.address, 220);
@@ -135,22 +195,22 @@ export function generateInvoicePDF(
   const badgeW = 90;
   const badgeH = 26;
   const badgeX = pageWidth - margin - badgeW;
-  doc.setFillColor(...primary);
+  doc.setFillColor(...(branding?.pdf_template === "luxury" ? hexToRgb(branding.accent_color) : primary));
   doc.roundedRect(badgeX, y, badgeW, badgeH, 4, 4, "F");
   doc.setFont("helvetica", "bold");
   doc.setFontSize(13);
   doc.setTextColor(255, 255, 255);
-  doc.text("INVOICE", badgeX + badgeW / 2, y + 17, { align: "center" });
+  doc.text(branding?.invoice_title || "INVOICE", badgeX + badgeW / 2, y + 17, { align: "center" });
 
   doc.setFontSize(11);
-  doc.setTextColor(...dark);
+  doc.setTextColor(...headerText);
   doc.text(invoice.invoice_number, pageWidth - margin, y + badgeH + 18, {
     align: "right",
   });
 
   doc.setFont("helvetica", "normal");
   doc.setFontSize(9);
-  doc.setTextColor(...gray);
+  doc.setTextColor(...headerMuted);
   doc.text(
     `Invoice Date: ${formatDate(invoice.invoice_date)}`,
     pageWidth - margin,
@@ -361,14 +421,29 @@ export function generateInvoicePDF(
     y += noteLines.length * 12 + 8;
   }
 
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(10);
-  doc.setTextColor(...primary);
-  doc.text("Thank you for your business!", pageWidth / 2, pageHeight - 50, {
-    align: "center",
-  });
+  if (!hiddenBlocks.has("payment") && branding?.payment_instructions) {
+    doc.setFont("helvetica", "bold"); doc.setFontSize(9); doc.setTextColor(...gray); doc.text("Payment instructions:", margin, y); y += 13;
+    doc.setFont("helvetica", "normal"); const lines=doc.splitTextToSize(branding.payment_instructions, tableW); doc.text(lines,margin,y); y+=lines.length*11+8;
+  }
+  if (!hiddenBlocks.has("terms") && branding?.terms_text) {
+    doc.setFont("helvetica", "bold"); doc.setFontSize(9); doc.setTextColor(...gray); doc.text("Terms & conditions:", margin, y); y += 13;
+    doc.setFont("helvetica", "normal"); const lines=doc.splitTextToSize(branding.terms_text, tableW); doc.text(lines,margin,y); y+=lines.length*11+8;
+  }
+  if (branding?.background_watermark) {
+    doc.setFont("helvetica","bold"); doc.setFontSize(52); doc.setTextColor(235,238,245); doc.text(branding.background_watermark.slice(0,30),pageWidth/2,pageHeight/2,{align:"center",angle:35});
+  }
+  let assetX=pageWidth-margin;
+  if (!hiddenBlocks.has("approval") && stampAsset) { doc.addImage(stampAsset.data,stampAsset.format,assetX-55,pageHeight-120,55,55); assetX-=65; }
+  if (!hiddenBlocks.has("approval") && signatureAsset) { doc.addImage(signatureAsset.data,signatureAsset.format,assetX-80,pageHeight-110,80,40); }
 
-  if (!profile.is_pro) {
+  if (!hiddenBlocks.has("footer")) {
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(10);
+    doc.setTextColor(...primary);
+    doc.text(branding?.footer_text || "Thank you for your business!", pageWidth / 2, pageHeight - 50, { align: "center" });
+  }
+
+  if (!branding?.remove_rivox_branding && !profile.is_pro) {
     doc.setFont("helvetica", "normal");
     doc.setFontSize(8);
     doc.setTextColor(...gray);

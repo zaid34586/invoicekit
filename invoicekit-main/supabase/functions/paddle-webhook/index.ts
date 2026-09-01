@@ -48,6 +48,42 @@ async function sendAutomationEmail(to: string, subject: string, body: string) {
   return { id: payload?.id || null, skipped: false };
 }
 
+function log(label: string, details: Record<string, unknown> = {}) {
+  console.log(`[paddle-webhook] ${label}`, details);
+}
+
+function logError(label: string, details: Record<string, unknown> = {}) {
+  console.error(`[paddle-webhook] ${label}`, details);
+}
+
+// Mirrors the profile-sync logic already used in the sandbox paddle-webhook:
+// keeps profiles.plan / is_pro / subscription_status / plan_expires_at in
+// step with what we just wrote to subscriptions/billing_events, since that is
+// what the rest of the app (Billing.tsx, UpgradeContext) actually reads from.
+async function syncProfilePlan(
+  admin: ReturnType<typeof createClient>,
+  userId: string,
+  options: { plan: string; isActive: boolean; subscriptionStatus: string; planExpiresAt: string | null },
+  context: Record<string, unknown>,
+) {
+  const profilePlan = options.isActive ? options.plan : "free";
+  const { error } = await admin
+    .from("profiles")
+    .update({
+      plan: profilePlan,
+      is_pro: options.isActive && profilePlan !== "free",
+      subscription_status: options.subscriptionStatus,
+      plan_expires_at: options.planExpiresAt,
+    })
+    .eq("user_id", userId);
+  if (error) {
+    logError("db update failed: profiles plan sync", { userId, profilePlan, ...context, message: error.message });
+    return false;
+  }
+  log("profiles plan synced", { userId, profilePlan, isPro: options.isActive && profilePlan !== "free", ...context });
+  return true;
+}
+
 async function processImmediateAutomation(admin: ReturnType<typeof createClient>, event: any, userId: string, ruleType: "payment_failed" | "subscription_cancelled") {
   const { data: rule } = await admin.from("subscription_automation_rules").select("*").eq("rule_type", ruleType).eq("enabled", true).maybeSingle();
   if (!rule) return;
@@ -92,11 +128,26 @@ async function processImmediateAutomation(admin: ReturnType<typeof createClient>
 }
 
 Deno.serve(async (req) => {
+  // (a) Request reached the handler.
+  log("request reached handler", { method: req.method, hasSignatureHeader: req.headers.has("Paddle-Signature") });
+
   try {
     const rawBody = await req.text();
     const signature = req.headers.get("Paddle-Signature") || "";
-    const secret = Deno.env.get("PADDLE_WEBHOOK_SECRET") || "";
-    if (!secret || !(await verifySignature(rawBody, signature, secret))) return new Response("Invalid signature", { status: 401 });
+    const productionSecret = Deno.env.get("PADDLE_WEBHOOK_SECRET") || "";
+    const sandboxSecret = Deno.env.get("PADDLE_SANDBOX_WEBHOOK_SECRET") || "";
+    const productionValid = Boolean(productionSecret) && (await verifySignature(rawBody, signature, productionSecret));
+    const sandboxValid = !productionValid && Boolean(sandboxSecret) && (await verifySignature(rawBody, signature, sandboxSecret));
+    const signatureValid = productionValid || sandboxValid;
+
+    if (!signatureValid) {
+      // (b) Signature verification failed.
+      logError("signature verification failed", {
+        hasSecretConfigured: Boolean(productionSecret || sandboxSecret),
+        hasSignatureHeader: Boolean(signature),
+      });
+      return new Response("Invalid signature", { status: 401 });
+    }
 
     const event = JSON.parse(rawBody);
     const data = event.data || {};
@@ -104,40 +155,132 @@ Deno.serve(async (req) => {
     const userId = custom.user_id || data.custom_data?.userId;
     const plan = custom.plan || "free";
     const billingCycle = custom.billing_cycle || null;
+    const eventType = String(event.event_type);
+    const environment = sandboxValid || custom.environment === "sandbox" ? "sandbox" : "production";
+
+    log("event parsed", { eventType, userId: userId || null, plan, eventId: event.event_id || null });
 
     const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
 
-    if (String(event.event_type).startsWith("subscription.") && userId) {
-      const status = data.status || (event.event_type === "subscription.canceled" ? "canceled" : "active");
-      await admin.from("subscriptions").upsert({
+    let subscriptionStatus: string | null = null;
+
+    if (eventType.startsWith("subscription.") && userId) {
+      const status = data.status || (eventType === "subscription.canceled" ? "canceled" : "active");
+      subscriptionStatus = status;
+      const { error: subscriptionError } = await admin.from("subscriptions").upsert({
         user_id: userId, provider: "paddle", provider_subscription_id: data.id,
         provider_customer_id: data.customer_id || null, product_id: data.items?.[0]?.price?.product_id || null,
         variant_id: data.items?.[0]?.price?.id || null, plan, billing_cycle: billingCycle,
         status, currency: data.currency_code || null, renews_at: data.next_billed_at || null,
         ends_at: data.scheduled_change?.effective_at || data.canceled_at || null,
         cancelled: status === "canceled" || Boolean(data.scheduled_change?.action === "cancel"),
+        provider_environment: environment,
+        billing_provider: "paddle",
         raw_payload: event, updated_at: new Date().toISOString(),
-      }, { onConflict: "user_id" });
+      }, { onConflict: "user_id,provider_environment" });
+      // (c) DB update failed.
+      if (subscriptionError) {
+        logError("db update failed: subscriptions upsert", { eventType, userId, message: subscriptionError.message });
+      } else {
+        log("subscriptions upserted", { eventType, userId, status });
+      }
+
+      const isActive = status === "active" || status === "trialing";
+      await syncProfilePlan(
+        admin,
+        userId,
+        { plan, isActive, subscriptionStatus: status, planExpiresAt: data.next_billed_at || data.scheduled_change?.effective_at || null },
+        { eventType },
+      );
     }
 
-    if (["transaction.completed", "transaction.payment_failed"].includes(event.event_type) && userId) {
-      await admin.from("billing_events").upsert({
+    if (["transaction.completed", "transaction.payment_failed"].includes(eventType) && userId) {
+      const status = data.status || (eventType === "transaction.payment_failed" ? "failed" : "completed");
+      const { error: billingError } = await admin.from("billing_events").upsert({
         provider_event_id: event.event_id, user_id: userId, provider: "paddle",
-        event_name: event.event_type, order_id: data.id, subscription_id: data.subscription_id || null,
+        provider_environment: environment,
+        event_name: eventType, order_id: data.id, subscription_id: data.subscription_id || null,
         plan, billing_cycle: billingCycle, amount: Number(data.details?.totals?.grand_total || 0) / 100,
-        currency: data.currency_code || null, status: data.status || (event.event_type === "transaction.payment_failed" ? "failed" : "completed"), raw_payload: event,
+        currency: data.currency_code || null, status, raw_payload: event,
       }, { onConflict: "provider_event_id" });
+      // (c) DB update failed.
+      if (billingError) {
+        logError("db update failed: billing_events upsert", { eventType, userId, message: billingError.message });
+      } else {
+        log("billing_events upserted", { eventType, userId, status });
+      }
+
+      if (eventType === "transaction.completed") {
+        const validPlan = plan === "pro" || plan === "business";
+        if (validPlan && data.subscription_id && data.customer_id) {
+          const activationPayload = {
+            user_id: userId,
+            environment,
+            transaction_id: data.id,
+            subscription_id: data.subscription_id,
+            customer_id: data.customer_id,
+            plan,
+            billing_cycle: billingCycle,
+            status: "active",
+            currency: data.currency_code || null,
+            amount: Number(data.details?.totals?.grand_total || 0) / 100,
+            customer_email: custom.customer_email || null,
+            renews_at: data.billing_period?.ends_at || null,
+            product_id: data.items?.[0]?.price?.product_id || null,
+            price_id: data.items?.[0]?.price?.id || null,
+            raw_payload: data,
+          };
+          const { error: activationError } = await admin.rpc("activate_paddle_transaction_v4", { p_payload: activationPayload });
+          if (activationError) {
+            logError("atomic transaction activation failed", { userId, transactionId: data.id, message: activationError.message });
+          } else {
+            await admin.from("billing_activation_incidents").update({
+              status: "activated",
+              paddle_status: "completed",
+              activated_at: new Date().toISOString(),
+              resolved_at: new Date().toISOString(),
+              error_message: null,
+              updated_at: new Date().toISOString(),
+            }).eq("transaction_id", data.id).eq("provider_environment", environment);
+          }
+        } else {
+          await syncProfilePlan(
+            admin,
+            userId,
+            { plan, isActive: validPlan, subscriptionStatus: subscriptionStatus || "active", planExpiresAt: data.billing_period?.ends_at || null },
+            { eventType },
+          );
+        }
+
+        // Record the redemption (enforces one-time-per-user via the unique
+        // constraint) and mark this user as having held a paid plan, so a
+        // "new users only" offer won't be offered to them again.
+        if (custom.offer_id) {
+          const { error: redemptionError } = await admin.from("admin_offer_redemptions").insert({
+            offer_id: custom.offer_id,
+            user_id: userId,
+            transaction_id: data.id,
+          });
+          if (redemptionError && redemptionError.code !== "23505") {
+            logError("db update failed: admin_offer_redemptions insert", { eventType, userId, message: redemptionError.message });
+          }
+        }
+        if (validPlan) {
+          await admin.from("profiles").update({ has_ever_subscribed: true }).or(`user_id.eq.${userId},id.eq.${userId}`);
+        }
+      }
     }
 
-    if (event.event_type === "transaction.payment_failed" && userId) {
+    if (eventType === "transaction.payment_failed" && userId) {
       await processImmediateAutomation(admin, event, userId, "payment_failed");
     }
-    if (["subscription.canceled", "subscription.cancelled"].includes(event.event_type) && userId) {
+    if (["subscription.canceled", "subscription.cancelled"].includes(eventType) && userId) {
       await processImmediateAutomation(admin, event, userId, "subscription_cancelled");
     }
 
     return new Response("ok", { status: 200 });
   } catch (error) {
+    logError("webhook processing error", { message: error instanceof Error ? error.message : String(error) });
     return new Response(error instanceof Error ? error.message : "Webhook error", { status: 400 });
   }
 });

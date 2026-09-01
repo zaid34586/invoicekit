@@ -11,6 +11,19 @@ import CommunicationCenter from "../components/CommunicationCenter";
 import AdminPaddleSettings from "../components/AdminPaddleSettings";
 import AdminGrowthCenter from "../components/AdminGrowthCenter";
 import AdminSubscriptionAutomation from "../components/AdminSubscriptionAutomation";
+import AdminSupportCenter from "../components/AdminSupportCenter";
+import AdminBillingRecovery from "../components/AdminBillingRecovery";
+import AdminSystemMonitor from "../components/AdminSystemMonitor";
+import AdminSecurityCenter from "../components/AdminSecurityCenter";
+import AdminProductionQA from "../components/AdminProductionQA";
+import AdminOperationsCommand from "../components/AdminOperationsCommand";
+import AdminUnifiedKPI from "../components/AdminUnifiedKPI";
+import { STAFF_ROLE_PERMISSIONS, STAFF_PERMISSION_LABELS, type StaffRole } from "../lib/staffPermissions";
+import * as XLSX from "xlsx";
+import AdminTeamWorkload from "../components/AdminTeamWorkload";
+import AdminRevenueIntelligence from "../components/AdminRevenueIntelligence";
+import AdminCustomerSuccess from "../components/AdminCustomerSuccess";
+import AdminAccessGovernance from "../components/AdminAccessGovernance";
 
 type AdminSection =
   | "dashboard"
@@ -20,6 +33,7 @@ type AdminSection =
   | "growth"
   | "paddle"
   | "subscriptionAutomation"
+  | "billingRecovery"
   | "team"
   | "tasks"
   | "communication"
@@ -37,7 +51,8 @@ type AdminTeamMember = {
   auth_user_id: string | null;
   email: string;
   name: string | null;
-  role: "full_access" | "limited" | "support" | "finance" | "viewer";
+  role: "full_access" | "standard" | "limited" | "support" | "finance" | "viewer";
+  department?: string | null;
   status: "active" | "disabled";
   temporary_password: string | null;
   notes: string | null;
@@ -53,7 +68,7 @@ type AdminTask = {
   title: string;
   description: string | null;
   assigned_to: string | null;
-  department: "general" | "support" | "finance" | "sales" | "engineering";
+  department: "general" | "support" | "finance" | "sales" | "engineering" | "marketing" | "hr" | "legal" | "content";
   priority: "low" | "medium" | "high" | "urgent";
   status: "pending" | "in_progress" | "done" | "blocked";
   progress: number;
@@ -62,6 +77,54 @@ type AdminTask = {
   staff_notes?: string | null;
   last_staff_update?: string | null;
   completed_at?: string | null;
+  origin?: "manual" | "auto" | "chat" | null;
+  rule_id?: string | null;
+  resources?: { label?: string; url?: string }[] | null;
+  requires_verification?: boolean | null;
+  draft_content?: string | null;
+  ai_verification_status?: "pending" | "pass" | "fail" | null;
+  ai_verification_feedback?: string | null;
+  submission_url?: string | null;
+  submission_screenshot_url?: string | null;
+  submission_notes?: string | null;
+  submitted_at?: string | null;
+  task_type?: "simple" | "queue";
+  queue_field_schema?: { key: string; label: string }[] | null;
+  created_at: string;
+};
+
+type TaskQueueItem = {
+  id: string;
+  task_id: string;
+  data: Record<string, string>;
+  status: "pending" | "red" | "orange" | "green";
+  proof_notes: string | null;
+  proof_screenshot_url: string | null;
+  proof_recording_url: string | null;
+  marked_at: string | null;
+  sort_order: number;
+  created_at: string;
+};
+
+type TaskSession = {
+  id: string;
+  task_id: string;
+  staff_id: string;
+  status: "recording" | "completed" | "interrupted";
+  recording_url: string | null;
+  started_at: string;
+  ended_at: string | null;
+  items_worked: number;
+};
+
+type TaskActivityLogEntry = {
+  id: string;
+  task_id: string;
+  queue_item_id: string | null;
+  session_id: string | null;
+  staff_id: string | null;
+  action: string;
+  details: Record<string, unknown>;
   created_at: string;
 };
 
@@ -102,6 +165,16 @@ type AdminSupportTicket = {
   created_at: string;
 };
 
+type AdminSupportMessage = {
+  id: string;
+  ticket_id: string;
+  author_type: "customer" | "staff" | "admin";
+  message: string;
+  is_internal: boolean;
+  created_at: string;
+};
+type AdminSupportAttachment = { id: string; ticket_id: string; file_name: string; storage_path: string; signed_url?: string; };
+
 type InvoiceBalanceModalState = {
   profile: Profile;
   amount: string;
@@ -112,6 +185,7 @@ type FreeProModalState = {
   profile: Profile;
   days: string;
   reason: string;
+  plan: "pro" | "business";
 } | null;
 
 type AdminSystemSettings = {
@@ -124,6 +198,7 @@ type AdminSystemSettings = {
   team_portal: boolean;
   ai_insights: boolean;
   ads_enabled: boolean;
+  phone_verification_required: boolean;
   default_currency: string;
   security_level: "standard" | "strict" | "locked";
 };
@@ -138,6 +213,13 @@ const DEFAULT_SYSTEM_SETTINGS: AdminSystemSettings = {
   team_portal: false,
   ai_insights: true,
   ads_enabled: false,
+  // Default stays true so nothing changes unless someone explicitly
+  // flips this OFF from Admin -> System Center (e.g. while the SMS
+  // provider is in trial mode). Turning it off does NOT touch the
+  // phone_verified data on any profile — it just stops the app from
+  // requiring it before letting a user into the dashboard, so it's
+  // safe to flip back ON later with zero side effects.
+  phone_verification_required: true,
   default_currency: "INR",
   security_level: "standard",
 };
@@ -150,6 +232,7 @@ const sections: { id: AdminSection; label: string; icon: string; group: string }
   { id: "growth", label: "Growth Center", icon: "🚀", group: "Money" },
   { id: "paddle", label: "Paddle & API Key", icon: "🔐", group: "Money" },
   { id: "subscriptionAutomation", label: "Subscription Automation", icon: "🔁", group: "Money" },
+  { id: "billingRecovery", label: "Activation Recovery", icon: "⚡", group: "Money" },
   { id: "team", label: "Team Members", icon: "👨‍💼", group: "Operations" },
   { id: "tasks", label: "Tasks", icon: "📋", group: "Operations" },
   { id: "communication", label: "Communication", icon: "💬", group: "Operations" },
@@ -170,19 +253,25 @@ function cx(...classes: Array<string | false | null | undefined>) {
 
 const roleLabels: Record<AdminTeamMember["role"], string> = {
   full_access: "Full Access",
+  standard: "Standard",
   limited: "Limited",
   support: "Support",
   finance: "Finance",
   viewer: "Viewer",
 };
 
-const roleAccess: Record<AdminTeamMember["role"], string[]> = {
-  full_access: ["Dashboard", "Users", "Invoice Balance", "Team", "Tasks", "Finance", "Invoices", "Analytics", "Support", "Audit", "Settings"],
-  limited: ["Dashboard", "Users", "Tasks"],
-  support: ["Users", "Support", "Tasks"],
-  finance: ["Finance", "Invoices", "Analytics"],
-  viewer: ["Dashboard", "Users", "Invoices", "Analytics"],
-};
+// Fix: this used to be a separate hand-typed list that drifted from the
+// real permission engine in staffPermissions.ts (e.g. it showed "Invoice
+// Balance", "Team", "Audit" — items that don't exist in the staff
+// dashboard nav at all). Now it's derived straight from
+// STAFF_ROLE_PERMISSIONS, so the preview always matches what the role
+// actually unlocks in the staff portal.
+const roleAccess: Record<AdminTeamMember["role"], string[]> = Object.fromEntries(
+  (Object.keys(STAFF_ROLE_PERMISSIONS) as StaffRole[]).map((role) => [
+    role,
+    STAFF_ROLE_PERMISSIONS[role].map((perm) => STAFF_PERMISSION_LABELS[perm]),
+  ])
+) as Record<AdminTeamMember["role"], string[]>;
 
 function generatePassword() {
   const part = Math.random().toString(36).slice(2, 8);
@@ -243,6 +332,26 @@ function appendAdminTaskNote(existing: string | null | undefined, author: string
   return `${existing ? `${existing}\n\n` : ""}[${stamp}] ${author}: ${clean}`;
 }
 
+async function parseSpreadsheetFile(file: File): Promise<{ headers: string[]; rows: Record<string, string>[] }> {
+  const buffer = await file.arrayBuffer();
+  const workbook = XLSX.read(buffer, { type: "array" });
+  const sheet = workbook.Sheets[workbook.SheetNames[0]];
+  const rows = XLSX.utils.sheet_to_json<Record<string, string>>(sheet, { defval: "", raw: false });
+  const headers = rows.length > 0 ? Object.keys(rows[0]) : [];
+  return { headers, rows: rows.map((r) => Object.fromEntries(Object.entries(r).map(([k, v]) => [k, String(v ?? "").trim()]))) };
+}
+
+function guessColumnMapping(fields: { key: string; label: string }[], headers: string[]): Record<string, string> {
+  const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
+  const mapping: Record<string, string> = {};
+  for (const f of fields) {
+    const target = norm(f.label) + "|" + norm(f.key);
+    const match = headers.find((h) => target.includes(norm(h)) || norm(h).includes(norm(f.key)) || norm(h).includes(norm(f.label)));
+    mapping[f.key] = match || "";
+  }
+  return mapping;
+}
+
 function emptyFormFinance(): Omit<AdminFinanceEntry, "id" | "created_at"> {
   return {
     entry_date: new Date().toISOString().slice(0, 10),
@@ -278,13 +387,34 @@ export default function Admin() {
   const [userSort, setUserSort] = useState<"newest" | "oldest" | "credits_high" | "invoices_high">("newest");
   const [adminNotesDraft, setAdminNotesDraft] = useState("");
   const [invoiceSearch, setInvoiceSearch] = useState("");
-  const [teamForm, setTeamForm] = useState({ name: "", email: "", password: "", role: "limited", notes: "" });
+  const [teamForm, setTeamForm] = useState({ name: "", email: "", password: "", role: "limited", department: "", notes: "" });
+  const [departments, setDepartments] = useState<{ slug: string; name: string; icon: string }[]>([]);
   const [teamSearch, setTeamSearch] = useState("");
   const [teamStatusFilter, setTeamStatusFilter] = useState<"all" | "active" | "disabled">("all");
   const [selectedTeamId, setSelectedTeamId] = useState<string | null>(null);
-  const [taskForm, setTaskForm] = useState({ title: "", description: "", assigned_to: "", department: "general", priority: "medium", due_date: "" });
+  const DEFAULT_QUEUE_FIELDS = [
+    { key: "name", label: "Name" },
+    { key: "company", label: "Company / Business" },
+    { key: "phone", label: "Phone" },
+    { key: "email", label: "Email" },
+    { key: "country", label: "Country" },
+  ];
+  const [taskForm, setTaskForm] = useState({
+    title: "", description: "", assigned_to: "", department: "general", priority: "medium", due_date: "",
+    requiresVerification: false, resourceLabel: "", resourceUrl: "", resources: [] as { label: string; url: string }[],
+    taskType: "simple" as "simple" | "queue",
+    queueFields: DEFAULT_QUEUE_FIELDS as { key: string; label: string }[],
+    queueNewFieldLabel: "",
+    queueItemDraft: {} as Record<string, string>,
+    queueItems: [] as Record<string, string>[],
+  });
+  const [queueImport, setQueueImport] = useState<{ headers: string[]; rows: Record<string, string>[]; mapping: Record<string, string>; parsing: boolean }>({ headers: [], rows: [], mapping: {}, parsing: false });
+  const [editQueueImport, setEditQueueImport] = useState<{ headers: string[]; rows: Record<string, string>[]; mapping: Record<string, string>; parsing: boolean; importing: boolean }>({ headers: [], rows: [], mapping: {}, parsing: false, importing: false });
   const [selectedAdminTaskId, setSelectedAdminTaskId] = useState<string | null>(null);
   const [adminTaskNote, setAdminTaskNote] = useState("");
+  const [taskFileUploading, setTaskFileUploading] = useState(false);
+  const [editTaskForm, setEditTaskForm] = useState({ title: "", description: "", due_date: "", priority: "medium" as AdminTask["priority"], requiresVerification: false, resourceLabel: "", resourceUrl: "", resources: [] as { label: string; url: string }[] });
+  const [editTaskSaving, setEditTaskSaving] = useState(false);
   const [financeForm, setFinanceForm] = useState(emptyFormFinance());
   const [financeSearch, setFinanceSearch] = useState("");
   const [financeStatusFilter, setFinanceStatusFilter] = useState<"all" | AdminFinanceEntry["status"]>("all");
@@ -294,12 +424,23 @@ export default function Admin() {
   const [supportSearch, setSupportSearch] = useState("");
   const [supportStatusFilter, setSupportStatusFilter] = useState<"all" | AdminSupportTicket["status"]>("all");
   const [selectedTicketId, setSelectedTicketId] = useState<string | null>(null);
+  const [supportMessages, setSupportMessages] = useState<AdminSupportMessage[]>([]);
+  const [supportAttachments, setSupportAttachments] = useState<AdminSupportAttachment[]>([]);
+  const [supportReply, setSupportReply] = useState("");
+  const [supportInternal, setSupportInternal] = useState(false);
   const [auditSearch, setAuditSearch] = useState("");
   const [systemSettings, setSystemSettings] = useState<AdminSystemSettings>(DEFAULT_SYSTEM_SETTINGS);
   const [savingSystem, setSavingSystem] = useState(false);
   const [balanceModal, setBalanceModal] = useState<InvoiceBalanceModalState>(null);
   const [freeProModal, setFreeProModal] = useState<FreeProModalState>(null);
   const [adminActionBusy, setAdminActionBusy] = useState(false);
+  const [assignToast, setAssignToast] = useState<string | null>(null);
+  const [taskSuggestion, setTaskSuggestion] = useState<{ id: string; name: string; open_count: number } | null>(null);
+
+  function showAssignToast(text: string) {
+    setAssignToast(text);
+    window.setTimeout(() => setAssignToast((current) => (current === text ? null : current)), 2000);
+  }
 
   const isAdmin = user?.email?.toLowerCase() === ADMIN_EMAIL.toLowerCase();
 
@@ -411,6 +552,10 @@ export default function Admin() {
         )
         .slice(0, 8)
     : [];
+
+  useEffect(() => {
+    void supabase.from("departments").select("slug,name,icon").eq("is_active", true).order("name").then(({ data }) => setDepartments(data ?? []));
+  }, []);
 
   useEffect(() => {
     setAdminNotesDraft(String((selectedUser as unknown as { admin_notes?: string | null })?.admin_notes ?? ""));
@@ -651,9 +796,18 @@ export default function Admin() {
     await updateProfile(profile.id, { admin_notes: adminNotesDraft }, "save_admin_notes");
   }
 
-  async function handleRemoveFreePro(profile: Profile) {
-    if (!window.confirm("Is user ka free Pro/Pro access remove karna hai?")) return;
+  async function handleRemoveFreePro(profile: Profile, plan: "pro" | "business") {
+    const planLabel = plan === "business" ? "Business" : "Pro";
+    if (!window.confirm(`Is user ka free ${planLabel} access remove karna hai?`)) return;
     await updateProfile(profile.id, { is_pro: false, plan: "free", free_pro_until: null }, "remove_free_pro");
+    await supabase.from("notifications").insert({
+      audience: "user",
+      recipient_user_id: (profile as unknown as { user_id?: string }).user_id || profile.id,
+      type: "plan_removed",
+      title: `Your free ${planLabel} access has ended`,
+      body: `Your account is now on the Free plan.`,
+      metadata: { previous_plan: plan },
+    });
   }
 
   function exportCsv(rows: Record<string, unknown>[], filename: string) {
@@ -801,10 +955,10 @@ export default function Admin() {
     await logAction("invoice_balance_reset", "profile", profile.id, { email: profile.email, previous_balance: current, reason });
   }
 
-  function openFreeProModal(profile: Profile) {
+  function openFreeProModal(profile: Profile, plan: "pro" | "business" = "pro") {
     setError(null);
     setNotice(null);
-    setFreeProModal({ profile, days: "30", reason: "Manual free Pro access" });
+    setFreeProModal({ profile, days: "30", reason: `Manual free ${plan === "business" ? "Business" : "Pro"} access`, plan });
   }
 
   async function submitFreePro(daysOverride?: number) {
@@ -816,23 +970,33 @@ export default function Admin() {
     }
 
     const profile = freeProModal.profile;
+    const plan = freeProModal.plan;
+    const planLabel = plan === "business" ? "Business" : "Pro";
     const until = new Date();
     until.setDate(until.getDate() + days);
     setAdminActionBusy(true);
     setError(null);
     setNotice(null);
     try {
-      await updateProfile(profile.id, { is_pro: true, plan: "pro", free_pro_until: until.toISOString() }, "give_free_pro");
-      await logAction("free_pro_granted", "profile", profile.id, {
+      await updateProfile(profile.id, { is_pro: true, plan, free_pro_until: until.toISOString() }, `give_free_${plan}`);
+      await logAction(`free_${plan}_granted`, "profile", profile.id, {
         email: profile.email,
         days,
         free_pro_until: until.toISOString(),
-        reason: freeProModal.reason || "Manual free Pro access",
+        reason: freeProModal.reason || `Manual free ${planLabel} access`,
+      });
+      await supabase.from("notifications").insert({
+        audience: "user",
+        recipient_user_id: (profile as unknown as { user_id?: string }).user_id || profile.id,
+        type: "plan_granted",
+        title: `You've been given free ${planLabel} access`,
+        body: `Reason: ${freeProModal.reason || `Manual free ${planLabel} access`}. Valid for ${days} day${days === 1 ? "" : "s"}, until ${until.toLocaleDateString()}.`,
+        metadata: { plan, days, free_pro_until: until.toISOString(), reason: freeProModal.reason || null },
       });
       setFreeProModal(null);
-      setNotice(`Free Pro is active for ${days} day${days === 1 ? "" : "s"}.`);
+      setNotice(`Free ${planLabel} is active for ${days} day${days === 1 ? "" : "s"}.`);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Free Pro update failed.");
+      setError(err instanceof Error ? err.message : `Free ${planLabel} update failed.`);
     } finally {
       setAdminActionBusy(false);
     }
@@ -849,6 +1013,16 @@ export default function Admin() {
     setError(null);
     setNotice(null);
 
+    // Remove the Auth identity first. If this fails, keep all customer data
+    // intact so the account cannot be left as a registered email with an
+    // empty/recreated profile.
+    try {
+      await invokeAdminUserAction("delete_auth_user", { user_id: authId });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Auth user could not be deleted. No customer data was removed.");
+      return;
+    }
+
     const { error: invError } = await supabase.from("invoices").delete().eq("user_id", authId);
     if (invError) return setError(invError.message);
     const { error: clientError } = await supabase.from("clients").delete().eq("user_id", authId);
@@ -857,16 +1031,6 @@ export default function Admin() {
     if (subError && !subError.message.toLowerCase().includes("does not exist")) return setError(subError.message);
     const { error: profileError } = await supabase.from("profiles").delete().eq("id", profile.id);
     if (profileError) return setError(profileError.message);
-
-    try {
-      await invokeAdminUserAction("delete_auth_user", { user_id: authId });
-    } catch (err) {
-      await logAction("delete_user_data_auth_pending", "profile", profile.id, { email: profile.email, user_id: authId });
-      setSelectedUserId(null);
-      setNotice("User data deleted. Auth user delete skip hua — admin-user-actions Edge Function deploy karo ya Supabase Auth se manually delete karo.");
-      await load();
-      return;
-    }
 
     await logAction("delete_user_data", "profile", profile.id, { email: profile.email, user_id: authId });
     setSelectedUserId(null);
@@ -890,28 +1054,30 @@ export default function Admin() {
       });
 
       if (fnError) {
-        const { error: insertError } = await supabase.from("admin_team_members").insert({
-          email: teamForm.email.toLowerCase(),
-          name: teamForm.name || null,
-          role: teamForm.role,
-          temporary_password: teamForm.password,
-          notes: teamForm.notes || "Edge Function not deployed yet. Deploy create-team-member for real Auth login.",
-          created_by: user?.id ?? null,
-        });
-        if (insertError) throw insertError;
-        setNotice("Team record created. Edge Function deploy karne ke baad real login create hoga.");
+        // Try to surface the actual reason (the function returns a JSON
+        // body with `error` even on failure) instead of a generic message
+        // that hides what really went wrong.
+        let detail = fnError.message;
+        try {
+          const ctx = (fnError as unknown as { context?: Response }).context;
+          if (ctx) {
+            const body = await ctx.clone().json();
+            if (body?.error) detail = body.error;
+          }
+        } catch { /* keep the generic message if we can't parse a body */ }
+        throw new Error(detail);
+      }
+
+      if (data?.email_sent) {
+        setNotice(`Team member created. Welcome email sent to ${teamForm.email}.`);
+      } else if (data?.email_error) {
+        setNotice(`Team member created, but email failed: ${data.email_error}`);
       } else {
-        if (data?.email_sent) {
-          setNotice(`Team member created. Welcome email sent to ${teamForm.email}.`);
-        } else if (data?.email_error) {
-          setNotice(`Team member created, but email failed: ${data.email_error}`);
-        } else {
-          setNotice(data?.message ?? "Team member created. Email not configured yet.");
-        }
+        setNotice(data?.message ?? "Team member created. Email not configured yet.");
       }
 
       await logAction("create_team_member", "admin_team_members", teamForm.email, { role: teamForm.role });
-      setTeamForm({ name: "", email: "", password: "", role: "limited", notes: "" });
+      setTeamForm({ name: "", email: "", password: "", role: "limited", department: "", notes: "" });
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to create team member");
@@ -935,6 +1101,14 @@ export default function Admin() {
     await load();
   }
 
+  async function updateTeamDepartment(member: AdminTeamMember, department: string) {
+    const { error: updateError } = await supabase.from("admin_team_members").update({ department: department || null }).eq("id", member.id);
+    if (updateError) return setError(updateError.message);
+    await logAction("update_team_department", "admin_team_members", member.id, { old_department: member.department || null, new_department: department || null });
+    setNotice("Team department updated.");
+    await load();
+  }
+
   async function resetTeamTempPassword(member: AdminTeamMember) {
     const password = window.prompt(`New temporary password for ${member.email}`, generatePassword());
     if (!password || password.length < 6) return;
@@ -948,17 +1122,100 @@ export default function Admin() {
   async function deleteTeamMember(member: AdminTeamMember) {
     const confirmText = window.prompt(`Delete team member ${member.email}? Confirm ke liye DELETE likho.`);
     if (confirmText !== "DELETE") return;
+    setError(null);
+    setNotice(null);
+
+    // Delete the linked Supabase Auth login first, so the email is freed up
+    // for re-registration/re-invite. Without this, only the admin_team_members
+    // row was removed and the Auth account stayed behind, causing
+    // "already registered" errors when reusing the same email later.
+    if (member.auth_user_id) {
+      try {
+        const result = await invokeAdminUserAction("delete_auth_user", { user_id: member.auth_user_id });
+        if (result?.ok === false) throw new Error(result.message || "Auth user delete failed");
+      } catch (authActionError) {
+        const message = authActionError instanceof Error ? authActionError.message : "Auth user delete failed";
+        // "not found" just means the auth user was already gone (e.g. deleted
+        // manually before) -- safe to continue removing the team record.
+        if (!/not.?found/i.test(message)) {
+          return setError(`Could not delete the linked login: ${message}. Team record was not deleted.`);
+        }
+      }
+    }
+
     const { error: deleteError } = await supabase.from("admin_team_members").delete().eq("id", member.id);
     if (deleteError) return setError(deleteError.message);
-    await logAction("delete_team_member", "admin_team_members", member.id, { email: member.email });
+    await logAction("delete_team_member", "admin_team_members", member.id, { email: member.email, auth_user_id: member.auth_user_id });
     setSelectedTeamId(null);
-    setNotice("Team member record deleted. Agar real Auth user bana tha to Supabase Authentication se disable/delete manually karo.");
+    setNotice("Team member record aur uska login dono delete ho gaye. Email ab dobara register/invite ke liye free hai.");
+    await load();
+  }
+
+  async function handleQueueFileSelected(file: File, fields: { key: string; label: string }[]) {
+    setQueueImport((cur) => ({ ...cur, parsing: true }));
+    try {
+      const { headers, rows } = await parseSpreadsheetFile(file);
+      if (rows.length === 0) { setError("No rows found in that file."); setQueueImport({ headers: [], rows: [], mapping: {}, parsing: false }); return; }
+      setQueueImport({ headers, rows, mapping: guessColumnMapping(fields, headers), parsing: false });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not read that file.");
+      setQueueImport({ headers: [], rows: [], mapping: {}, parsing: false });
+    }
+  }
+
+  function confirmQueueImport() {
+    const mapped = queueImport.rows.map((row) => {
+      const item: Record<string, string> = {};
+      for (const f of taskForm.queueFields) {
+        const col = queueImport.mapping[f.key];
+        item[f.key] = col ? row[col] || "" : "";
+      }
+      return item;
+    }).filter((item) => Object.values(item).some((v) => v.trim()));
+    setTaskForm((cur) => ({ ...cur, queueItems: [...cur.queueItems, ...mapped] }));
+    setQueueImport({ headers: [], rows: [], mapping: {}, parsing: false });
+    setNotice(`${mapped.length} rows imported into the queue.`);
+  }
+
+  async function handleEditQueueFileSelected(file: File, fields: { key: string; label: string }[]) {
+    setEditQueueImport((cur) => ({ ...cur, parsing: true }));
+    try {
+      const { headers, rows } = await parseSpreadsheetFile(file);
+      if (rows.length === 0) { setError("No rows found in that file."); setEditQueueImport({ headers: [], rows: [], mapping: {}, parsing: false, importing: false }); return; }
+      setEditQueueImport({ headers, rows, mapping: guessColumnMapping(fields, headers), parsing: false, importing: false });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not read that file.");
+      setEditQueueImport({ headers: [], rows: [], mapping: {}, parsing: false, importing: false });
+    }
+  }
+
+  async function confirmEditQueueImport(task: AdminTask) {
+    const fields = task.queue_field_schema || [];
+    const mapped = editQueueImport.rows.map((row, idx) => {
+      const item: Record<string, string> = {};
+      for (const f of fields) {
+        const col = editQueueImport.mapping[f.key];
+        item[f.key] = col ? row[col] || "" : "";
+      }
+      return { task_id: task.id, data: item, sort_order: queueItems.length + idx };
+    }).filter((r) => Object.values(r.data).some((v) => v.trim()));
+    if (mapped.length === 0) { setEditQueueImport({ headers: [], rows: [], mapping: {}, parsing: false, importing: false }); return; }
+    setEditQueueImport((cur) => ({ ...cur, importing: true }));
+    const { error: insertError } = await supabase.from("task_queue_items").insert(mapped);
+    setEditQueueImport({ headers: [], rows: [], mapping: {}, parsing: false, importing: false });
+    if (insertError) { setError(insertError.message); return; }
+    setNotice(`${mapped.length} items added to the queue.`);
+    const { data } = await supabase.from("task_queue_items").select("*").eq("task_id", task.id).order("sort_order");
+    setQueueItems((data as TaskQueueItem[]) ?? []);
     await load();
   }
 
   async function handleAddTask(e: React.FormEvent) {
     e.preventDefault();
-    const { error: insertError } = await supabase.from("admin_tasks").insert({
+    if (taskForm.taskType === "queue" && taskForm.queueItems.length === 0) {
+      return setError("Add at least one item to the queue before creating the task.");
+    }
+    const { data: newTask, error: insertError } = await supabase.from("admin_tasks").insert({
       title: taskForm.title,
       description: taskForm.description || null,
       assigned_to: taskForm.assigned_to || null,
@@ -968,11 +1225,25 @@ export default function Admin() {
       progress: 0,
       due_date: taskForm.due_date || null,
       created_by: user?.id ?? null,
-    });
+      resources: taskForm.resources,
+      requires_verification: taskForm.requiresVerification,
+      task_type: taskForm.taskType,
+      queue_field_schema: taskForm.taskType === "queue" ? taskForm.queueFields : [],
+    }).select("id").single();
     if (insertError) return setError(insertError.message);
+
+    if (taskForm.taskType === "queue" && newTask) {
+      const { error: itemsError } = await supabase.from("task_queue_items").insert(
+        taskForm.queueItems.map((item, idx) => ({ task_id: newTask.id, data: item, sort_order: idx }))
+      );
+      if (itemsError) return setError(`Task created but items failed: ${itemsError.message}`);
+    }
+
     await logAction("create_task", "admin_tasks", taskForm.title);
-    setTaskForm({ title: "", description: "", assigned_to: "", department: "general", priority: "medium", due_date: "" });
-    setNotice("Task created.");
+    const assignee = team.find((m) => m.id === taskForm.assigned_to);
+    setTaskForm({ title: "", description: "", assigned_to: "", department: "general", priority: "medium", due_date: "", requiresVerification: false, resourceLabel: "", resourceUrl: "", resources: [], taskType: "simple", queueFields: DEFAULT_QUEUE_FIELDS, queueNewFieldLabel: "", queueItemDraft: {}, queueItems: [] });
+    setNotice(taskForm.taskType === "queue" ? `Task created with ${taskForm.queueItems.length} items.` : "Task created.");
+    showAssignToast(assignee ? `Assigned to ${assignee.name || assignee.email} ✓` : "Task created ✓");
     await load();
   }
 
@@ -1000,6 +1271,38 @@ export default function Admin() {
     if (updateError) return setError(updateError.message);
     await logAction("add_task_note", "admin_tasks", task.id, { note: adminTaskNote });
     setNotice("Admin note added.");
+    await load();
+  }
+
+  async function uploadTaskResourceFile(file: File): Promise<{ label: string; url: string } | null> {
+    if (!user) return null;
+    setTaskFileUploading(true);
+    try {
+      const ext = file.name.split(".").pop() || "bin";
+      const path = `${user.id}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+      const { error: uploadError } = await supabase.storage.from("task-attachments").upload(path, file, { contentType: file.type, upsert: false });
+      if (uploadError) { setError(uploadError.message); return null; }
+      const { data } = supabase.storage.from("task-attachments").getPublicUrl(path);
+      return { label: file.name, url: data.publicUrl };
+    } finally {
+      setTaskFileUploading(false);
+    }
+  }
+
+  async function saveTaskEdits(task: AdminTask) {
+    setEditTaskSaving(true);
+    const { error: updateError } = await supabase.from("admin_tasks").update({
+      title: editTaskForm.title,
+      description: editTaskForm.description || null,
+      due_date: editTaskForm.due_date || null,
+      priority: editTaskForm.priority,
+      requires_verification: editTaskForm.requiresVerification,
+      resources: editTaskForm.resources,
+    }).eq("id", task.id);
+    setEditTaskSaving(false);
+    if (updateError) return setError(updateError.message);
+    await logAction("update_task_details", "admin_tasks", task.id, { title: editTaskForm.title });
+    setNotice("Task updated.");
     await load();
   }
 
@@ -1047,7 +1350,7 @@ export default function Admin() {
   }
 
   async function updateTicketStatus(ticket: AdminSupportTicket, status: AdminSupportTicket["status"]) {
-    const { error: updateError } = await supabase.from("admin_support_tickets").update({ status }).eq("id", ticket.id);
+    const { error: updateError } = await supabase.from("admin_support_tickets").update({ status, closed_at: status === "closed" ? new Date().toISOString() : null }).eq("id", ticket.id);
     if (updateError) return setError(updateError.message);
     await logAction("update_ticket_status", "admin_support_tickets", ticket.id, { status });
     await load();
@@ -1057,6 +1360,45 @@ export default function Admin() {
     const { error: updateError } = await supabase.from("admin_support_tickets").update({ assigned_to: assigned_to || null }).eq("id", ticket.id);
     if (updateError) return setError(updateError.message);
     await logAction("assign_ticket", "admin_support_tickets", ticket.id, { assigned_to: assigned_to || null });
+    const assignee = team.find((m) => m.id === assigned_to);
+    showAssignToast(assignee ? `Assigned to ${assignee.name || assignee.email} ✓` : "Ticket unassigned");
+    await load();
+  }
+
+  async function loadSupportMessages(ticketId: string) {
+    const { data, error: messageError } = await supabase.from("support_ticket_messages").select("*").eq("ticket_id", ticketId).order("created_at", { ascending: true });
+    if (messageError) return setError(messageError.message);
+    setSupportMessages((data ?? []) as AdminSupportMessage[]);
+  }
+
+  async function loadSupportAttachments(ticketId: string) {
+    const { data } = await supabase.from("support_ticket_attachments").select("id,ticket_id,file_name,storage_path").eq("ticket_id", ticketId).order("created_at");
+    const signed = await Promise.all(((data ?? []) as AdminSupportAttachment[]).map(async (item) => {
+      const { data: url } = await supabase.storage.from("support-attachments").createSignedUrl(item.storage_path, 3600);
+      return { ...item, signed_url: url?.signedUrl };
+    }));
+    setSupportAttachments(signed);
+  }
+
+  async function sendAdminSupportReply(e: React.FormEvent) {
+    e.preventDefault();
+    if (!selectedTicket || !user || !supportReply.trim()) return;
+    const now = new Date().toISOString();
+    const { error: insertError } = await supabase.from("support_ticket_messages").insert({
+      ticket_id: selectedTicket.id, author_user_id: user.id, author_type: "admin", message: supportReply.trim(), is_internal: supportInternal,
+    });
+    if (insertError) return setError(insertError.message);
+    const nextStatus = supportInternal ? selectedTicket.status : "pending";
+    await supabase.from("admin_support_tickets").update({ status: nextStatus, updated_at: now, last_reply_at: now, ...(!supportInternal ? { first_admin_reply_at: now } : {}) }).eq("id", selectedTicket.id);
+    await logAction("reply_support_ticket", "admin_support_tickets", selectedTicket.id, { internal: supportInternal });
+    setSupportReply(""); setSupportInternal(false); setNotice(supportInternal ? "Internal note added." : "Reply sent to customer.");
+    await Promise.all([loadSupportMessages(selectedTicket.id), load()]);
+  }
+
+  async function updateTicketPriority(ticket: AdminSupportTicket, priority: AdminSupportTicket["priority"]) {
+    const { error: updateError } = await supabase.from("admin_support_tickets").update({ priority }).eq("id", ticket.id);
+    if (updateError) return setError(updateError.message);
+    await logAction("update_ticket_priority", "admin_support_tickets", ticket.id, { priority });
     await load();
   }
 
@@ -1130,7 +1472,7 @@ export default function Admin() {
     return acc;
   }, {});
 
-  const supportAgents = team.filter((m) => m.status === "active" && ["full_access", "support", "limited"].includes(m.role));
+  const supportAgents = team.filter((m) => m.status === "active" && ["full_access", "support", "limited", "finance"].includes(m.role));
   const filteredSupportTickets = useMemo(() => {
     const q = supportSearch.trim().toLowerCase();
     return supportTickets.filter((ticket) => {
@@ -1140,7 +1482,60 @@ export default function Admin() {
     });
   }, [supportTickets, supportSearch, supportStatusFilter]);
   const selectedTicket = supportTickets.find((ticket) => ticket.id === selectedTicketId) ?? filteredSupportTickets[0] ?? null;
+
+  useEffect(() => {
+    if (selectedTicket?.id) void Promise.all([loadSupportMessages(selectedTicket.id), loadSupportAttachments(selectedTicket.id)]);
+    else { setSupportMessages([]); setSupportAttachments([]); }
+  }, [selectedTicket?.id]);
+
+  useEffect(() => {
+    if (taskForm.assigned_to) { setTaskSuggestion(null); return; }
+    let cancelled = false;
+    void supabase
+      .rpc("admin_suggest_assignee", { p_kind: "task", p_department: taskForm.department })
+      .then(({ data }) => {
+        if (cancelled) return;
+        const row = Array.isArray(data) ? data[0] : null;
+        setTaskSuggestion(row ? { id: row.member_id, name: row.name || row.email, open_count: row.open_count } : null);
+      });
+    return () => { cancelled = true; };
+  }, [taskForm.department, taskForm.assigned_to]);
+
   const selectedAdminTask = selectedAdminTaskId ? tasks.find((task) => task.id === selectedAdminTaskId) ?? null : null;
+  const [queueItems, setQueueItems] = useState<TaskQueueItem[]>([]);
+  const [taskSessions, setTaskSessions] = useState<TaskSession[]>([]);
+  const [taskActivity, setTaskActivity] = useState<TaskActivityLogEntry[]>([]);
+  const [showActivityLog, setShowActivityLog] = useState(false);
+  const [queuePerformance, setQueuePerformance] = useState<{ status: string; marked_by: string | null }[]>([]);
+
+  useEffect(() => {
+    if (active !== "tasks") return;
+    void supabase.from("task_queue_items").select("status, marked_by").neq("status", "pending").then(({ data }) => setQueuePerformance(data ?? []));
+  }, [active]);
+
+  useEffect(() => {
+    if (!selectedAdminTask) return;
+    setEditTaskForm({
+      title: selectedAdminTask.title,
+      description: selectedAdminTask.description || "",
+      due_date: selectedAdminTask.due_date || "",
+      priority: selectedAdminTask.priority,
+      requiresVerification: Boolean(selectedAdminTask.requires_verification),
+      resourceLabel: "",
+      resourceUrl: "",
+      resources: (selectedAdminTask.resources || []).map((r) => ({ label: r.label || "Resource", url: r.url || "" })),
+    });
+    if (selectedAdminTask.task_type === "queue") {
+      void supabase.from("task_queue_items").select("*").eq("task_id", selectedAdminTask.id).order("sort_order").then(({ data }) => setQueueItems((data as TaskQueueItem[]) ?? []));
+      void supabase.from("task_sessions").select("*").eq("task_id", selectedAdminTask.id).order("started_at", { ascending: false }).then(({ data }) => setTaskSessions((data as TaskSession[]) ?? []));
+      void supabase.from("task_activity_log").select("*").eq("task_id", selectedAdminTask.id).order("created_at", { ascending: false }).limit(200).then(({ data }) => setTaskActivity((data as TaskActivityLogEntry[]) ?? []));
+    } else {
+      setQueueItems([]);
+      setTaskSessions([]);
+      setTaskActivity([]);
+    }
+    setShowActivityLog(false);
+  }, [selectedAdminTaskId]); // eslint-disable-line react-hooks/exhaustive-deps
   const filteredAuditLogs = useMemo(() => {
     const q = auditSearch.trim().toLowerCase();
     if (!q) return auditLogs;
@@ -1316,12 +1711,19 @@ export default function Admin() {
       </aside>
 
       <main className="space-y-6 min-w-0">
+        {assignToast && (
+          <div className="fixed top-6 right-6 z-50 rounded-xl bg-slate-900 text-white px-4 py-3 text-sm font-bold shadow-2xl animate-[fadeIn_.15s_ease-out]">
+            {assignToast}
+          </div>
+        )}
         {error && <div className="rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">{error}</div>}
         {notice && <div className="rounded-lg bg-green-50 border border-green-200 px-4 py-3 text-sm text-green-700">{notice}</div>}
         {dataLoading ? <div className="card p-10 text-center text-sm text-slate-500">Loading admin data...</div> : null}
 
         {active === "dashboard" && (
           <section className="space-y-6">
+            <AdminOperationsCommand onNavigate={(section) => setActive(section)} />
+            <AdminUnifiedKPI onNavigate={(section) => setActive(section)} />
             <SectionHeader title="Admin Dashboard" subtitle="Overview of users, plans, invoices, team work, and revenue" />
             <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
               {[
@@ -1385,9 +1787,10 @@ export default function Admin() {
         )}
 
         {active === "subscriptions" && <AdminSubscriptionManager />}
-        {active === "growth" && <AdminGrowthCenter />}
+        {active === "growth" && <><AdminCustomerSuccess /><AdminGrowthCenter /></>}
         {active === "paddle" && <AdminPaddleSettings />}
         {active === "subscriptionAutomation" && <AdminSubscriptionAutomation />}
+        {active === "billingRecovery" && <AdminBillingRecovery profiles={profiles} team={team} />}
 
         {active === "communication" && (
           <CommunicationCenter actorName={user?.email || "Owner Admin"} actorRole="Owner Admin" canManageChannels />
@@ -1521,8 +1924,10 @@ export default function Admin() {
                     <div className="grid grid-cols-2 gap-2">
                       <button className="btn-secondary" onClick={() => openInvoiceBalanceModal(selectedUser)}>Add Invoices</button>
                       <button className="btn-secondary" onClick={() => handleResetCredits(selectedUser)}>Reset Balance</button>
-                      <button className="btn-primary" onClick={() => openFreeProModal(selectedUser)}>Give Free Pro</button>
-                      <button className="btn-secondary" onClick={() => handleRemoveFreePro(selectedUser)}>Remove Pro</button>
+                      <button className="btn-primary" onClick={() => openFreeProModal(selectedUser, "pro")}>Give Free Pro</button>
+                      <button className="btn-primary" onClick={() => openFreeProModal(selectedUser, "business")}>Give Free Business</button>
+                      <button className="btn-secondary" onClick={() => handleRemoveFreePro(selectedUser, "pro")}>Remove Pro</button>
+                      <button className="btn-secondary" onClick={() => handleRemoveFreePro(selectedUser, "business")}>Remove Business</button>
                       <button className="btn-secondary col-span-2" onClick={() => handleResetUserPassword(selectedUser)}>Reset Login Password</button>
                       {(selectedUser as unknown as { is_banned?: boolean }).is_banned ? (
                         <button className="btn-primary col-span-2" onClick={() => handleUnban(selectedUser)}>Unban User</button>
@@ -1630,7 +2035,7 @@ export default function Admin() {
                 <table className="w-full">
                   <thead><tr className="border-b border-slate-100 bg-slate-50/50"><th className="text-left text-xs font-semibold text-slate-500 uppercase px-5 py-3">User</th><th className="text-left text-xs font-semibold text-slate-500 uppercase px-5 py-3">Plan</th><th className="text-left text-xs font-semibold text-slate-500 uppercase px-5 py-3">Invoice Balance</th><th className="text-right text-xs font-semibold text-slate-500 uppercase px-5 py-3">Actions</th></tr></thead>
                   <tbody className="divide-y divide-slate-100">
-                    {profiles.map((p) => <tr key={p.id}><td className="px-5 py-3.5"><p className="font-medium text-slate-900">{p.business_name || "Unnamed"}</p><p className="text-xs text-slate-500">{p.email}</p></td><td className="px-5 py-3.5"><Pill className={p.is_pro ? "bg-amber-50 text-amber-700 border-amber-200" : statusClass("closed")}>{p.is_pro ? "Pro" : "Free"}</Pill></td><td className="px-5 py-3.5 font-semibold">{Number((p as unknown as { credits?: number }).credits ?? 0)}</td><td className="px-5 py-3.5 text-right space-x-2"><button className="btn-secondary text-xs py-1.5 px-3" onClick={() => openInvoiceBalanceModal(p)}>Add Invoices</button><button className="btn-primary text-xs py-1.5 px-3" onClick={() => openFreeProModal(p)}>Give Free Pro</button></td></tr>)}
+                    {profiles.map((p) => <tr key={p.id}><td className="px-5 py-3.5"><p className="font-medium text-slate-900">{p.business_name || "Unnamed"}</p><p className="text-xs text-slate-500">{p.email}</p></td><td className="px-5 py-3.5"><Pill className={p.is_pro ? "bg-amber-50 text-amber-700 border-amber-200" : statusClass("closed")}>{p.is_pro ? ((p as unknown as { plan?: string }).plan === "business" ? "Business" : "Pro") : "Free"}</Pill></td><td className="px-5 py-3.5 font-semibold">{Number((p as unknown as { credits?: number }).credits ?? 0)}</td><td className="px-5 py-3.5 text-right space-x-2"><button className="btn-secondary text-xs py-1.5 px-3" onClick={() => openInvoiceBalanceModal(p)}>Add Invoices</button><button className="btn-primary text-xs py-1.5 px-3" onClick={() => openFreeProModal(p, "pro")}>Give Free Pro</button><button className="btn-primary text-xs py-1.5 px-3" onClick={() => openFreeProModal(p, "business")}>Give Free Business</button></td></tr>)}
                   </tbody>
                 </table>
               </div>
@@ -1640,6 +2045,7 @@ export default function Admin() {
 
         {active === "team" && (
           <section className="space-y-6">
+            <AdminTeamWorkload />
             <SectionHeader title="Manage Team Members" subtitle="Create staff accounts, assign permissions, and manage workload from one place." />
             <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
               <Metric title="Total Members" value={String(teamStats.total)} icon="👨‍💼" />
@@ -1665,10 +2071,15 @@ export default function Admin() {
                   </div>
                   <select className="input" value={teamForm.role} onChange={(e) => setTeamForm({ ...teamForm, role: e.target.value })}>
                     <option value="limited">Limited</option>
+                    <option value="standard">Standard (department staff)</option>
                     <option value="full_access">Full Access</option>
-                    <option value="support">Support</option>
-                    <option value="finance">Finance</option>
+                    <option value="support">Support (legacy)</option>
+                    <option value="finance">Finance (legacy)</option>
                     <option value="viewer">Viewer</option>
+                  </select>
+                  <select className="input" value={teamForm.department} onChange={(e) => setTeamForm({ ...teamForm, department: e.target.value })}>
+                    <option value="">No department (cross-team / Full Access)</option>
+                    {departments.map((d) => <option key={d.slug} value={d.slug}>{d.icon} {d.name}</option>)}
                   </select>
                   <div className="rounded-xl bg-slate-50 border border-slate-100 p-3">
                     <p className="text-xs font-semibold text-slate-500 uppercase mb-2">Role Access Preview</p>
@@ -1680,7 +2091,7 @@ export default function Admin() {
                   <button className="btn-primary w-full" type="submit">Create Team Member + Send Email</button>
                 </form>
                 <div className="text-xs text-slate-500 mt-3 space-y-1">
-                  <p>Staff portal URL: <b>https://staff.rivox.com</b></p>
+                  <p>Staff portal URL: <b>https://staff.rivoxcloud.com</b></p>
                   <p>Set the Supabase secret <b>RESEND_API_KEY</b> to email the staff portal URL, work email, and temporary password automatically.</p>
                 </div>
               </Card>
@@ -1724,13 +2135,30 @@ export default function Admin() {
                               </button>
                             </td>
                             <td className="px-5 py-3.5">
-                              <select className="input text-xs py-1.5" value={m.role} onChange={(e) => updateTeamRole(m, e.target.value as AdminTeamMember["role"])}>
-                                <option value="limited">Limited</option>
-                                <option value="full_access">Full Access</option>
-                                <option value="support">Support</option>
-                                <option value="finance">Finance</option>
-                                <option value="viewer">Viewer</option>
-                              </select>
+                              <div className="flex flex-col gap-1">
+                                <select className="input text-xs py-1.5" value={m.role} onChange={(e) => updateTeamRole(m, e.target.value as AdminTeamMember["role"])}>
+                                  <option value="limited">Limited</option>
+                                  <option value="standard">Standard (department staff)</option>
+                                  <option value="full_access">Full Access</option>
+                                  <option value="support">Support</option>
+                                  <option value="finance">Finance</option>
+                                  <option value="viewer">Viewer</option>
+                                </select>
+                                {m.role === "standard" && (
+                                  <select className="input text-xs py-1.5" value={m.department || ""} onChange={(e) => updateTeamDepartment(m, e.target.value)}>
+                                    <option value="">No department</option>
+                                    <option value="content">✍️ Content Creator</option>
+                                    <option value="engineering">⚙️ Engineering</option>
+                                    <option value="finance">💰 Finance</option>
+                                    <option value="general">📋 General</option>
+                                    <option value="hr">👤 HR</option>
+                                    <option value="legal">⚖️ Legal / Compliance</option>
+                                    <option value="marketing">📣 Marketing</option>
+                                    <option value="sales">📢 Sales / Promotion</option>
+                                    <option value="support">🎧 Support</option>
+                                  </select>
+                                )}
+                              </div>
                             </td>
                             <td className="px-5 py-3.5"><Pill className={statusClass(m.status)}>{m.status}</Pill></td>
                             <td className="px-5 py-3.5 text-sm text-slate-500">{formatDate(m.created_at)}</td>
@@ -1758,11 +2186,12 @@ export default function Admin() {
                       </div>
                       <div className="grid md:grid-cols-2 gap-3">
                         <Info label="Role" value={roleLabels[selectedTeam.role]} />
+                        {selectedTeam.role === "standard" && <Info label="Department" value={selectedTeam.department ? selectedTeam.department.charAt(0).toUpperCase() + selectedTeam.department.slice(1) : "No department set"} />}
                         <Info label="Created" value={formatDate(selectedTeam.created_at)} />
                         <Info label="Auth User" value={selectedTeam.auth_user_id ? "Created" : "Not linked"} />
                         <Info label="Temp Password" value={selectedTeam.temporary_password || "—"} />
                         <Info label="Invite Email" value={selectedTeam.invite_status ? `${selectedTeam.invite_status}${selectedTeam.invite_email_sent_at ? ` • ${formatDate(selectedTeam.invite_email_sent_at)}` : ""}` : "—"} />
-                        <Info label="Staff Portal" value={selectedTeam.staff_portal_url || "https://staff.rivox.com"} />
+                        <Info label="Staff Portal" value={selectedTeam.staff_portal_url || "https://staff.rivoxcloud.com"} />
                       </div>
                       <div className="rounded-xl bg-slate-50 border border-slate-100 p-4">
                         <p className="text-xs font-semibold text-slate-500 uppercase mb-2">Allowed Modules</p>
@@ -1794,24 +2223,230 @@ export default function Admin() {
               <Metric title="Blocked" value={String(tasks.filter((t) => t.status === "blocked").length)} icon="🛑" />
               <Metric title="Done" value={String(tasks.filter((t) => t.status === "done").length)} icon="✅" />
             </div>
+            {queuePerformance.length > 0 && (
+              <Card className="p-5">
+                <h2 className="text-sm font-bold uppercase tracking-wide text-slate-500 mb-4">Queue performance by staff</h2>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead><tr className="text-left text-xs font-bold text-slate-400 uppercase"><th className="pb-2">Staff</th><th className="pb-2">🔴 Red</th><th className="pb-2">🟠 Maybe Later</th><th className="pb-2">🟢 Converted</th><th className="pb-2">Total worked</th></tr></thead>
+                    <tbody>
+                      {team.filter((m) => queuePerformance.some((q) => q.marked_by === m.id)).map((m) => {
+                        const mine = queuePerformance.filter((q) => q.marked_by === m.id);
+                        return (
+                          <tr key={m.id} className="border-t border-slate-100">
+                            <td className="py-2 font-semibold text-slate-800">{m.name || m.email}</td>
+                            <td className="py-2 text-red-600 font-bold">{mine.filter((q) => q.status === "red").length}</td>
+                            <td className="py-2 text-orange-600 font-bold">{mine.filter((q) => q.status === "orange").length}</td>
+                            <td className="py-2 text-emerald-600 font-bold">{mine.filter((q) => q.status === "green").length}</td>
+                            <td className="py-2 text-slate-500">{mine.length}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </Card>
+            )}
             <div className="grid xl:grid-cols-[420px_1fr] gap-6">
               <Card className="p-5 h-fit">
                 <h2 className="text-lg font-semibold text-slate-900 mb-4">Assign New Task</h2>
                 <form onSubmit={handleAddTask} className="space-y-3">
                   <input className="input" required placeholder="Task title" value={taskForm.title} onChange={(e) => setTaskForm({ ...taskForm, title: e.target.value })} />
-                  <textarea className="input min-h-24" placeholder="Description" value={taskForm.description} onChange={(e) => setTaskForm({ ...taskForm, description: e.target.value })} />
+                  <textarea className="input min-h-24" placeholder="Description / guide for staff — what they should do" value={taskForm.description} onChange={(e) => setTaskForm({ ...taskForm, description: e.target.value })} />
+
+                  <div className="flex rounded-xl border border-slate-200 p-1 bg-slate-50">
+                    <button type="button" onClick={() => setTaskForm({ ...taskForm, taskType: "simple" })} className={`flex-1 rounded-lg px-3 py-2 text-xs font-bold ${taskForm.taskType === "simple" ? "bg-white shadow text-slate-900" : "text-slate-500"}`}>📄 Simple Task</button>
+                    <button type="button" onClick={() => setTaskForm({ ...taskForm, taskType: "queue" })} className={`flex-1 rounded-lg px-3 py-2 text-xs font-bold ${taskForm.taskType === "queue" ? "bg-white shadow text-slate-900" : "text-slate-500"}`}>📋 Lead / Item Queue</button>
+                  </div>
+
+                  {taskForm.taskType === "queue" && (
+                    <div className="rounded-xl bg-purple-50 border border-purple-100 p-3 space-y-3">
+                      <div>
+                        <p className="text-xs font-semibold text-purple-700 uppercase mb-1.5">Item fields</p>
+                        <div className="flex flex-wrap gap-1.5 mb-2">
+                          {taskForm.queueFields.map((f) => (
+                            <Pill key={f.key} className="bg-white text-slate-700 border-slate-200">
+                              {f.label}
+                              <button type="button" className="ml-1.5 text-slate-400 hover:text-red-600" onClick={() => setTaskForm({ ...taskForm, queueFields: taskForm.queueFields.filter((x) => x.key !== f.key) })}>×</button>
+                            </Pill>
+                          ))}
+                        </div>
+                        <div className="flex gap-2">
+                          <input className="input text-xs py-1.5" placeholder="Add a field (e.g. Budget)" value={taskForm.queueNewFieldLabel} onChange={(e) => setTaskForm({ ...taskForm, queueNewFieldLabel: e.target.value })} />
+                          <button
+                            type="button"
+                            className="btn-secondary text-xs py-1.5 px-3 shrink-0"
+                            onClick={() => {
+                              const label = taskForm.queueNewFieldLabel.trim();
+                              if (!label) return;
+                              const key = label.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "") || `field_${taskForm.queueFields.length}`;
+                              if (taskForm.queueFields.some((f) => f.key === key)) return;
+                              setTaskForm({ ...taskForm, queueFields: [...taskForm.queueFields, { key, label }], queueNewFieldLabel: "" });
+                            }}
+                          >
+                            Add field
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="pt-2 border-t border-purple-100">
+                        <p className="text-xs font-semibold text-purple-700 uppercase mb-1.5">Add items to the queue</p>
+                        <div className="grid grid-cols-2 gap-1.5">
+                          {taskForm.queueFields.map((f) => (
+                            <input
+                              key={f.key}
+                              className="input text-xs py-1.5"
+                              placeholder={f.label}
+                              value={taskForm.queueItemDraft[f.key] || ""}
+                              onChange={(e) => setTaskForm({ ...taskForm, queueItemDraft: { ...taskForm.queueItemDraft, [f.key]: e.target.value } })}
+                            />
+                          ))}
+                        </div>
+                        <button
+                          type="button"
+                          className="btn-secondary text-xs py-1.5 px-3 mt-1.5 w-full"
+                          onClick={() => {
+                            const hasAny = taskForm.queueFields.some((f) => (taskForm.queueItemDraft[f.key] || "").trim());
+                            if (!hasAny) return;
+                            setTaskForm({ ...taskForm, queueItems: [...taskForm.queueItems, taskForm.queueItemDraft], queueItemDraft: {} });
+                          }}
+                        >
+                          + Add item to list
+                        </button>
+
+                        <div className="mt-2 pt-2 border-t border-purple-100">
+                          <label className="flex items-center justify-center gap-2 rounded-lg border border-dashed border-purple-300 bg-white px-3 py-2.5 text-xs font-bold text-purple-700 cursor-pointer hover:bg-purple-50">
+                            {queueImport.parsing ? "Reading file..." : "📁 Upload Excel / CSV — bulk add"}
+                            <input
+                              type="file"
+                              accept=".xlsx,.xls,.csv"
+                              className="hidden"
+                              disabled={queueImport.parsing}
+                              onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) void handleQueueFileSelected(f, taskForm.queueFields); }}
+                            />
+                          </label>
+                        </div>
+
+                        {queueImport.rows.length > 0 && (
+                          <div className="mt-2 rounded-xl border border-purple-200 bg-white p-3 space-y-2">
+                            <p className="text-xs font-bold text-purple-800">{queueImport.rows.length} rows found — match columns:</p>
+                            {taskForm.queueFields.map((f) => (
+                              <div key={f.key} className="flex items-center gap-2 text-xs">
+                                <span className="w-28 shrink-0 font-semibold text-slate-600">{f.label}</span>
+                                <select className="input text-xs py-1 flex-1" value={queueImport.mapping[f.key] || ""} onChange={(e) => setQueueImport({ ...queueImport, mapping: { ...queueImport.mapping, [f.key]: e.target.value } })}>
+                                  <option value="">— skip —</option>
+                                  {queueImport.headers.map((h) => <option key={h} value={h}>{h}</option>)}
+                                </select>
+                              </div>
+                            ))}
+                            <div className="flex gap-2 pt-1">
+                              <button type="button" className="btn-secondary text-xs py-1.5 px-3 flex-1" onClick={() => setQueueImport({ headers: [], rows: [], mapping: {}, parsing: false })}>Cancel</button>
+                              <button type="button" className="btn-primary text-xs py-1.5 px-3 flex-1" onClick={confirmQueueImport}>Import {queueImport.rows.length} rows</button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
+                      {taskForm.queueItems.length > 0 && (
+                        <div className="pt-2 border-t border-purple-100">
+                          <p className="text-xs font-semibold text-purple-700 uppercase mb-1.5">{taskForm.queueItems.length} item{taskForm.queueItems.length !== 1 ? "s" : ""} added</p>
+                          <div className="max-h-40 overflow-y-auto space-y-1">
+                            {taskForm.queueItems.map((item, i) => (
+                              <div key={i} className="flex items-center justify-between rounded-lg bg-white border border-purple-100 px-2.5 py-1.5 text-xs text-slate-700">
+                                <span className="truncate">{taskForm.queueFields.map((f) => item[f.key]).filter(Boolean).join(" · ") || "(empty)"}</span>
+                                <button type="button" className="text-slate-400 hover:text-red-600 ml-2 shrink-0" onClick={() => setTaskForm({ ...taskForm, queueItems: taskForm.queueItems.filter((_, idx) => idx !== i) })}>×</button>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
                   <select className="input" value={taskForm.assigned_to} onChange={(e) => setTaskForm({ ...taskForm, assigned_to: e.target.value })}>
                     <option value="">Unassigned</option>{team.map((m) => <option key={m.id} value={m.id}>{m.name || m.email}</option>)}
                   </select>
+                  {taskSuggestion && !taskForm.assigned_to && (
+                    <button
+                      type="button"
+                      onClick={() => setTaskForm({ ...taskForm, assigned_to: taskSuggestion.id })}
+                      className="w-full flex items-center justify-between rounded-lg border border-primary-200 bg-primary-50 px-3 py-2 text-xs font-semibold text-primary-700 hover:bg-primary-100"
+                    >
+                      <span>💡 Suggested: {taskSuggestion.name} ({taskSuggestion.open_count} open)</span>
+                      <span className="underline">Use</span>
+                    </button>
+                  )}
                   <div className="grid grid-cols-2 gap-2">
-                    <select className="input" value={taskForm.department} onChange={(e) => setTaskForm({ ...taskForm, department: e.target.value })}>
-                      <option value="general">General</option><option value="support">Support</option><option value="finance">Finance</option><option value="sales">Sales</option><option value="engineering">Engineering</option>
+                    <select className="input" value={taskForm.department} onChange={(e) => setTaskForm({ ...taskForm, department: e.target.value, assigned_to: "" })}>
+                      <option value="general">📋 General</option><option value="support">🎧 Support</option><option value="finance">💰 Finance</option><option value="sales">📢 Sales</option><option value="engineering">⚙️ Engineering</option><option value="marketing">📣 Marketing</option><option value="hr">👤 HR</option><option value="legal">⚖️ Legal</option><option value="content">✍️ Content</option>
                     </select>
-                    <select className="input" value={taskForm.priority} onChange={(e) => setTaskForm({ ...taskForm, priority: e.target.value })}>
-                      <option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option><option value="urgent">Urgent</option>
-                    </select>
+                    <div className="flex items-center gap-1">
+                      {([["low", "⚪", "Low", "bg-slate-100 text-slate-600 border-slate-200"], ["medium", "🟡", "Med", "bg-amber-50 text-amber-700 border-amber-200"], ["high", "🟠", "High", "bg-orange-50 text-orange-700 border-orange-200"], ["urgent", "🔴", "Urgent", "bg-red-50 text-red-700 border-red-200"]] as const).map(([value, dot, label, cls]) => (
+                        <button
+                          key={value}
+                          type="button"
+                          onClick={() => setTaskForm({ ...taskForm, priority: value })}
+                          className={`flex-1 rounded-lg border px-1.5 py-2 text-[11px] font-bold ${taskForm.priority === value ? cls + " ring-2 ring-offset-1 ring-primary-400" : "bg-white text-slate-400 border-slate-200"}`}
+                        >
+                          {dot} {label}
+                        </button>
+                      ))}
+                    </div>
                   </div>
                   <input className="input" type="date" value={taskForm.due_date} onChange={(e) => setTaskForm({ ...taskForm, due_date: e.target.value })} />
+
+                  <div className="rounded-xl bg-slate-50 border border-slate-100 p-3 space-y-2">
+                    <p className="text-xs font-semibold text-slate-500 uppercase">Resources / brief attachments</p>
+                    <div className="grid grid-cols-[1fr_1fr_auto] gap-2">
+                      <input className="input text-xs py-1.5" placeholder="Label (e.g. Brand guide)" value={taskForm.resourceLabel} onChange={(e) => setTaskForm({ ...taskForm, resourceLabel: e.target.value })} />
+                      <input className="input text-xs py-1.5" placeholder="URL" value={taskForm.resourceUrl} onChange={(e) => setTaskForm({ ...taskForm, resourceUrl: e.target.value })} />
+                      <button
+                        type="button"
+                        className="btn-secondary text-xs py-1.5 px-3"
+                        onClick={() => {
+                          if (!taskForm.resourceUrl.trim()) return;
+                          setTaskForm({
+                            ...taskForm,
+                            resources: [...taskForm.resources, { label: taskForm.resourceLabel.trim() || "Resource", url: taskForm.resourceUrl.trim() }],
+                            resourceLabel: "",
+                            resourceUrl: "",
+                          });
+                        }}
+                      >
+                        Add
+                      </button>
+                    </div>
+                    <label className="flex items-center justify-center gap-2 rounded-lg border border-dashed border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-600 cursor-pointer hover:bg-slate-50">
+                      {taskFileUploading ? "Uploading..." : "📎 Upload file (image / PDF)"}
+                      <input
+                        type="file"
+                        accept="image/png,image/jpeg,image/webp,image/gif,application/pdf"
+                        className="hidden"
+                        disabled={taskFileUploading}
+                        onChange={async (e) => {
+                          const file = e.target.files?.[0];
+                          e.target.value = "";
+                          if (!file) return;
+                          const uploaded = await uploadTaskResourceFile(file);
+                          if (uploaded) setTaskForm((cur) => ({ ...cur, resources: [...cur.resources, uploaded] }));
+                        }}
+                      />
+                    </label>
+                    {taskForm.resources.length > 0 && (
+                      <div className="flex flex-wrap gap-2">
+                        {taskForm.resources.map((r, i) => (
+                          <Pill key={`${r.url}-${i}`} className="bg-white text-slate-700 border-slate-200">
+                            {r.label}
+                            <button type="button" className="ml-1.5 text-slate-400 hover:text-red-600" onClick={() => setTaskForm({ ...taskForm, resources: taskForm.resources.filter((_, idx) => idx !== i) })}>×</button>
+                          </Pill>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  <label className="flex items-center gap-2 rounded-xl bg-slate-50 border border-slate-100 p-3 cursor-pointer">
+                    <input type="checkbox" checked={taskForm.requiresVerification} onChange={(e) => setTaskForm({ ...taskForm, requiresVerification: e.target.checked })} />
+                    <span className="text-sm text-slate-700">Requires AI content verification before it can be marked done</span>
+                  </label>
                   <button className="btn-primary w-full" type="submit">Create Task</button>
                 </form>
               </Card>
@@ -1828,7 +2463,7 @@ export default function Admin() {
                         {tasks.filter((t) => t.status === status).map((task) => (
                           <div key={task.id} className="rounded-xl bg-white border border-slate-100 p-3 hover:shadow-md transition">
                             <button className="w-full text-left" onClick={() => { setSelectedAdminTaskId(task.id); setAdminTaskNote(""); }}>
-                              <p className="font-semibold text-sm text-slate-900">{task.title}</p>
+                              <p className="font-semibold text-sm text-slate-900 flex items-center gap-1.5">{task.title}{task.origin === "auto" && <span className="rounded-full bg-indigo-100 px-1.5 py-0.5 text-[9px] font-black text-indigo-600" title="Auto-assigned by the automation engine">⚙️ Auto</span>}</p>
                               <p className="text-xs text-slate-500 mt-1 capitalize">{task.department || "general"} · {task.priority} {task.due_date ? `· Due ${task.due_date}` : ""}</p>
                               {task.staff_notes && <p className="text-xs text-blue-700 bg-blue-50 border border-blue-100 rounded-lg p-2 mt-2 line-clamp-2">Staff update: {task.staff_notes}</p>}
                               <div className="mt-3 h-2 rounded-full bg-slate-100 overflow-hidden"><div className="h-full bg-primary-500" style={{ width: `${task.progress ?? 0}%` }} /></div>
@@ -1852,6 +2487,7 @@ export default function Admin() {
 
         {active === "finance" && (
           <section className="space-y-6">
+            <AdminRevenueIntelligence />
             <SectionHeader title="Revenue & Finance" subtitle="Revenue, ads income, expenses, receivables, balance aur reports track karo" />
             <div className="grid grid-cols-2 xl:grid-cols-6 gap-4">
               <Metric title="Total Revenue" value={formatMoney(financeReport.income, "INR")} icon="💰" />
@@ -2118,7 +2754,8 @@ export default function Admin() {
             </div>
           </section>
         )}
-        {active === "support" && (
+        {active === "support" && <AdminSupportCenter profiles={profiles} team={team} />}
+        {false && active === "support" && (
           <section className="space-y-6">
             <SectionHeader title="Support Center" subtitle="Tickets create, assign, resolve aur track karo" />
             <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
@@ -2169,9 +2806,16 @@ export default function Admin() {
                     <div className="space-y-4">
                       <div className="flex items-start justify-between gap-3"><div><p className="text-xl font-bold text-slate-900">{selectedTicket.subject}</p><p className="text-sm text-slate-500">{selectedTicket.message || "No message"}</p></div><Pill className={statusClass(selectedTicket.status)}>{selectedTicket.status}</Pill></div>
                       <div className="grid md:grid-cols-3 gap-3"><Info label="Priority" value={selectedTicket.priority} /><Info label="Created" value={formatDate(selectedTicket.created_at)} /><Info label="Assigned" value={team.find((m) => m.id === selectedTicket.assigned_to)?.name || team.find((m) => m.id === selectedTicket.assigned_to)?.email || "Unassigned"} /></div>
-                      <div className="grid md:grid-cols-2 gap-2">
+                      <div className="grid md:grid-cols-3 gap-2">
                         <select className="input" value={selectedTicket.status} onChange={(e) => updateTicketStatus(selectedTicket, e.target.value as AdminSupportTicket["status"])}><option value="open">Open</option><option value="pending">Pending</option><option value="resolved">Resolved</option><option value="closed">Closed</option></select>
+                        <select className="input" value={selectedTicket.priority} onChange={(e) => updateTicketPriority(selectedTicket, e.target.value as AdminSupportTicket["priority"])}><option value="low">Low</option><option value="medium">Normal</option><option value="high">High</option><option value="urgent">Highest</option></select>
                         <select className="input" value={selectedTicket.assigned_to || ""} onChange={(e) => updateTicketAssignment(selectedTicket, e.target.value)}><option value="">Unassigned</option>{supportAgents.map((m) => <option key={m.id} value={m.id}>{m.name || m.email}</option>)}</select>
+                      </div>
+                      {supportAttachments.length > 0 && <div className="rounded-xl border border-slate-200 p-4"><p className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-500">Customer screenshots</p><div className="grid grid-cols-2 md:grid-cols-4 gap-3">{supportAttachments.map((item) => <a key={item.id} href={item.signed_url} target="_blank" rel="noreferrer" className="overflow-hidden rounded-xl border bg-white"><img src={item.signed_url} alt={item.file_name} className="h-28 w-full object-cover"/><p className="truncate p-2 text-xs text-slate-600">{item.file_name}</p></a>)}</div></div>}
+                      <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 space-y-3">
+                        <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Conversation</p>
+                        <div className="max-h-72 overflow-y-auto space-y-2">{supportMessages.length === 0 ? <p className="text-sm text-slate-500">No messages yet.</p> : supportMessages.map((m) => <div key={m.id} className={cx("rounded-xl p-3 text-sm", m.is_internal ? "bg-amber-50 border border-amber-200" : m.author_type === "customer" ? "bg-white border border-slate-200" : "bg-primary-50 border border-primary-100")}><div className="mb-1 flex justify-between gap-3 text-xs text-slate-500"><span className="font-semibold">{m.is_internal ? "Internal note" : m.author_type === "customer" ? "Customer" : "Rivox Admin"}</span><span>{formatDate(m.created_at)}</span></div><p className="whitespace-pre-wrap text-slate-700">{m.message}</p></div>)}</div>
+                        <form onSubmit={sendAdminSupportReply} className="space-y-2"><textarea className="input min-h-24" placeholder="Write a reply..." value={supportReply} onChange={(e) => setSupportReply(e.target.value)} /><label className="flex items-center gap-2 text-sm text-slate-600"><input type="checkbox" checked={supportInternal} onChange={(e) => setSupportInternal(e.target.checked)} /> Internal note (hidden from customer)</label><button className="btn-primary" disabled={!supportReply.trim()}>{supportInternal ? "Add internal note" : "Send reply"}</button></form>
                       </div>
                       {selectedTicket.internal_notes && <div className="rounded-xl bg-slate-50 border border-slate-100 p-4"><p className="text-xs text-slate-500 mb-1">Internal Notes</p><p className="text-sm text-slate-700 whitespace-pre-wrap">{selectedTicket.internal_notes}</p></div>}
                       <button className="btn-danger" onClick={() => deleteTicket(selectedTicket)}>Delete Ticket</button>
@@ -2184,6 +2828,7 @@ export default function Admin() {
         )}
         {active === "audit" && (
           <section className="space-y-6">
+            <AdminAccessGovernance />
             <SectionHeader title="Audit Logs" subtitle="Admin actions ka searchable security history" />
             <Card>
               <div className="p-5 border-b border-slate-100 flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between">
@@ -2196,6 +2841,8 @@ export default function Admin() {
         )}
         {active === "system" && (
           <section className="space-y-6">
+            <AdminSecurityCenter />
+            <AdminSystemMonitor team={team} />
             <SectionHeader title="System Center" subtitle="Maintenance mode, feature flags, permissions aur security controls" />
             <div className="grid md:grid-cols-2 xl:grid-cols-4 gap-4">
               <Metric title="DB Tables" value="12+" icon="🗄️" />
@@ -2231,6 +2878,7 @@ export default function Admin() {
                     ["team_portal", "Team Portal"],
                     ["ai_insights", "AI Insights"],
                     ["ads_enabled", "Ads Enabled"],
+                    ["phone_verification_required", "Phone (OTP) Verification"],
                   ].map(([key, label]) => (
                     <label key={key} className="flex items-center justify-between gap-3 rounded-xl border border-slate-100 p-3 text-sm font-medium text-slate-700">
                       {label}
@@ -2281,6 +2929,7 @@ export default function Admin() {
         )}
         {active === "qa" && (
           <section className="space-y-6">
+            <AdminProductionQA />
             <SectionHeader title="Production QA Center" subtitle="Final checklist for auth, admin backend, RLS and production readiness" />
             <div className="grid md:grid-cols-4 gap-4">
               <Metric title="QA Score" value={`${qaChecks.score}%`} icon="✅" />
@@ -2405,9 +3054,212 @@ export default function Admin() {
               <div className="p-6 grid lg:grid-cols-[1fr_320px] gap-6">
                 <div className="space-y-5">
                   <div className="rounded-2xl bg-slate-50 border border-slate-100 p-5">
-                    <p className="text-xs font-bold uppercase tracking-wide text-slate-500 mb-2">Task brief</p>
-                    <p className="text-sm text-slate-700 whitespace-pre-wrap">{selectedAdminTask.description || "No description provided."}</p>
+                    <p className="text-xs font-bold uppercase tracking-wide text-slate-500 mb-2">Task brief <span className="normal-case font-medium text-slate-400">(editable)</span></p>
+                    <input className="input mb-2" placeholder="Task title" value={editTaskForm.title} onChange={(e) => setEditTaskForm({ ...editTaskForm, title: e.target.value })} />
+                    <textarea className="input min-h-24" placeholder="Description" value={editTaskForm.description} onChange={(e) => setEditTaskForm({ ...editTaskForm, description: e.target.value })} />
+                    <div className="grid grid-cols-2 gap-2 mt-2">
+                      <input className="input" type="date" value={editTaskForm.due_date} onChange={(e) => setEditTaskForm({ ...editTaskForm, due_date: e.target.value })} />
+                      <select className="input" value={editTaskForm.priority} onChange={(e) => setEditTaskForm({ ...editTaskForm, priority: e.target.value as AdminTask["priority"] })}>
+                        <option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option><option value="urgent">Urgent</option>
+                      </select>
+                    </div>
+                    <label className="flex items-center gap-2 mt-3 cursor-pointer">
+                      <input type="checkbox" checked={editTaskForm.requiresVerification} onChange={(e) => setEditTaskForm({ ...editTaskForm, requiresVerification: e.target.checked })} />
+                      <span className="text-sm text-slate-700">Requires AI content verification</span>
+                    </label>
+
+                    <div className="mt-4 pt-4 border-t border-slate-200 space-y-2">
+                      <p className="text-xs font-semibold text-slate-500 uppercase">Resources / brief attachments</p>
+                      <div className="grid grid-cols-[1fr_1fr_auto] gap-2">
+                        <input className="input text-xs py-1.5" placeholder="Label" value={editTaskForm.resourceLabel} onChange={(e) => setEditTaskForm({ ...editTaskForm, resourceLabel: e.target.value })} />
+                        <input className="input text-xs py-1.5" placeholder="URL" value={editTaskForm.resourceUrl} onChange={(e) => setEditTaskForm({ ...editTaskForm, resourceUrl: e.target.value })} />
+                        <button
+                          type="button"
+                          className="btn-secondary text-xs py-1.5 px-3"
+                          onClick={() => {
+                            if (!editTaskForm.resourceUrl.trim()) return;
+                            setEditTaskForm({
+                              ...editTaskForm,
+                              resources: [...editTaskForm.resources, { label: editTaskForm.resourceLabel.trim() || "Resource", url: editTaskForm.resourceUrl.trim() }],
+                              resourceLabel: "",
+                              resourceUrl: "",
+                            });
+                          }}
+                        >
+                          Add
+                        </button>
+                      </div>
+                      <label className="flex items-center justify-center gap-2 rounded-lg border border-dashed border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-600 cursor-pointer hover:bg-slate-50">
+                        {taskFileUploading ? "Uploading..." : "📎 Upload file (image / PDF)"}
+                        <input
+                          type="file"
+                          accept="image/png,image/jpeg,image/webp,image/gif,application/pdf"
+                          className="hidden"
+                          disabled={taskFileUploading}
+                          onChange={async (e) => {
+                            const file = e.target.files?.[0];
+                            e.target.value = "";
+                            if (!file) return;
+                            const uploaded = await uploadTaskResourceFile(file);
+                            if (uploaded) setEditTaskForm((cur) => ({ ...cur, resources: [...cur.resources, uploaded] }));
+                          }}
+                        />
+                      </label>
+                      {editTaskForm.resources.length > 0 && (
+                        <div className="flex flex-wrap gap-2">
+                          {editTaskForm.resources.map((r, i) => (
+                            <Pill key={`${r.url}-${i}`} className="bg-white text-slate-700 border-slate-200">
+                              <a href={r.url} target="_blank" rel="noreferrer" className="underline">{r.label}</a>
+                              <button type="button" className="ml-1.5 text-slate-400 hover:text-red-600" onClick={() => setEditTaskForm({ ...editTaskForm, resources: editTaskForm.resources.filter((_, idx) => idx !== i) })}>×</button>
+                            </Pill>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                    <button className="btn-primary w-full mt-4" disabled={editTaskSaving || !editTaskForm.title.trim()} onClick={() => saveTaskEdits(selectedAdminTask)}>{editTaskSaving ? "Saving..." : "Save changes"}</button>
                   </div>
+                  {selectedAdminTask.task_type === "queue" && (
+                    <div className="rounded-2xl border border-indigo-200 bg-indigo-50 p-5">
+                      <div className="flex items-center justify-between mb-3">
+                        <p className="text-xs font-bold uppercase tracking-wide text-indigo-700">Queue items ({queueItems.length})</p>
+                        <div className="flex gap-2 text-xs font-semibold">
+                          <span className="text-slate-500">⚪ {queueItems.filter((i) => i.status === "pending").length}</span>
+                          <span className="text-red-600">🔴 {queueItems.filter((i) => i.status === "red").length}</span>
+                          <span className="text-orange-600">🟠 {queueItems.filter((i) => i.status === "orange").length}</span>
+                          <span className="text-emerald-600">🟢 {queueItems.filter((i) => i.status === "green").length}</span>
+                        </div>
+                      </div>
+                      <div className="max-h-72 overflow-y-auto space-y-1.5">
+                        {queueItems.map((item) => {
+                          const dot = item.status === "red" ? "bg-red-500" : item.status === "orange" ? "bg-orange-400" : item.status === "green" ? "bg-emerald-500" : "bg-slate-300";
+                          return (
+                            <div key={item.id} className="flex items-center justify-between rounded-lg bg-white border border-indigo-100 px-3 py-2 text-xs">
+                              <div className="flex items-center gap-2 min-w-0">
+                                <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${dot}`} />
+                                <span className="truncate text-slate-700">{(selectedAdminTask.queue_field_schema || []).map((f) => item.data[f.key]).filter(Boolean).join(" · ") || "(no data)"}</span>
+                              </div>
+                              <div className="flex items-center gap-2 shrink-0 ml-2">
+                                {item.proof_screenshot_url && <a href={item.proof_screenshot_url} target="_blank" rel="noreferrer" title="Chat screenshot" className="text-primary-600">💬</a>}
+                                {item.proof_recording_url && <a href={item.proof_recording_url} target="_blank" rel="noreferrer" title="Call recording" className="text-primary-600">📞</a>}
+                                {item.proof_notes && <span className="text-slate-400 max-w-[140px] truncate" title={item.proof_notes}>{item.proof_notes}</span>}
+                              </div>
+                            </div>
+                          );
+                        })}
+                        {queueItems.length === 0 && <p className="text-xs text-indigo-400">No items yet.</p>}
+                      </div>
+
+                      <div className="mt-3 pt-3 border-t border-indigo-100">
+                        <label className="flex items-center justify-center gap-2 rounded-lg border border-dashed border-indigo-300 bg-white px-3 py-2.5 text-xs font-bold text-indigo-700 cursor-pointer hover:bg-indigo-50">
+                          {editQueueImport.parsing ? "Reading file..." : "📁 Upload Excel / CSV — add more items"}
+                          <input
+                            type="file"
+                            accept=".xlsx,.xls,.csv"
+                            className="hidden"
+                            disabled={editQueueImport.parsing}
+                            onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) void handleEditQueueFileSelected(f, selectedAdminTask.queue_field_schema || []); }}
+                          />
+                        </label>
+                        {editQueueImport.rows.length > 0 && (
+                          <div className="mt-2 rounded-xl border border-indigo-200 bg-white p-3 space-y-2">
+                            <p className="text-xs font-bold text-indigo-800">{editQueueImport.rows.length} rows found — match columns:</p>
+                            {(selectedAdminTask.queue_field_schema || []).map((f) => (
+                              <div key={f.key} className="flex items-center gap-2 text-xs">
+                                <span className="w-28 shrink-0 font-semibold text-slate-600">{f.label}</span>
+                                <select className="input text-xs py-1 flex-1" value={editQueueImport.mapping[f.key] || ""} onChange={(e) => setEditQueueImport({ ...editQueueImport, mapping: { ...editQueueImport.mapping, [f.key]: e.target.value } })}>
+                                  <option value="">— skip —</option>
+                                  {editQueueImport.headers.map((h) => <option key={h} value={h}>{h}</option>)}
+                                </select>
+                              </div>
+                            ))}
+                            <div className="flex gap-2 pt-1">
+                              <button type="button" className="btn-secondary text-xs py-1.5 px-3 flex-1" onClick={() => setEditQueueImport({ headers: [], rows: [], mapping: {}, parsing: false, importing: false })}>Cancel</button>
+                              <button type="button" disabled={editQueueImport.importing} className="btn-primary text-xs py-1.5 px-3 flex-1" onClick={() => confirmEditQueueImport(selectedAdminTask)}>{editQueueImport.importing ? "Importing..." : `Import ${editQueueImport.rows.length} rows`}</button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                  {selectedAdminTask.task_type === "queue" && (
+                    <div className="rounded-2xl border border-slate-200 p-5">
+                      <p className="text-xs font-bold uppercase tracking-wide text-slate-500 mb-3">Sessions & recordings ({taskSessions.length})</p>
+                      <div className="space-y-2">
+                        {taskSessions.map((s) => {
+                          const member = team.find((m) => m.id === s.staff_id);
+                          const durationMin = s.ended_at ? Math.round((new Date(s.ended_at).getTime() - new Date(s.started_at).getTime()) / 60000) : null;
+                          return (
+                            <div key={s.id} className="rounded-xl bg-slate-50 border border-slate-100 p-3">
+                              <div className="flex items-center justify-between text-xs mb-1.5 flex-wrap gap-1">
+                                <span className="font-bold text-slate-800">{member?.name || member?.email || "Unknown staff"}</span>
+                                <div className="flex items-center gap-2">
+                                  <Pill className={s.status === "completed" ? "bg-emerald-100 text-emerald-700 border-emerald-200" : s.status === "recording" ? "bg-red-100 text-red-700 border-red-200 animate-pulse" : "bg-amber-100 text-amber-700 border-amber-200"}>
+                                    {s.status === "recording" ? "🔴 Live" : s.status === "completed" ? "✅ Completed" : "⏸ Paused/Interrupted"}
+                                  </Pill>
+                                  <span className="text-slate-400">{formatDate(s.started_at)}{durationMin !== null ? ` · ${durationMin} min` : ""} · {s.items_worked} items</span>
+                                </div>
+                              </div>
+                              {s.recording_url ? (
+                                <video src={s.recording_url} controls className="w-full rounded-lg max-h-64 bg-black" />
+                              ) : (
+                                <p className="text-xs text-slate-400">No recording captured for this session.</p>
+                              )}
+                            </div>
+                          );
+                        })}
+                        {taskSessions.length === 0 && <p className="text-xs text-slate-400">No work sessions yet.</p>}
+                      </div>
+
+                      <button type="button" onClick={() => setShowActivityLog((v) => !v)} className="text-xs font-bold text-primary-700 underline mt-4">
+                        {showActivityLog ? "Hide" : "Show"} full activity log ({taskActivity.length})
+                      </button>
+                      {showActivityLog && (
+                        <div className="mt-2 max-h-56 overflow-y-auto space-y-1 rounded-xl bg-slate-50 border border-slate-100 p-3">
+                          {taskActivity.map((a) => {
+                            const member = team.find((m) => m.id === a.staff_id);
+                            return (
+                              <div key={a.id} className="text-xs text-slate-600 flex items-center gap-2">
+                                <span className="text-slate-400 shrink-0">{new Date(a.created_at).toLocaleTimeString()}</span>
+                                <span className="font-semibold text-slate-800 shrink-0">{member?.name || "—"}</span>
+                                <span>{a.action.replace(/_/g, " ")}</span>
+                                {typeof a.details?.status === "string" && <Pill className="bg-white border-slate-200">{a.details.status}</Pill>}
+                              </div>
+                            );
+                          })}
+                          {taskActivity.length === 0 && <p className="text-xs text-slate-400">No activity logged yet.</p>}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  {selectedAdminTask.requires_verification && (
+                    <div className="rounded-2xl border border-purple-200 bg-purple-50 p-5 space-y-3">
+                      <p className="text-xs font-bold uppercase tracking-wide text-purple-700">AI content verification</p>
+                      {selectedAdminTask.ai_verification_status ? (
+                        <>
+                          <Pill className={selectedAdminTask.ai_verification_status === "pass" ? "bg-emerald-100 text-emerald-700 border-emerald-200" : selectedAdminTask.ai_verification_status === "fail" ? "bg-red-100 text-red-700 border-red-200" : "bg-slate-100 text-slate-600 border-slate-200"}>
+                            {selectedAdminTask.ai_verification_status === "pending" ? "Checking..." : selectedAdminTask.ai_verification_status === "pass" ? "✅ Passed" : "❌ Failed"}
+                          </Pill>
+                          {selectedAdminTask.ai_verification_feedback && <p className="text-sm text-purple-950 whitespace-pre-wrap">{selectedAdminTask.ai_verification_feedback}</p>}
+                        </>
+                      ) : (
+                        <p className="text-sm text-purple-700">No draft submitted for AI verification yet.</p>
+                      )}
+                      {selectedAdminTask.draft_content && (
+                        <div className="rounded-xl bg-white border border-purple-100 p-3">
+                          <p className="text-xs font-semibold text-slate-500 mb-1">Latest draft</p>
+                          <p className="text-sm text-slate-700 whitespace-pre-wrap">{selectedAdminTask.draft_content}</p>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  {(selectedAdminTask.submission_url || selectedAdminTask.submission_screenshot_url || selectedAdminTask.submission_notes) && (
+                    <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-5 space-y-2">
+                      <p className="text-xs font-bold uppercase tracking-wide text-emerald-700">Submission proof {selectedAdminTask.submitted_at ? `· ${formatDate(selectedAdminTask.submitted_at)}` : ""}</p>
+                      {selectedAdminTask.submission_url && <a href={selectedAdminTask.submission_url} target="_blank" rel="noreferrer" className="block text-sm font-semibold text-primary-700 underline break-all">{selectedAdminTask.submission_url}</a>}
+                      {selectedAdminTask.submission_screenshot_url && <a href={selectedAdminTask.submission_screenshot_url} target="_blank" rel="noreferrer" className="block text-sm font-semibold text-primary-700 underline break-all">Screenshot: {selectedAdminTask.submission_screenshot_url}</a>}
+                      {selectedAdminTask.submission_notes && <p className="text-sm text-emerald-900 whitespace-pre-wrap">{selectedAdminTask.submission_notes}</p>}
+                    </div>
+                  )}
                   <div className="rounded-2xl border border-slate-200 p-5">
                     <p className="text-xs font-bold uppercase tracking-wide text-slate-500 mb-2">Staff updates</p>
                     <div className="min-h-[90px] rounded-2xl bg-blue-50 border border-blue-100 p-4 text-sm text-blue-950 whitespace-pre-wrap">{selectedAdminTask.staff_notes || "No staff update yet."}</div>
@@ -2445,7 +3297,7 @@ export default function Admin() {
             <div className="w-full max-w-lg rounded-2xl bg-white shadow-2xl border border-slate-200">
               <div className="p-5 border-b border-slate-100 flex items-start justify-between gap-4">
                 <div>
-                  <h2 className="text-lg font-bold text-slate-900">Give Free Pro</h2>
+                  <h2 className="text-lg font-bold text-slate-900">Give Free {freeProModal.plan === "business" ? "Business" : "Pro"}</h2>
                   <p className="text-sm text-slate-500">The expiry date is saved automatically. After it passes, the user returns to the Free plan.</p>
                 </div>
                 <button className="text-slate-400 hover:text-slate-700 text-xl" onClick={() => setFreeProModal(null)}>×</button>
@@ -2453,7 +3305,12 @@ export default function Admin() {
               <div className="p-5 space-y-4">
                 <div className="rounded-xl bg-amber-50 border border-amber-100 p-4">
                   <p className="font-semibold text-slate-900">{freeProModal.profile.business_name || freeProModal.profile.email || "Selected user"}</p>
-                  <p className="text-sm text-amber-700">Pro access tab tak active rahega jab tak selected duration expire nahi hoti.</p>
+                  <p className="text-sm text-amber-700">{freeProModal.plan === "business" ? "Business" : "Pro"} access tab tak active rahega jab tak selected duration expire nahi hoti.</p>
+                </div>
+                <label className="block text-sm font-medium text-slate-700">Plan</label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button className={freeProModal.plan === "pro" ? "btn-primary text-sm" : "btn-secondary text-sm"} onClick={() => setFreeProModal({ ...freeProModal, plan: "pro" })}>Pro</button>
+                  <button className={freeProModal.plan === "business" ? "btn-primary text-sm" : "btn-secondary text-sm"} onClick={() => setFreeProModal({ ...freeProModal, plan: "business" })}>Business</button>
                 </div>
                 <div className="grid grid-cols-4 gap-2">
                   {[7, 30, 90, 365].map((days) => (
@@ -2464,7 +3321,7 @@ export default function Admin() {
                 <input className="input" type="number" min="1" value={freeProModal.days} onChange={(e) => setFreeProModal({ ...freeProModal, days: e.target.value })} />
                 <label className="block text-sm font-medium text-slate-700">Reason</label>
                 <select className="input" value={freeProModal.reason} onChange={(e) => setFreeProModal({ ...freeProModal, reason: e.target.value })}>
-                  <option>Manual free Pro access</option>
+                  <option>Manual free {freeProModal.plan === "business" ? "Business" : "Pro"} access</option>
                   <option>Promotion</option>
                   <option>Trial extension</option>
                   <option>Support compensation</option>
@@ -2473,7 +3330,7 @@ export default function Admin() {
               </div>
               <div className="p-5 border-t border-slate-100 flex justify-end gap-2">
                 <button className="btn-secondary" onClick={() => setFreeProModal(null)}>Cancel</button>
-                <button className="btn-primary" disabled={adminActionBusy} onClick={() => submitFreePro()}>{adminActionBusy ? "Saving..." : "Give Free Pro"}</button>
+                <button className="btn-primary" disabled={adminActionBusy} onClick={() => submitFreePro()}>{adminActionBusy ? "Saving..." : `Give Free ${freeProModal.plan === "business" ? "Business" : "Pro"}`}</button>
               </div>
             </div>
           </div>

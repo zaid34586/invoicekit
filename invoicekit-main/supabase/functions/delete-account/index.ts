@@ -29,7 +29,7 @@ serve(async (req) => {
 
   try {
     const supabaseUrl = Deno.env.get("SUPABASE_URL");
-    const serviceKey = Deno.env.get("SERVICE_ROLE_KEY");
+    const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? Deno.env.get("SERVICE_ROLE_KEY");
 
     if (!supabaseUrl || !serviceKey) {
       return json(
@@ -104,10 +104,11 @@ serve(async (req) => {
       );
     }
 
-    await admin.from("invoices").delete().eq("user_id", userId);
-    await admin.from("clients").delete().eq("user_id", userId);
-    await admin.from("profiles").delete().eq("user_id", userId);
-
+    // Delete Auth first. This is the irreversible identity operation and must
+    // succeed before public profile data is removed. Previously the profile
+    // was deleted first; if Auth deletion then failed, the email remained
+    // registered and the next login recreated an empty profile, causing an
+    // endless Business Setup / phone verification loop.
     const { error: deleteUserError } = await admin.auth.admin.deleteUser(userId);
 
     if (deleteUserError) {
@@ -119,6 +120,12 @@ serve(async (req) => {
         500
       );
     }
+
+    // Most user-owned rows are removed by ON DELETE CASCADE. These explicit
+    // deletes also cover legacy rows created before all foreign keys existed.
+    await admin.from("invoices").delete().eq("user_id", userId);
+    await admin.from("clients").delete().eq("user_id", userId);
+    await admin.from("profiles").delete().eq("user_id", userId);
 
     return json({
       success: true,

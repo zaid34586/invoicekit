@@ -39,7 +39,7 @@ type AuditRow = {
 
 const DEFAULT_SETTINGS: Omit<WorkspaceSettings, "id" | "updated_at"> = {
   workspace_name: "Rivox",
-  support_email: "support@getrivox.com",
+  support_email: "support@rivoxcloud.com",
   default_currency: "USD",
   timezone: "Asia/Kolkata",
   language: "English",

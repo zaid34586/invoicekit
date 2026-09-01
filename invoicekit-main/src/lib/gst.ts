@@ -11,6 +11,8 @@ export interface GstBreakup {
 
 export interface InvoiceCalc {
   subtotal: number;
+  discountAmount: number;
+  discountedSubtotal: number;
   cgst: number;
   sgst: number;
   igst: number;
@@ -51,13 +53,28 @@ export function calculateInvoice(
   businessState: string | null,
   clientState: string | null,
   businessCountry: string | null = "India",
-  clientCountry: string | null = businessCountry ?? "India"
+  clientCountry: string | null = businessCountry ?? "India",
+  discountType: "percentage" | "fixed" | null = null,
+  discountValue = 0
 ): InvoiceCalc {
   const subtotal = items.reduce((sum, it) => sum + lineAmount(it), 0);
 
+  // Discount is a single reduction applied uniformly across every line
+  // (regardless of that line's own tax rate) -- so it reduces each rate
+  // bucket's taxable amount by the same proportion, then tax is computed
+  // on the already-discounted taxable amount. Capped so a discount can
+  // never exceed the subtotal (no negative invoice).
+  const rawDiscount =
+    discountType === "percentage" ? (subtotal * (discountValue || 0)) / 100
+    : discountType === "fixed" ? (discountValue || 0)
+    : 0;
+  const discountAmount = Math.min(Math.max(0, rawDiscount), subtotal);
+  const discountedSubtotal = subtotal - discountAmount;
+  const reductionFactor = subtotal > 0 ? discountedSubtotal / subtotal : 1;
+
   const rateMap = new Map<number, { taxable: number }>();
   for (const it of items) {
-    const amt = lineAmount(it);
+    const amt = lineAmount(it) * reductionFactor;
     const rate = it.gstRate || 0;
     const entry = rateMap.get(rate) ?? { taxable: 0 };
     entry.taxable += amt;
@@ -68,14 +85,27 @@ export function calculateInvoice(
   const isIndiaBusiness = (businessCountry ?? "India") === "India";
   const isCrossBorder = (businessCountry ?? "India") !== (clientCountry ?? businessCountry ?? "India");
 
-  // Cross-border supply (any country pair) — zero-rated/exempt, no tax charged.
-  if (isCrossBorder) {
+  // India → foreign client is zero-rated by law (export under LUT, Section 16
+  // IGST Act). This is a compliance rule, not a user preference, so it always
+  // stays at 0 regardless of any per-line rate entered.
+  //
+  // Bug-001 fix: previously EVERY cross-border invoice (not just India's)
+  // was force-zeroed here, silently discarding any tax rate the user typed
+  // into a line item. For non-India cross-border invoices there is no such
+  // legal mandate in Rivox — decideTax() only *suggests* export-exempt as a
+  // default (rate 0) and tells the user to verify with their advisor. So a
+  // non-India cross-border invoice now falls through to the same flat
+  // per-line-rate calculation used for domestic non-India invoices below,
+  // meaning a manually-entered rate is respected instead of being ignored.
+  if (isIndiaBusiness && isCrossBorder) {
     return {
       subtotal,
+      discountAmount,
+      discountedSubtotal,
       cgst: 0,
       sgst: 0,
       igst: 0,
-      total: subtotal,
+      total: discountedSubtotal,
       breakup: [],
       isInterState: false,
     };
@@ -87,6 +117,7 @@ export function calculateInvoice(
   const breakup: GstBreakup[] = [];
 
   if (isIndiaBusiness) {
+    // isIndiaBusiness && !isCrossBorder here (the cross-border case returned above).
     const isInterState =
       !!businessState && !!clientState && businessState !== clientState;
 
@@ -104,11 +135,16 @@ export function calculateInvoice(
       }
     }
 
-    const total = subtotal + cgst + sgst + igst;
-    return { subtotal, cgst, sgst, igst, total, breakup, isInterState };
+    const total = discountedSubtotal + cgst + sgst + igst;
+    return { subtotal, discountAmount, discountedSubtotal, cgst, sgst, igst, total, breakup, isInterState };
   }
 
-  // Non-India, same-country supply: flat tax per line rate, no CGST/SGST split.
+  // Non-India business — either domestic (same country as client) or
+  // cross-border. Both use a flat tax at each line item's own rate, no
+  // CGST/SGST split. For cross-border this defaults to 0 (decideTax()
+  // suggests an export-exempt 0% rate that auto-fills the line items), but
+  // if the user overrides the rate on a line, that rate is now honoured
+  // instead of being silently zeroed out.
   for (const rate of sortedRates) {
     const { taxable } = rateMap.get(rate)!;
     const tax = (taxable * rate) / 100;
@@ -116,6 +152,6 @@ export function calculateInvoice(
     breakup.push({ rate, cgst: 0, sgst: 0, igst: tax, taxable, tax });
   }
 
-  const total = subtotal + igst;
-  return { subtotal, cgst: 0, sgst: 0, igst, total, breakup, isInterState: true };
+  const total = discountedSubtotal + igst;
+  return { subtotal, discountAmount, discountedSubtotal, cgst: 0, sgst: 0, igst, total, breakup, isInterState: true };
 }

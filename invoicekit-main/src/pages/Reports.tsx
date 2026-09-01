@@ -5,6 +5,9 @@ import { formatMoney } from "../lib/currency";
 import type { Invoice, Client } from "../lib/types";
 import * as XLSX from "xlsx";
 import jsPDF from "jspdf";
+import { invoiceBaseAmount, invoicePaidBaseAmount, invoiceDisplayAmount, invoiceDate, startOfDay, endOfDay, isWithin } from "../lib/invoiceAnalytics";
+import LockedFeature from "../components/LockedFeature";
+import { getCountryTaxSummary } from "../lib/tax";
 
 // Type definitions
 type DateFilter = "today" | "week" | "month" | "year" | "custom";
@@ -305,7 +308,7 @@ function TopClientRow({
 }
 
 export default function Reports() {
-  const { user, profile } = useAuth();
+  const { user, profile, workspaceOwnerId } = useAuth();
   const [loading, setLoading] = useState(true);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
@@ -323,13 +326,13 @@ const currency = profile?.currency ?? "USD";
         supabase
   .from("invoices")
   .select("*")
-  .eq("user_id", user?.id)
+  .eq("user_id", workspaceOwnerId || user?.id)
   .order("created_at", { ascending: false }),
 
 supabase
   .from("clients")
   .select("*")
-  .eq("user_id", user?.id)
+  .eq("user_id", workspaceOwnerId || user?.id)
   .order("created_at", { ascending: false }),
       ]);
 
@@ -338,107 +341,289 @@ supabase
       setLoading(false);
     }
     loadData();
-  }, [user]);
-function exportCSV() {
-  const headers = [
-    "Invoice No",
-    "Client",
-    "Status",
-    "Invoice Date",
-    "Due Date",
-    "Subtotal",
-    "GST",
-    "Total",
-  ];
+  }, [user, workspaceOwnerId]);
 
-  const rows = invoices.map((i) => [
-    i.invoice_number,
-    i.client_name,
-    i.status,
-    i.invoice_date,
-    i.due_date,
-    i.subtotal,
-    Number(i.cgst) + Number(i.sgst) + Number(i.igst),
-    i.total,
-  ]);
+  const now = new Date();
+  const getDateRange = (): { start: Date; end: Date } => {
+    if (dateFilter === "today") return { start: startOfDay(now), end: endOfDay(now) };
+    if (dateFilter === "week") {
+      const start = startOfDay(now);
+      start.setDate(now.getDate() - ((now.getDay() + 6) % 7));
+      return { start, end: endOfDay(now) };
+    }
+    if (dateFilter === "year") return { start: new Date(now.getFullYear(), 0, 1), end: endOfDay(now) };
+    if (dateFilter === "custom") {
+      const start = customStartDate ? startOfDay(new Date(`${customStartDate}T00:00:00`)) : new Date(0);
+      const end = customEndDate ? endOfDay(new Date(`${customEndDate}T00:00:00`)) : endOfDay(now);
+      return { start, end };
+    }
+    return { start: new Date(now.getFullYear(), now.getMonth(), 1), end: endOfDay(now) };
+  };
 
-  const csv = [
-    headers.join(","),
-    ...rows.map((r) => r.join(",")),
-  ].join("\n");
-
-  const blob = new Blob([csv], {
-    type: "text/csv;charset=utf-8;",
+  const activeRange = getDateRange();
+  const filteredInvoices = invoices.filter((invoice) => {
+    const matchesDate = isWithin(invoiceDate(invoice), activeRange.start, activeRange.end);
+    const matchesStatus = selectedStatus === "all" || invoice.status === selectedStatus;
+    const matchesClient = selectedClient === "all" || invoice.client_name === selectedClient;
+    return matchesDate && matchesStatus && matchesClient;
   });
 
+  const reportRangeLabel = `${activeRange.start.toLocaleDateString()} - ${activeRange.end.toLocaleDateString()}`;
+
+function exportCSV() {
+  const escape = (value: unknown) => `"${String(value ?? "").replace(/"/g, '""')}"`;
+  const headers = [
+    "Invoice No", "Client", "Country", "Status", "Invoice Date", "Due Date",
+    "Invoice Currency", "Exchange Rate", "Invoice Subtotal", "Tax",
+    "Invoice Total", `Base Total (${currency})`,
+  ];
+  const rows = filteredInvoices.map((invoice) => {
+    const invoiceSubtotal = Number(invoice.invoice_subtotal ?? invoice.subtotal ?? 0);
+    const invoiceTotal = invoiceDisplayAmount(invoice);
+    const tax = Math.max(0, invoiceTotal - invoiceSubtotal);
+    return [
+      invoice.invoice_number,
+      invoice.client_name,
+      invoice.client_country ?? "",
+      invoice.status,
+      invoice.invoice_date,
+      invoice.due_date,
+      invoice.invoice_currency ?? currency,
+      Number(invoice.exchange_rate ?? 1).toFixed(6),
+      invoiceSubtotal.toFixed(2),
+      tax.toFixed(2),
+      invoiceTotal.toFixed(2),
+      invoiceBaseAmount(invoice).toFixed(2),
+    ];
+  });
+  const csv = [headers, ...rows].map((row) => row.map(escape).join(",")).join("\n");
+  const blob = new Blob(["\uFEFF", csv], { type: "text/csv;charset=utf-8;" });
   const link = document.createElement("a");
   link.href = URL.createObjectURL(blob);
-  link.download = "Invoice_Report.csv";
+  link.download = `Rivox_Report_${new Date().toISOString().slice(0, 10)}.csv`;
   link.click();
+  URL.revokeObjectURL(link.href);
 }
-function exportPDF() {
+
+async function exportPDF() {
   const doc = new jsPDF();
+  const paidTotal = filteredInvoices.filter((invoice) => invoice.status === "paid").reduce((sum, invoice) => sum + invoicePaidBaseAmount(invoice), 0);
+  const pendingTotal = filteredInvoices.filter((invoice) => invoice.status === "sent").reduce((sum, invoice) => sum + invoiceBaseAmount(invoice), 0);
+  const overdueTotal = filteredInvoices.filter((invoice) => invoice.status === "overdue").reduce((sum, invoice) => sum + invoiceBaseAmount(invoice), 0);
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const businessName = profile?.business_name || "Rivox Business Report";
 
-  doc.setFontSize(18);
-  doc.text("Rivox Reports", 20, 20);
+  doc.setFillColor(30, 27, 75);
+  doc.rect(0, 0, pageWidth, 42, "F");
 
-  doc.setFontSize(12);
+  if (profile?.logo_url) {
+    try {
+      const response = await fetch(profile.logo_url);
+      const blob = await response.blob();
+      const dataUrl = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result));
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+      });
+      doc.addImage(dataUrl, "PNG", 14, 9, 24, 24, undefined, "FAST");
+    } catch {
+      // Report still exports when a remote logo blocks browser access.
+    }
+  }
 
-  doc.text(`Total Revenue: ${formatMoney(totalRevenue, currency)}`, 20, 40);
-  doc.text(`Paid Invoices: ${paidInvoices}`, 20, 50);
-  doc.text(`Pending Invoices: ${pendingInvoices}`, 20, 60);
-  doc.text(`Overdue Invoices: ${overdueInvoices}`, 20, 70);
-  doc.text(`Total Clients: ${totalClients}`, 20, 80);
+  doc.setTextColor(255, 255, 255);
+  doc.setFontSize(20);
+  doc.text(businessName, profile?.logo_url ? 43 : 14, 18);
+  doc.setFontSize(9);
+  const details = [profile?.address, profile?.phone, profile?.email].filter(Boolean).join(" • ");
+  if (details) doc.text(details.slice(0, 95), profile?.logo_url ? 43 : 14, 26);
+  doc.text(`Business report • ${reportRangeLabel}`, profile?.logo_url ? 43 : 14, 33);
 
-  doc.save("Invoice_Report.pdf");
+  doc.setTextColor(15, 23, 42);
+  const cards = [
+    ["Paid", paidTotal], ["Pending", pendingTotal], ["Overdue", overdueTotal], ["Invoices", filteredInvoices.length],
+  ] as const;
+  cards.forEach(([label, value], index) => {
+    const x = 14 + index * 47;
+    doc.setFillColor(245, 247, 255);
+    doc.roundedRect(x, 49, 42, 24, 3, 3, "F");
+    doc.setFontSize(8);
+    doc.setTextColor(100, 116, 139);
+    doc.text(label, x + 4, 57);
+    doc.setFontSize(11);
+    doc.setTextColor(15, 23, 42);
+    doc.text(typeof value === "number" && label !== "Invoices" ? formatMoney(value, currency) : String(value), x + 4, 67, { maxWidth: 35 });
+  });
+
+  doc.setFontSize(9);
+  doc.setTextColor(71, 85, 105);
+  doc.text(`Base currency: ${currency}`, 14, 82);
+  doc.text(`Generated: ${new Date().toLocaleString()}`, 110, 82);
+
+  let y = 93;
+  const drawHeader = () => {
+    doc.setFillColor(79, 70, 229);
+    doc.rect(14, y, 182, 9, "F");
+    doc.setTextColor(255, 255, 255);
+    doc.setFontSize(8);
+    doc.text("Invoice", 17, y + 6);
+    doc.text("Client", 43, y + 6);
+    doc.text("Status", 96, y + 6);
+    doc.text("Currency", 119, y + 6);
+    doc.text("Invoice total", 143, y + 6);
+    doc.text(`Base (${currency})`, 173, y + 6, { align: "right" });
+    y += 12;
+  };
+  drawHeader();
+
+  filteredInvoices.forEach((invoice, index) => {
+    if (y > 275) {
+      doc.addPage();
+      y = 18;
+      drawHeader();
+    }
+    if (index % 2 === 0) {
+      doc.setFillColor(248, 250, 252);
+      doc.rect(14, y - 3, 182, 9, "F");
+    }
+    doc.setTextColor(15, 23, 42);
+    doc.setFontSize(8);
+    doc.text(invoice.invoice_number, 17, y + 3);
+    doc.text(invoice.client_name.slice(0, 26), 43, y + 3);
+    doc.text(invoice.status, 96, y + 3);
+    doc.text(invoice.invoice_currency ?? currency, 119, y + 3);
+    doc.text(invoiceDisplayAmount(invoice).toFixed(2), 143, y + 3);
+    doc.text(invoiceBaseAmount(invoice).toFixed(2), 193, y + 3, { align: "right" });
+    y += 9;
+  });
+
+  const pages = doc.getNumberOfPages();
+  for (let page = 1; page <= pages; page += 1) {
+    doc.setPage(page);
+    doc.setFontSize(8);
+    doc.setTextColor(148, 163, 184);
+    doc.text("Generated by Rivox Business OS", 14, 290);
+    doc.text(`Page ${page} of ${pages}`, 196, 290, { align: "right" });
+  }
+  doc.save(`Rivox_Report_${new Date().toISOString().slice(0, 10)}.pdf`);
 }
+
 function exportExcel() {
-  const rows = invoices.map((i) => ({
-    "Invoice No": i.invoice_number,
-    Client: i.client_name,
-    Status: i.status,
-    "Invoice Date": i.invoice_date,
-    "Due Date": i.due_date,
-    Subtotal: i.subtotal,
-    GST: Number(i.cgst) + Number(i.sgst) + Number(i.igst),
-    Total: i.total,
+  const invoiceRows = filteredInvoices.map((invoice) => ({
+    "Invoice No": invoice.invoice_number,
+    Client: invoice.client_name,
+    Country: invoice.client_country ?? "",
+    Status: invoice.status,
+    "Invoice Date": invoice.invoice_date,
+    "Due Date": invoice.due_date,
+    "Invoice Currency": invoice.invoice_currency ?? currency,
+    "Exchange Rate": Number(invoice.exchange_rate ?? 1),
+    "Invoice Subtotal": Number(Number(invoice.invoice_subtotal ?? invoice.subtotal ?? 0).toFixed(2)),
+    "Invoice Total": invoiceDisplayAmount(invoice),
+    [`Base Total (${currency})`]: invoiceBaseAmount(invoice),
   }));
 
-  const worksheet = XLSX.utils.json_to_sheet(rows);
+  const paidTotal = filteredInvoices.filter((i) => i.status === "paid").reduce((s, i) => s + invoicePaidBaseAmount(i), 0);
+  const pendingTotal = filteredInvoices.filter((i) => i.status === "sent").reduce((s, i) => s + invoiceBaseAmount(i), 0);
+  const overdueTotal = filteredInvoices.filter((i) => i.status === "overdue").reduce((s, i) => s + invoiceBaseAmount(i), 0);
+  const summary = XLSX.utils.aoa_to_sheet([
+    [businessNameForExport()],
+    ["Rivox Report Summary"],
+    ["Period", reportRangeLabel],
+    ["Base Currency", currency],
+    ["Invoice Count", filteredInvoices.length],
+    ["Paid Revenue", Number(paidTotal.toFixed(2))],
+    ["Pending", Number(pendingTotal.toFixed(2))],
+    ["Overdue", Number(overdueTotal.toFixed(2))],
+    ["Generated", new Date().toLocaleString()],
+  ]);
+  summary["!cols"] = [{ wch: 24 }, { wch: 28 }];
+
+  const invoicesSheet = XLSX.utils.json_to_sheet(invoiceRows);
+  invoicesSheet["!cols"] = [14, 24, 18, 12, 14, 14, 16, 14, 18, 18, 18].map((wch) => ({ wch }));
+  invoicesSheet["!autofilter"] = { ref: invoicesSheet["!ref"] || "A1:K1" };
+
+  const clientMap = new Map<string, { count: number; paid: number; pending: number; total: number }>();
+  filteredInvoices.forEach((invoice) => {
+    const current = clientMap.get(invoice.client_name) ?? { count: 0, paid: 0, pending: 0, total: 0 };
+    const value = invoiceBaseAmount(invoice);
+    current.count += 1;
+    current.total += value;
+    if (invoice.status === "paid") current.paid += invoicePaidBaseAmount(invoice);
+    if (invoice.status === "sent" || invoice.status === "overdue") current.pending += value;
+    clientMap.set(invoice.client_name, current);
+  });
+  const clientsSheet = XLSX.utils.json_to_sheet(Array.from(clientMap.entries()).map(([client, data]) => ({
+    Client: client,
+    "Invoice Count": data.count,
+    [`Total (${currency})`]: Number(data.total.toFixed(2)),
+    [`Paid (${currency})`]: Number(data.paid.toFixed(2)),
+    [`Pending (${currency})`]: Number(data.pending.toFixed(2)),
+  })));
+  clientsSheet["!cols"] = [{ wch: 28 }, { wch: 15 }, { wch: 18 }, { wch: 18 }, { wch: 18 }];
+  clientsSheet["!autofilter"] = { ref: clientsSheet["!ref"] || "A1:E1" };
+
+  const currencyMap = new Map<string, { count: number; invoiceTotal: number; baseTotal: number }>();
+  filteredInvoices.forEach((invoice) => {
+    const code = invoice.invoice_currency ?? currency;
+    const current = currencyMap.get(code) ?? { count: 0, invoiceTotal: 0, baseTotal: 0 };
+    current.count += 1;
+    current.invoiceTotal += invoiceDisplayAmount(invoice);
+    current.baseTotal += invoiceBaseAmount(invoice);
+    currencyMap.set(code, current);
+  });
+  const currencySheet = XLSX.utils.json_to_sheet(Array.from(currencyMap.entries()).map(([code, data]) => ({
+    Currency: code,
+    "Invoice Count": data.count,
+    "Invoice Currency Total": Number(data.invoiceTotal.toFixed(2)),
+    [`Base Total (${currency})`]: Number(data.baseTotal.toFixed(2)),
+  })));
+  currencySheet["!cols"] = [{ wch: 14 }, { wch: 15 }, { wch: 24 }, { wch: 20 }];
+
   const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, summary, "Summary");
+  XLSX.utils.book_append_sheet(workbook, invoicesSheet, "Invoices");
+  XLSX.utils.book_append_sheet(workbook, clientsSheet, "Clients");
+  XLSX.utils.book_append_sheet(workbook, currencySheet, "Currencies");
+  XLSX.writeFile(workbook, `Rivox_Report_${new Date().toISOString().slice(0, 10)}.xlsx`);
+}
 
-  XLSX.utils.book_append_sheet(workbook, worksheet, "Invoices");
-
-  XLSX.writeFile(workbook, "Invoice_Report.xlsx");
+function businessNameForExport(): string {
+  return profile?.business_name || "Rivox Business Report";
 }
   // Calculate analytics
-  const now = new Date();
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
   const lastMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
   const lastMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0);
 
   // Revenue analytics
-  const totalRevenue = invoices.reduce((sum, inv) => sum + Number(inv.total), 0);
+  // NOTE: "Total Revenue" must reflect money actually collected (status === "paid"),
+  // consistent with Dashboard.tsx. Summing all invoices regardless of status
+  // (draft/sent/overdue) was showing unpaid/pending amounts as "revenue".
+  const totalRevenue = filteredInvoices
+    .filter((inv) => inv.status === "paid")
+    .reduce((sum, inv) => sum + invoicePaidBaseAmount(inv), 0);
   const revenueThisMonth = invoices
     .filter((inv) => new Date(inv.created_at) >= monthStart && inv.status === "paid")
-    .reduce((sum, inv) => sum + Number(inv.total), 0);
+    .reduce((sum, inv) => sum + invoicePaidBaseAmount(inv), 0);
   const revenueLastMonth = invoices
     .filter((inv) => {
       const date = new Date(inv.created_at);
       return date >= lastMonthStart && date <= lastMonthEnd && inv.status === "paid";
     })
-    .reduce((sum, inv) => sum + Number(inv.total), 0);
+    .reduce((sum, inv) => sum + invoicePaidBaseAmount(inv), 0);
 
   const revenueGrowth = revenueLastMonth > 0
     ? Math.round(((revenueThisMonth - revenueLastMonth) / revenueLastMonth) * 100)
     : 0;
 
   // Invoice analytics
-  const totalInvoices = invoices.length;
-  const paidInvoices = invoices.filter((inv) => inv.status === "paid").length;
-  const pendingInvoices = invoices.filter((inv) => inv.status === "sent").length;
-  const overdueInvoices = invoices.filter((inv) => inv.status === "overdue").length;
-  const draftInvoices = invoices.filter((inv) => inv.status === "draft").length;
+  const totalInvoices = filteredInvoices.length;
+  const paidInvoices = filteredInvoices.filter((inv) => inv.status === "paid").length;
+  const pendingInvoices = filteredInvoices.filter((inv) => inv.status === "sent").length;
+  const overdueInvoices = filteredInvoices.filter((inv) => inv.status === "overdue").length;
+  const draftInvoices = filteredInvoices.filter((inv) => inv.status === "draft").length;
 
   // Client analytics
   const totalClients = clients.length;
@@ -446,11 +631,11 @@ function exportExcel() {
 
   // Top clients by revenue
   const clientRevenue = new Map<string, { revenue: number; invoices: number }>();
-  invoices.forEach((inv) => {
+  filteredInvoices.forEach((inv) => {
     if (inv.status === "paid") {
       const current = clientRevenue.get(inv.client_name) || { revenue: 0, invoices: 0 };
       clientRevenue.set(inv.client_name, {
-        revenue: current.revenue + Number(inv.total),
+        revenue: current.revenue + invoicePaidBaseAmount(inv),
         invoices: current.invoices + 1,
       });
     }
@@ -463,13 +648,19 @@ function exportExcel() {
   const highestPayingClient = topClients[0]?.name || "N/A";
 
   // Tax summary
-  const totalCGST = invoices.reduce((sum, inv) => sum + Number(inv.cgst || 0), 0);
-  const totalSGST = invoices.reduce((sum, inv) => sum + Number(inv.sgst || 0), 0);
-  const totalIGST = invoices.reduce((sum, inv) => sum + Number(inv.igst || 0), 0);
+  const totalCGST = filteredInvoices.reduce((sum, inv) => sum + Number(inv.cgst || 0), 0);
+  const totalSGST = filteredInvoices.reduce((sum, inv) => sum + Number(inv.sgst || 0), 0);
+  const totalIGST = filteredInvoices.reduce((sum, inv) => sum + Number(inv.igst || 0), 0);
   const totalGST = totalCGST + totalSGST + totalIGST;
+  // Non-India businesses don't use CGST/SGST — gst.ts stores their flat
+  // VAT/Sales Tax/etc. amount in the `igst` column purely for storage
+  // compatibility (see gst.ts comment). So for a non-India business, show
+  // one card with the country's real tax name instead of India's 3-way split.
+  const isIndiaBusiness = (profile?.country || "India") === "India";
+  const countryTax = getCountryTaxSummary(profile?.country);
 
   // Chart data (with placeholder data if no real data)
-  const hasData = invoices.length > 0;
+  const hasData = filteredInvoices.length > 0;
 
   // Revenue trend data (last 6 months)
   const revenueTrendData = hasData
@@ -478,12 +669,12 @@ function exportExcel() {
         for (let i = 5; i >= 0; i--) {
           const monthStart = new Date(now.getFullYear(), now.getMonth() - i, 1);
           const monthEnd = new Date(now.getFullYear(), now.getMonth() - i + 1, 0);
-          const monthRevenue = invoices
+          const monthRevenue = filteredInvoices
             .filter((inv) => {
               const date = new Date(inv.created_at);
               return date >= monthStart && date <= monthEnd && inv.status === "paid";
             })
-            .reduce((sum, inv) => sum + Number(inv.total), 0);
+            .reduce((sum, inv) => sum + invoicePaidBaseAmount(inv), 0);
           data.push(monthRevenue);
         }
         return data;
@@ -526,6 +717,12 @@ function exportExcel() {
   ];
 
   return (
+    <LockedFeature
+      active={profile?.plan === "free"}
+      eyebrow="Reports & Analytics"
+      title="Reports & Analytics is a Pro feature"
+      description="Revenue trends, invoice pipeline, and client insights unlock on the Pro plan and above."
+    >
     <div className="max-w-[1500px] mx-auto space-y-7 animate-fade-in pb-10">
       {/* Premium analytics header */}
       <section className="relative overflow-hidden rounded-[32px] bg-gradient-to-br from-slate-950 via-indigo-950 to-violet-900 p-7 text-white shadow-[0_28px_80px_-30px_rgba(79,70,229,.62)] sm:p-8">
@@ -640,7 +837,7 @@ function exportExcel() {
       </div>
 
       {/* Empty State */}
-      {!loading && invoices.length === 0 ? (
+      {!loading && filteredInvoices.length === 0 ? (
         <div className="card p-12 text-center">
           <div className="w-20 h-20 bg-slate-100 rounded-full flex items-center justify-center mx-auto mb-4">
             <svg className="w-10 h-10 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
@@ -858,7 +1055,7 @@ function exportExcel() {
             <h2 className="text-lg font-semibold text-slate-900 mb-4">Tax Summary</h2>
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
               <StatCard
-                label="Total GST Collected"
+                label={isIndiaBusiness ? "Total GST Collected" : `Total ${countryTax.label} Collected`}
                 value={formatMoney(totalGST, currency)}
                 icon={
                   <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -868,39 +1065,55 @@ function exportExcel() {
                 color="primary"
                 loading={loading}
               />
-              <StatCard
-                label="CGST"
-                value={formatMoney(totalCGST, currency)}
-                icon={
-                  <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
-                  </svg>
-                }
-                color="blue"
-                loading={loading}
-              />
-              <StatCard
-                label="SGST"
-                value={formatMoney(totalSGST, currency)}
-                icon={
-                  <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
-                  </svg>
-                }
-                color="green"
-                loading={loading}
-              />
-              <StatCard
-                label="IGST"
-                value={formatMoney(totalIGST, currency)}
-                icon={
-                  <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
-                  </svg>
-                }
-                color="amber"
-                loading={loading}
-              />
+              {isIndiaBusiness ? (
+                <>
+                  <StatCard
+                    label="CGST"
+                    value={formatMoney(totalCGST, currency)}
+                    icon={
+                      <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+                      </svg>
+                    }
+                    color="blue"
+                    loading={loading}
+                  />
+                  <StatCard
+                    label="SGST"
+                    value={formatMoney(totalSGST, currency)}
+                    icon={
+                      <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+                      </svg>
+                    }
+                    color="green"
+                    loading={loading}
+                  />
+                  <StatCard
+                    label="IGST"
+                    value={formatMoney(totalIGST, currency)}
+                    icon={
+                      <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+                      </svg>
+                    }
+                    color="amber"
+                    loading={loading}
+                  />
+                </>
+              ) : (
+                <StatCard
+                  label={countryTax.label}
+                  value={formatMoney(totalIGST, currency)}
+                  icon={
+                    <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+                    </svg>
+                  }
+                  color="blue"
+                  loading={loading}
+                />
+              )}
             </div>
           </section>
 
@@ -977,5 +1190,6 @@ function exportExcel() {
         title={`${exportModal} Export`}
       />
     </div>
+    </LockedFeature>
   );
 }

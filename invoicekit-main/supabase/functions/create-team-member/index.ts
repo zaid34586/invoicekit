@@ -2,8 +2,8 @@ import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const ADMIN_EMAIL = "mz7123272@gmail.com";
-const DEFAULT_STAFF_PORTAL_URL = "https://staff.rivox.com";
-const DEFAULT_ADMIN_PORTAL_URL = "https://admin.rivox.com";
+const DEFAULT_STAFF_PORTAL_URL = "https://staff.rivoxcloud.com";
+const DEFAULT_ADMIN_PORTAL_URL = "https://admin.rivoxcloud.com";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -47,26 +47,73 @@ function buildWelcomeEmail(params: {
   const text = `Hello ${displayName},\n\nYour Rivox staff account has been created.\n\nStaff portal: ${params.staffPortalUrl}\nEmail: ${params.email}\nTemporary password: ${params.password}\nRole: ${params.role}\n\nLogin using the staff portal only. The owner admin portal is separate: ${params.adminPortalUrl}\n\nPlease change your password after first login.\n\nRivox Team`;
 
   const html = `
-  <div style="font-family:Inter,Arial,sans-serif;background:#f8fafc;padding:32px;color:#0f172a;">
-    <div style="max-width:640px;margin:0 auto;background:#ffffff;border:1px solid #e2e8f0;border-radius:18px;overflow:hidden;">
-      <div style="background:#4f46e5;color:#fff;padding:26px 30px;">
-        <h1 style="margin:0;font-size:24px;">Welcome to Rivox</h1>
-        <p style="margin:8px 0 0;color:#e0e7ff;">Your staff account is ready.</p>
-      </div>
-      <div style="padding:30px;">
-        <p style="font-size:16px;line-height:1.6;">Hello <b>${safeName}</b>,</p>
-        <p style="font-size:15px;line-height:1.6;">Your Rivox staff account has been created. Use the details below to sign in.</p>
-        <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:14px;padding:18px;margin:22px 0;">
-          <p style="margin:0 0 10px;font-size:14px;"><b>Staff Portal</b><br><a href="${safeStaffUrl}" style="color:#4f46e5;">${safeStaffUrl}</a></p>
-          <p style="margin:0 0 10px;font-size:14px;"><b>Email</b><br>${safeEmail}</p>
-          <p style="margin:0 0 10px;font-size:14px;"><b>Temporary Password</b><br><span style="font-family:monospace;background:#eef2ff;border-radius:8px;padding:6px 10px;display:inline-block;">${safePassword}</span></p>
-          <p style="margin:0;font-size:14px;text-transform:capitalize;"><b>Role</b><br>${safeRole}</p>
-        </div>
-        <a href="${safeStaffUrl}" style="display:inline-block;background:#4f46e5;color:#fff;text-decoration:none;border-radius:12px;padding:12px 20px;font-weight:700;">Open Staff Portal</a>
-        <p style="font-size:13px;line-height:1.6;color:#64748b;margin-top:22px;">Security note: Staff must use the staff portal only. Owner admin portal is separate: ${safeAdminUrl}</p>
-      </div>
-    </div>
-  </div>`;
+<!doctype html>
+<html lang="en">
+  <body style="margin:0;padding:0;background:#f3f5fb;font-family:Arial,sans-serif;color:#0f172a;">
+    <table width="100%" cellpadding="0" cellspacing="0" role="presentation" style="background:#f3f5fb;padding:32px 12px;">
+      <tr>
+        <td align="center">
+          <table width="100%" cellpadding="0" cellspacing="0" role="presentation" style="max-width:650px;background:#ffffff;border-radius:24px;overflow:hidden;">
+            <tr>
+              <td style="padding:40px 48px;background:#24134f;color:#ffffff;">
+                <div style="font-size:32px;font-weight:800;">
+                  <span style="color:#ff7849;">⚡</span> Rivox
+                </div>
+                <div style="margin-top:8px;font-size:17px;color:#ddd6fe;">Business OS</div>
+              </td>
+            </tr>
+
+            <tr>
+              <td style="padding:46px 48px;">
+                <div style="font-size:14px;font-weight:800;letter-spacing:3px;color:#7c3aed;">
+                  STAFF ACCOUNT CREATED
+                </div>
+
+                <h1 style="margin:22px 0 16px;font-size:34px;line-height:1.2;color:#0f172a;">
+                  Welcome to Rivox, ${safeName}
+                </h1>
+
+                <p style="margin:0 0 28px;font-size:17px;line-height:1.7;color:#64748b;">
+                  Your staff account has been created. Use the credentials below to sign in to the staff portal.
+                </p>
+
+                <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:16px;padding:24px 28px;margin:0 0 28px;">
+                  <p style="margin:0 0 16px;font-size:14px;line-height:1.6;">
+                    <span style="display:block;font-weight:800;color:#0f172a;">Email</span>
+                    <span style="color:#475569;">${safeEmail}</span>
+                  </p>
+                  <p style="margin:0 0 16px;font-size:14px;line-height:1.6;">
+                    <span style="display:block;font-weight:800;color:#0f172a;">Temporary Password</span>
+                    <span style="font-family:'Courier New',monospace;background:#ede9fe;color:#5b21b6;border-radius:8px;padding:6px 12px;display:inline-block;margin-top:4px;">${safePassword}</span>
+                  </p>
+                  <p style="margin:0;font-size:14px;line-height:1.6;text-transform:capitalize;">
+                    <span style="display:block;font-weight:800;color:#0f172a;text-transform:none;">Role</span>
+                    <span style="color:#475569;">${safeRole}</span>
+                  </p>
+                </div>
+
+                <a href="${safeStaffUrl}"
+                   style="display:inline-block;padding:17px 28px;background:#5b42ed;color:#ffffff;text-decoration:none;border-radius:12px;font-size:17px;font-weight:700;">
+                  Open Staff Portal
+                </a>
+
+                <p style="margin:32px 0 0;font-size:14px;line-height:1.7;color:#94a3b8;">
+                  You will be asked to set a new password on first login. Staff must sign in only through the staff portal — the owner admin portal is a separate, restricted address. Never share this email, your password, or the login link with anyone.
+                </p>
+              </td>
+            </tr>
+
+            <tr>
+              <td style="padding:25px 48px;border-top:1px solid #e2e8f0;font-size:13px;line-height:1.7;color:#94a3b8;">
+                Rivox · Secure invoicing, payments and business operations
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>`;
 
   return { subject, text, html };
 }
@@ -139,7 +186,7 @@ serve(async (req) => {
   if (req.method !== "POST") return json({ error: "Method not allowed" }, 405);
 
   const supabaseUrl = Deno.env.get("SUPABASE_URL");
-  const serviceKey = Deno.env.get("SERVICE_ROLE_KEY");
+  const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
 
   if (!supabaseUrl || !serviceKey) {
     return json({ error: "Server configuration missing" }, 500);
@@ -162,6 +209,7 @@ serve(async (req) => {
   const password = String(body.password ?? "");
   const name = String(body.name ?? "").trim() || null;
   const role = String(body.role ?? "limited");
+  const department = body.department ? String(body.department).trim() : null;
   const notes = String(body.notes ?? "").trim() || null;
   const staffPortalUrl = String(body.staffPortalUrl ?? Deno.env.get("STAFF_PORTAL_URL") ?? DEFAULT_STAFF_PORTAL_URL).trim();
   const adminPortalUrl = String(body.adminPortalUrl ?? Deno.env.get("ADMIN_PORTAL_URL") ?? DEFAULT_ADMIN_PORTAL_URL).trim();
@@ -198,6 +246,7 @@ serve(async (req) => {
     email,
     name,
     role,
+    department,
     status: "active",
     temporary_password: password,
     notes,

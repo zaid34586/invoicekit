@@ -81,6 +81,16 @@ serve(async (req) => {
         },
       });
       if (error) throw error;
+      // Kill every active session/refresh token for this user right now --
+      // without this, a banned user's already-open tab (or a captured
+      // access token used directly against the API) keeps working, and
+      // they can keep silently refreshing to new access tokens forever.
+      // The client-side is_banned check only catches it on their next
+      // full profile load, which this closes the gap on.
+      const { error: signOutError } = await adminClient.auth.admin.signOut(userId, "global");
+      if (signOutError) {
+        console.error("mark_auth_banned: failed to revoke sessions", signOutError.message);
+      }
       return json({ ok: true, message: "Auth metadata marked banned" });
     }
 

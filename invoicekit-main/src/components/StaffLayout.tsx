@@ -3,12 +3,12 @@ import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { supabase } from "../lib/supabase";
 import { hasStaffPermission, STAFF_ROLE_LABELS, type StaffMember } from "../lib/staffPermissions";
+import { playNotificationSound, unlockAudio } from "../lib/notifySound";
 import RivoxLogo from "./RivoxLogo";
 
 const navBase = [
   { key: "dashboard", label: "Dashboard", icon: "📊" },
   { key: "tasks", label: "My Tasks", icon: "✅" },
-  { key: "tickets", label: "Support", icon: "🎧" },
   { key: "users", label: "Users", icon: "👥" },
   { key: "finance", label: "Finance", icon: "💰" },
   { key: "reports", label: "Reports", icon: "📈" },
@@ -26,6 +26,13 @@ export default function StaffLayout({ children }: { children: ReactNode }) {
   const [active, setActive] = useState(() => window.location.hash.replace("#", "") || "dashboard");
 
   useEffect(() => {
+    const onFirstGesture = () => { unlockAudio(); window.removeEventListener("pointerdown", onFirstGesture); window.removeEventListener("keydown", onFirstGesture); };
+    window.addEventListener("pointerdown", onFirstGesture, { once: true });
+    window.addEventListener("keydown", onFirstGesture, { once: true });
+    return () => { window.removeEventListener("pointerdown", onFirstGesture); window.removeEventListener("keydown", onFirstGesture); };
+  }, []);
+
+  useEffect(() => {
     const onHash = () => setActive(window.location.hash.replace("#", "") || "dashboard");
     window.addEventListener("hashchange", onHash);
     onHash();
@@ -38,25 +45,65 @@ export default function StaffLayout({ children }: { children: ReactNode }) {
       const email = user.email?.toLowerCase() ?? "";
       const { data } = await supabase
         .from("admin_team_members")
-        .select("id, auth_user_id, email, name, role, status, notes, created_at")
+        .select("id, auth_user_id, email, name, role, status, notes, created_at, presence_status, presence_updated_at")
         .or(`auth_user_id.eq.${user.id},email.eq.${email}`)
         .maybeSingle();
       if (data?.status !== "active") return;
       const team = data as StaffMember;
       setStaff(team);
-      const { count } = await supabase
-        .from("notifications")
-        .select("id", { count: "exact", head: true })
-        .is("read_at", null)
-        .or(`recipient_team_member_id.eq.${team.id},role.eq.${team.role},audience.eq.staff,audience.eq.all`);
-      setUnreadCount(count ?? 0);
+      await refreshUnreadCount(team);
+      if (team.presence_status !== "away") await supabase.rpc("update_my_presence", { p_status: "online" });
     }
     loadStaff();
   }, [user]);
 
+  async function refreshUnreadCount(team: StaffMember) {
+    const { count } = await supabase
+      .from("notifications")
+      .select("id", { count: "exact", head: true })
+      .is("read_at", null)
+      .or(`recipient_team_member_id.eq.${team.id},and(recipient_team_member_id.is.null,role.eq.${team.role}),and(recipient_team_member_id.is.null,role.is.null,audience.eq.staff),and(recipient_team_member_id.is.null,role.is.null,audience.eq.all)`);
+    setUnreadCount(count ?? 0);
+  }
+
+  // Bug fix: the badge count above was a one-time snapshot from page load.
+  // Subscribe to realtime changes on the notifications table so a brand new
+  // notification (INSERT) bumps the badge immediately, and marking
+  // notifications read elsewhere (UPDATE, e.g. the Notifications page or
+  // "Mark all read") clears the badge immediately too, without needing a
+  // full page reload.
+  useEffect(() => {
+    if (!staff) return;
+    const channel = supabase
+      .channel(`staff-notifications-badge-${staff.id}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "notifications" },
+        (payload) => {
+          void refreshUnreadCount(staff);
+          if (payload.eventType === "INSERT") {
+            const row = payload.new as { recipient_team_member_id?: string | null; role?: string | null; audience?: string | null };
+            const isForMe =
+              row.recipient_team_member_id === staff.id ||
+              (!row.recipient_team_member_id && row.role === staff.role) ||
+              (!row.recipient_team_member_id && !row.role && (row.audience === "staff" || row.audience === "all"));
+            if (isForMe) playNotificationSound();
+          }
+        }
+      )
+      .subscribe();
+    return () => { void supabase.removeChannel(channel); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [staff?.id]);
+
   async function handleSignOut() {
     await signOut();
     navigate("/staff/login", { replace: true });
+  }
+
+  async function setPresence(status: "online" | "away" | "offline") {
+    setStaff((current) => (current ? { ...current, presence_status: status, presence_updated_at: new Date().toISOString() } : current));
+    await supabase.rpc("update_my_presence", { p_status: status });
   }
 
   const role = staff?.role ?? "viewer";
@@ -82,6 +129,25 @@ export default function StaffLayout({ children }: { children: ReactNode }) {
               <div className="mt-2 font-semibold truncate">{staff?.name || user?.email}</div>
               <div className="mt-1 inline-flex rounded-full bg-emerald-400/10 text-emerald-200 border border-emerald-400/20 px-2.5 py-1 text-xs font-semibold">
                 {STAFF_ROLE_LABELS[role]}
+              </div>
+              <div className="mt-3 flex gap-1.5">
+                {(["online", "away", "offline"] as const).map((option) => (
+                  <button
+                    key={option}
+                    onClick={() => void setPresence(option)}
+                    className={`flex-1 rounded-lg px-2 py-1.5 text-[10px] font-bold uppercase tracking-wide transition ${
+                      (staff?.presence_status ?? "offline") === option
+                        ? option === "online"
+                          ? "bg-emerald-500 text-white"
+                          : option === "away"
+                          ? "bg-amber-500 text-white"
+                          : "bg-slate-500 text-white"
+                        : "bg-white/5 text-slate-400 hover:bg-white/10"
+                    }`}
+                  >
+                    {option}
+                  </button>
+                ))}
               </div>
             </div>
           </div>

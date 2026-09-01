@@ -1,8 +1,10 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { supabase } from "../lib/supabase";
+import { deliverPendingWebhooks } from "../lib/webhooks";
 import { useAuth } from "../context/AuthContext";
 import type { Client, Invoice } from "../lib/types";
 import { INDIAN_STATES, formatDate, COUNTRIES as ALL_COUNTRIES } from "../lib/constants";
+import CountrySelect from "../components/CountrySelect";
 import { formatMoney } from "../lib/currency";
 import StatusBadge from "../components/StatusBadge";
 
@@ -152,6 +154,7 @@ function getStateLabel(country: string): string {
 function getEmptyForm(defaultCountry?: string | null, defaultCountryCode?: string | null) {
   return {
     name: "",
+    company_name: "",
     country: defaultCountry ?? "United States",
     country_code: defaultCountryCode ?? "+1",
     phone: "",
@@ -163,7 +166,7 @@ function getEmptyForm(defaultCountry?: string | null, defaultCountryCode?: strin
 }
 
 export default function Clients() {
-  const { user, profile } = useAuth();
+  const { user, profile, workspaceOwnerId, workspaceRole } = useAuth();
   const [clients, setClients] = useState<Client[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
@@ -174,6 +177,10 @@ export default function Clients() {
   const [historyClient, setHistoryClient] = useState<Client | null>(null);
   const [historyInvoices, setHistoryInvoices] = useState<Invoice[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [search, setSearch] = useState("");
+  const [deleteTarget, setDeleteTarget] = useState<Client | null>(null);
+  const [deleteInvoicesToo, setDeleteInvoicesToo] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     async function load() {
@@ -199,6 +206,7 @@ export default function Clients() {
     setEditingId(client.id);
     setForm({
       name: client.name,
+      company_name: client.company_name ?? "",
       country: client.country ?? profile?.country ?? "United States",
       country_code: client.country_code ?? profile?.country_code ?? "+1",
       phone: client.phone ?? "",
@@ -232,13 +240,75 @@ export default function Clients() {
       return;
     }
     setSaving(true);
+    const normalizedEmail = form.email.trim().toLowerCase();
+    const normalizedName = form.name.trim();
+    const normalizedPhone = form.phone.trim();
+
+    // Block a duplicate when ANY primary identity matches: name, email,
+    // or full phone number. The old logic checked email first and skipped
+    // name/phone whenever an email was present, so duplicates could still be
+    // created with a different email.
+    const normalizeText = (value?: string | null) =>
+      (value ?? "").trim().toLocaleLowerCase();
+    const normalizePhone = (countryCode?: string | null, phone?: string | null) => {
+      const code = (countryCode ?? "").replace(/\D/g, "");
+      const number = (phone ?? "").replace(/\D/g, "");
+      return number ? `${code}${number}` : "";
+    };
+
+    const candidateName = normalizeText(normalizedName);
+    const candidateEmail = normalizeText(normalizedEmail);
+    const candidatePhone = normalizePhone(form.country_code, normalizedPhone);
+
+    const { data: existingClients, error: duplicateError } = await supabase
+      .from("clients")
+      .select("id, name, email, phone, country_code")
+      .eq("user_id", workspaceOwnerId || user.id);
+
+    if (duplicateError) {
+      setSaving(false);
+      setError(duplicateError.message);
+      return;
+    }
+
+    const duplicate = (existingClients ?? []).find((client) => {
+      if (editingId && client.id === editingId) return false;
+
+      const sameName = candidateName && normalizeText(client.name) === candidateName;
+      const sameEmail = candidateEmail && normalizeText(client.email) === candidateEmail;
+      const samePhone =
+        candidatePhone && normalizePhone(client.country_code, client.phone) === candidatePhone;
+
+      return Boolean(sameName || sameEmail || samePhone);
+    });
+
+    if (duplicate) {
+      setSaving(false);
+      const sameName = candidateName && normalizeText(duplicate.name) === candidateName;
+      const sameEmail = candidateEmail && normalizeText(duplicate.email) === candidateEmail;
+      const samePhone =
+        candidatePhone && normalizePhone(duplicate.country_code, duplicate.phone) === candidatePhone;
+
+      setError(
+        sameEmail
+          ? "A client with this email already exists."
+          : samePhone
+            ? "A client with this phone number already exists."
+            : sameName
+              ? "A client with this name already exists."
+              : "This client already exists."
+      );
+      return;
+    }
+
     const payload = {
-      user_id: user.id,
-      name: form.name.trim(),
+      user_id: workspaceOwnerId || user.id,
+      name: normalizedName,
+      company_name: form.company_name.trim() || null,
       country: form.country,
       country_code: form.country_code,
-      phone: form.phone.trim() || null,
-      email: form.email.trim() || null,
+      phone: normalizedPhone || null,
+      email: normalizedEmail || null,
       address: form.address.trim() || null,
       state: form.state || null,
       gstin: form.gstin.trim().toUpperCase() || null,
@@ -253,12 +323,17 @@ export default function Clients() {
         .single();
       setSaving(false);
       if (error) {
-        setError(error.message);
+        setError(
+          error.code === "23505"
+            ? "A client with the same name, email, or phone number already exists."
+            : error.message
+        );
         return;
       }
       setClients((prev) =>
         prev.map((c) => (c.id === editingId ? (data as Client) : c))
       );
+      deliverPendingWebhooks();
     } else {
       const { data, error } = await supabase
         .from("clients")
@@ -267,20 +342,64 @@ export default function Clients() {
         .single();
       setSaving(false);
       if (error) {
-        setError(error.message);
+        setError(
+          error.code === "23505"
+            ? "A client with the same name, email, or phone number already exists."
+            : error.message
+        );
         return;
       }
       setClients((prev) => [data as Client, ...prev]);
+      deliverPendingWebhooks();
     }
     setShowForm(false);
   }
 
-  async function handleDelete(client: Client) {
-    if (!confirm(`Delete client "${client.name}"? This cannot be undone.`)) return;
-    const { error } = await supabase.from("clients").delete().eq("id", client.id);
-    if (!error) {
-      setClients((prev) => prev.filter((c) => c.id !== client.id));
+  function requestDelete(client: Client) {
+    setDeleteTarget(client);
+    setDeleteInvoicesToo(false);
+    setError(null);
+  }
+
+  async function confirmDelete() {
+    if (!deleteTarget || !user) return;
+    setDeleting(true);
+    setError(null);
+
+    // Invoices currently store the client name rather than a client_id, so
+    // deleting related invoices is an explicit optional action.
+    if (deleteInvoicesToo) {
+      let invoiceDeleteQuery = supabase
+        .from("invoices")
+        .delete()
+        .eq("user_id", workspaceOwnerId || user.id);
+
+      invoiceDeleteQuery = deleteTarget.email
+        ? invoiceDeleteQuery.ilike("client_email", deleteTarget.email)
+        : invoiceDeleteQuery.eq("client_name", deleteTarget.name);
+
+      const { error: invoiceDeleteError } = await invoiceDeleteQuery;
+      if (invoiceDeleteError) {
+        setDeleting(false);
+        setError(invoiceDeleteError.message);
+        return;
+      }
     }
+
+    const { error: clientDeleteError } = await supabase
+      .from("clients")
+      .delete()
+      .eq("id", deleteTarget.id)
+      .eq("user_id", workspaceOwnerId || user.id);
+
+    setDeleting(false);
+    if (clientDeleteError) {
+      setError(clientDeleteError.message);
+      return;
+    }
+
+    setClients((prev) => prev.filter((c) => c.id !== deleteTarget.id));
+    setDeleteTarget(null);
   }
 
   async function showHistory(client: Client) {
@@ -298,6 +417,18 @@ export default function Clients() {
 
   const availableStates = getStatesForCountry(form.country);
   const stateLabel = getStateLabel(form.country);
+  const normalizedSearch = search.trim().toLowerCase();
+  const filteredClients = normalizedSearch
+    ? clients.filter((client) =>
+        [
+          client.name,
+          client.company_name,
+          client.email,
+          client.phone,
+          client.country,
+        ].some((value) => value?.toLowerCase().includes(normalizedSearch))
+      )
+    : clients;
 
   return (
     <div className="max-w-7xl mx-auto space-y-6 animate-fade-in">
@@ -323,11 +454,7 @@ export default function Clients() {
         </div>
       </div>
 
-      {error && (
-        <div className="rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">
-          {error}
-        </div>
-      )}
+      
 
       {showForm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -365,58 +492,72 @@ export default function Clients() {
                   <div className="h-10 w-10 rounded-xl bg-violet-100 text-violet-700 flex items-center justify-center font-bold">1</div>
                   <div><p className="font-semibold text-slate-900">Client identity</p><p className="text-xs text-slate-500">Start with the primary business or contact name.</p></div>
                 </div>
-                <label className="label">
-                  Client name <span className="text-red-500">*</span>
-                </label>
-                <input
-                  value={form.name}
-                  onChange={(e) => setForm({ ...form, name: e.target.value })}
-                  className="input"
-                  placeholder="Acme Corp"
-                  autoFocus
-                />
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="label">
+                      Client name <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      value={form.name}
+                      onChange={(e) => setForm({ ...form, name: e.target.value })}
+                      className="input"
+                      placeholder="John Doe"
+                      autoFocus
+                    />
+                  </div>
+                  <div>
+                    <label className="label">
+                      Company name <span className="text-slate-400 font-normal">(optional)</span>
+                    </label>
+                    <input
+                      value={form.company_name}
+                      onChange={(e) => setForm({ ...form, company_name: e.target.value })}
+                      className="input"
+                      placeholder="Acme Corp"
+                    />
+                  </div>
+                </div>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="label">Country</label>
-                  <select
-                    value={form.country}
-                    onChange={(e) => handleCountryChange(e.target.value)}
-                    className="input"
-                  >
-                    {COUNTRIES.map((country) => (
-                      <option key={country.name} value={country.name}>
-                        {country.name}
-                      </option>
-                    ))}
-                  </select>
+                  <CountrySelect value={form.country} onChange={handleCountryChange} />
                 </div>
 
                 <div>
                   <label className="label">
                     {stateLabel}
-                    {availableStates.length === 0 && (
-                      <span className="text-slate-400 font-normal"> (not applicable)</span>
+                    {availableStates.length === 0 && form.country && (
+                      <span className="text-slate-400 font-normal"> (type it in)</span>
                     )}
                   </label>
-                  <select
-                    value={form.state}
-                    onChange={(e) => setForm({ ...form, state: e.target.value })}
-                    className="input disabled:bg-slate-50 disabled:text-slate-400 disabled:cursor-not-allowed"
-                    disabled={availableStates.length === 0}
-                  >
-                    <option value="">
-                      {availableStates.length === 0
-                        ? "Not applicable"
-                        : `Select ${stateLabel.toLowerCase()}`}
-                    </option>
-                    {availableStates.map((s) => (
-                      <option key={s} value={s}>
-                        {s}
-                      </option>
-                    ))}
-                  </select>
+                  {availableStates.length > 0 ? (
+                    <select
+                      value={form.state}
+                      onChange={(e) => setForm({ ...form, state: e.target.value })}
+                      className="input"
+                    >
+                      <option value="">{`Select ${stateLabel.toLowerCase()}`}</option>
+                      {availableStates.map((s) => (
+                        <option key={s} value={s}>
+                          {s}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    // Bug-001 fix: Rivox only maintains a dropdown list for a
+                    // handful of countries. Every other country used to get a
+                    // disabled "Not applicable" select, which meant the state
+                    // could never be recorded at all. A free-text field lets
+                    // the client's state/province be entered for any country.
+                    <input
+                      value={form.state}
+                      onChange={(e) => setForm({ ...form, state: e.target.value })}
+                      className="input"
+                      placeholder={`Enter ${stateLabel.toLowerCase()}`}
+                    />
+                  )}
                 </div>
               </div>
 
@@ -474,6 +615,11 @@ export default function Clients() {
               </div>
             </div>
 
+{error && (
+  <div className="mx-6 mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700">
+    {error}
+  </div>
+)}
             <div className="sticky bottom-0 bg-white/95 backdrop-blur border-t border-slate-100 px-6 py-4 flex justify-end gap-3 rounded-b-3xl">
               <button
                 type="button"
@@ -487,6 +633,23 @@ export default function Clients() {
               </button>
             </div>
           </form>
+        </div>
+      )}
+
+      {!loading && clients.length > 0 && (
+        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+          <div className="relative">
+            <svg className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="m21 21-4.35-4.35m1.35-5.65a7 7 0 1 1-14 0 7 7 0 0 1 14 0Z" />
+            </svg>
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="input pl-10"
+              placeholder="Search by client, company, email, phone or country"
+              aria-label="Search clients"
+            />
+          </div>
         </div>
       )}
 
@@ -507,15 +670,23 @@ export default function Clients() {
             Add your first client
           </button>
         </div>
+      ) : filteredClients.length === 0 ? (
+        <div className="card p-10 text-center">
+          <h3 className="font-semibold text-slate-900">No matching clients</h3>
+          <p className="mt-1 text-sm text-slate-500">Try a different name, company, email or phone number.</p>
+        </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {clients.map((client) => (
+          {filteredClients.map((client) => (
             <div key={client.id} className="group overflow-hidden rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition duration-200 hover:-translate-y-1 hover:border-violet-200 hover:shadow-lg space-y-4">
               <div className="flex items-start justify-between gap-3">
                 <div className="flex items-center gap-3">
                   <div className="h-11 w-11 shrink-0 rounded-2xl bg-gradient-to-br from-violet-600 to-indigo-600 text-white flex items-center justify-center font-bold shadow-md">{client.name.slice(0,1).toUpperCase()}</div>
                   <div>
                   <h3 className="font-semibold text-slate-900">{client.name}</h3>
+                  {client.company_name && (
+                    <p className="text-xs font-medium text-violet-700 mt-0.5">{client.company_name}</p>
+                  )}
                   {client.gstin && (
                     <p className="text-xs text-slate-500 mt-0.5">
                       {client.country === "India" ? "GSTIN" : "Tax ID"}: {client.gstin}
@@ -540,12 +711,12 @@ export default function Clients() {
                 )}
               </div>
               <div className="flex gap-2 pt-2 border-t border-slate-100">
-                <button
+                {workspaceRole !== "staff" && <button
                   onClick={() => showHistory(client)}
                   className="text-sm text-primary-600 font-medium hover:underline"
                 >
                   Invoice history
-                </button>
+                </button>}
                 <button
                   onClick={() => openEdit(client)}
                   className="text-sm text-slate-600 font-medium hover:underline ml-auto"
@@ -553,7 +724,7 @@ export default function Clients() {
                   Edit
                 </button>
                 <button
-                  onClick={() => handleDelete(client)}
+                  onClick={() => requestDelete(client)}
                   className="text-sm text-red-500 font-medium hover:underline"
                 >
                   Delete
@@ -561,6 +732,34 @@ export default function Clients() {
               </div>
             </div>
           ))}
+        </div>
+      )}
+
+      {deleteTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-slate-900/50 backdrop-blur-sm" onClick={() => !deleting && setDeleteTarget(null)} />
+          <div className="relative w-full max-w-lg rounded-3xl border border-slate-200 bg-white p-6 shadow-2xl">
+            <h2 className="text-xl font-bold text-slate-900">Delete client data</h2>
+            <p className="mt-2 text-sm text-slate-600">Choose what should be removed for <strong>{deleteTarget.name}</strong>.</p>
+
+            <div className="mt-5 space-y-3">
+              <label className="flex cursor-pointer items-start gap-3 rounded-2xl border border-slate-200 p-4">
+                <input type="radio" name="deleteMode" checked={!deleteInvoicesToo} onChange={() => setDeleteInvoicesToo(false)} className="mt-1" />
+                <span><span className="block font-semibold text-slate-900">Delete client only</span><span className="text-sm text-slate-500">Existing invoices stay in your invoice history.</span></span>
+              </label>
+              <label className="flex cursor-pointer items-start gap-3 rounded-2xl border border-red-200 bg-red-50/50 p-4">
+                <input type="radio" name="deleteMode" checked={deleteInvoicesToo} onChange={() => setDeleteInvoicesToo(true)} className="mt-1" />
+                <span><span className="block font-semibold text-red-700">Delete client and invoices</span><span className="text-sm text-red-600">All invoices matching this client name will be permanently deleted.</span></span>
+              </label>
+            </div>
+
+            <div className="mt-6 flex justify-end gap-3">
+              <button type="button" className="btn-ghost" disabled={deleting} onClick={() => setDeleteTarget(null)}>Cancel</button>
+              <button type="button" disabled={deleting} onClick={confirmDelete} className="rounded-xl bg-red-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-60">
+                {deleting ? "Deleting..." : "Delete data"}
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

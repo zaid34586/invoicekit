@@ -2,7 +2,9 @@ import { useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { supabase } from "../lib/supabase";
-import { GLOBAL_COUNTRIES, getGlobalCountries, getGlobalCountryConfig } from "../lib/globalConfig";
+import { GLOBAL_COUNTRIES, getGlobalCountryConfig } from "../lib/globalConfig";
+import { REQUIRE_PHONE_VERIFICATION } from "../lib/constants";
+import CountrySelect from "../components/CountrySelect";
 
 export default function BusinessSetup() {
   const { user, refreshProfile } = useAuth();
@@ -13,7 +15,6 @@ export default function BusinessSetup() {
   const [error, setError] = useState<string | null>(null);
 
   const config = country ? getGlobalCountryConfig(country) : null;
-  const countries = getGlobalCountries();
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -25,30 +26,37 @@ export default function BusinessSetup() {
     setSaving(true);
     setError(null);
     const cfg = getGlobalCountryConfig(country);
-    const { error: updateError } = await supabase
+    const { data: savedProfile, error: updateError } = await supabase
       .from("profiles")
-      .update({
+      .upsert({
+        user_id: user.id,
+        email: user.email ?? null,
         business_name: businessName.trim() || null,
         country,
         country_code: cfg.phoneCode,
         currency: cfg.currency,
         timezone: cfg.timezone,
         date_format: cfg.dateFormat,
-      })
-      .eq("user_id", user.id);
+      }, { onConflict: "user_id" })
+      .select("user_id, country")
+      .single();
     setSaving(false);
-    if (updateError) {
-      setError(updateError.message);
+    if (updateError || !savedProfile?.country) {
+      setError(updateError?.message || "Business setup could not be saved. Please try again.");
       return;
     }
-    await refreshProfile();
-    navigate("/verify-phone", { replace: true });
+    const refreshed = await refreshProfile();
+    if (!refreshed?.country) {
+      setError("Business setup was saved but could not be loaded. Please refresh and try again.");
+      return;
+    }
+    navigate(REQUIRE_PHONE_VERIFICATION ? "/verify-phone" : "/dashboard", { replace: true });
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-violet-950 px-4 py-10 flex items-center justify-center">
-      <div className="w-full max-w-5xl grid lg:grid-cols-[1.05fr_.95fr] overflow-hidden rounded-3xl border border-white/10 bg-white shadow-2xl shadow-violet-950/30">
-        <section className="hidden lg:flex flex-col justify-between p-10 text-white bg-[radial-gradient(circle_at_top_left,_rgba(139,92,246,.42),_transparent_42%),linear-gradient(145deg,#0f172a,#111827)]">
+    <div className="auth-page">
+      <div className="auth-shell">
+        <section className="auth-aside">
           <div>
             <div className="inline-flex items-center gap-3">
               <img src="/rivox-logo.svg" alt="Rivox" className="h-10 w-10 rounded-xl" />
@@ -67,11 +75,11 @@ export default function BusinessSetup() {
           </div>
         </section>
 
-        <section className="p-6 sm:p-10 lg:p-12">
-          <div className="mb-8 flex items-center justify-between">
+        <section className="auth-content">
+          <div className="mb-6 flex min-w-0 items-start justify-between gap-3 sm:mb-8">
             <div>
               <p className="text-xs font-semibold uppercase tracking-[.2em] text-violet-600">Step 1 of 2</p>
-              <h2 className="mt-2 text-3xl font-bold text-slate-950">Tell us about your business</h2>
+              <h2 className="mt-2 auth-heading font-bold text-slate-950">Tell us about your business</h2>
               <p className="mt-2 text-sm text-slate-500">You can edit every detail later from Business Settings.</p>
             </div>
             <div className="h-12 w-12 rounded-2xl bg-violet-50 text-violet-600 flex items-center justify-center font-bold">1/2</div>
@@ -92,10 +100,7 @@ export default function BusinessSetup() {
 
             <div>
               <label className="label" htmlFor="country">Business country</label>
-              <select id="country" className="input h-12" value={country} onChange={(e) => setCountry(e.target.value)} required>
-                <option value="" disabled>Select your country</option>
-                {countries.map((name) => <option key={name} value={name}>{name}</option>)}
-              </select>
+              <CountrySelect id="country" value={country} onChange={setCountry} placeholder="Select your country" required />
             </div>
 
             {config && (
@@ -107,7 +112,7 @@ export default function BusinessSetup() {
                   </div>
                   <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-violet-700 shadow-sm">Ready</span>
                 </div>
-                <div className="grid grid-cols-3 gap-3 text-sm">
+                <div className="grid grid-cols-1 gap-2 text-sm min-[420px]:grid-cols-3 sm:gap-3">
                   <div className="rounded-xl bg-white p-3"><p className="text-xs text-slate-400">Currency</p><p className="mt-1 font-semibold text-slate-900">{config.currency}</p></div>
                   <div className="rounded-xl bg-white p-3"><p className="text-xs text-slate-400">Phone</p><p className="mt-1 font-semibold text-slate-900">{config.phoneCode}</p></div>
                   <div className="rounded-xl bg-white p-3"><p className="text-xs text-slate-400">Tax</p><p className="mt-1 font-semibold text-slate-900 truncate">{config.taxLabel}</p></div>

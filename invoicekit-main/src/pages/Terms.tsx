@@ -17,6 +17,7 @@ export default function Terms() {
     >
       <Section title="1. Acceptance of these terms">
         <p>By creating an account, accessing, or using Rivox, you agree to these Terms of Service and our Privacy Policy. If you do not agree, do not use the service.</p>
+        <p>Rivox is a brand operated by <b>Mohd Zaid</b>, a sole proprietor. References to "Rivox," "we," "us," or "our" in these terms refer to Mohd Zaid, trading as Rivox.</p>
       </Section>
 
       <Section title="2. The Rivox service">
@@ -68,7 +69,7 @@ export default function Terms() {
       </Section>
 
       <Section title="13. Contact">
-        <p>Questions about these terms can be sent to <a className="font-bold text-primary-600 hover:underline" href="mailto:support@rivox.com">support@rivox.com</a>.</p>
+        <p>Questions about these terms can be sent to <a className="font-bold text-primary-600 hover:underline" href="mailto:support@rivoxcloud.com">support@rivoxcloud.com</a>.</p>
       </Section>
     </PublicPageLayout>
   );

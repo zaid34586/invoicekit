@@ -1,7 +1,8 @@
 import { getExchangeRate } from "../lib/exchangeRate";
-import { useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { supabase } from "../lib/supabase";
+import { deliverPendingWebhooks } from "../lib/webhooks";
 import { useAuth } from "../context/AuthContext";
 import { useUpgrade } from "../context/UpgradeContext";
 import type { LineItem, Client, InvoiceStatus } from "../lib/types";
@@ -17,9 +18,9 @@ import {
   getCurrencyForCountry,
   getCurrencySymbol,
   formatMoney,
-  convertCurrency,
 } from "../lib/currency";
-import { decideTax } from "../lib/tax";
+import { decideTax, hasConfiguredCountryTax } from "../lib/tax";
+import CountrySelect from "../components/CountrySelect";
 
 function makeId() {
   return Math.random().toString(36).slice(2, 10);
@@ -62,9 +63,15 @@ function getTaxPlaceholder(country: string): string {
 }
 
 export default function NewInvoice() {
-  const { user, profile } = useAuth();
+  const { user, profile, workspaceOwnerId } = useAuth();
   const { openUpgrade } = useUpgrade();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const editId = searchParams.get("edit");
+  const duplicateId = searchParams.get("duplicate");
+  const sourceInvoiceId = editId ?? duplicateId;
+  const isEditMode = Boolean(editId);
+  const isDuplicateMode = Boolean(duplicateId);
   const businessState = profile?.state ?? null;
 
   // Base currency comes from the business profile (defaults to INR)
@@ -88,9 +95,12 @@ export default function NewInvoice() {
   const [clientGstin, setClientGstin] = useState("");
   const [items, setItems] = useState<LineItem[]>([emptyItem()]);
   const [notes, setNotes] = useState("");
+  const [discountType, setDiscountType] = useState<"percentage" | "fixed" | "">("");
+  const [discountValue, setDiscountValue] = useState<string>("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [clients, setClients] = useState<Client[]>([]);
+  const [sourceLoading, setSourceLoading] = useState(Boolean(sourceInvoiceId));
 
   // ── Currency state ────────────────────────────────────────────────────────
   // invoiceCurrency is derived from the selected client country. The user can
@@ -173,16 +183,74 @@ export default function NewInvoice() {
 
   useEffect(() => {
     async function loadNextNumber() {
-      if (!user) return;
+      if (!user || isEditMode) return;
       const { count } = await supabase
         .from("invoices")
         .select("*", { count: "exact", head: true })
-        .eq("user_id", user.id);
+        .eq("user_id", workspaceOwnerId || user.id);
       const next = (count ?? 0) + 1;
       setInvoiceNumber(`INV-${String(next).padStart(3, "0")}`);
     }
     loadNextNumber();
-  }, [user]);
+  }, [user, isEditMode]);
+
+  useEffect(() => {
+    async function loadSourceInvoice() {
+      if (!user || !sourceInvoiceId) {
+        setSourceLoading(false);
+        return;
+      }
+
+      setSourceLoading(true);
+      const { data, error: loadError } = await supabase
+        .from("invoices")
+        .select("*")
+        .eq("id", sourceInvoiceId)
+        .eq("user_id", workspaceOwnerId || user.id)
+        .single();
+
+      if (loadError || !data) {
+        setError(loadError?.message ?? "Invoice not found");
+        setSourceLoading(false);
+        return;
+      }
+
+      const invoice = data as import("../lib/types").Invoice;
+      const country = invoice.client_country ?? profile?.country ?? "United States";
+      const countryCode = COUNTRIES.find((item) => item.name === country)?.code ?? "";
+      const storedPhone = invoice.client_phone ?? "";
+      const phoneWithoutCode = countryCode && storedPhone.startsWith(countryCode)
+        ? storedPhone.slice(countryCode.length).trim()
+        : storedPhone;
+
+      if (isEditMode) setInvoiceNumber(invoice.invoice_number);
+      setInvoiceDate(isDuplicateMode ? todayISO() : invoice.invoice_date);
+      setDueDate(isDuplicateMode ? addDaysISO(15) : invoice.due_date);
+      setStatus(isDuplicateMode ? "draft" : invoice.status);
+      setClientName(invoice.client_name);
+      setClientCountry(country);
+      setClientCountryCode(countryCode);
+      setClientPhone(phoneWithoutCode);
+      setClientEmail(invoice.client_email ?? "");
+      setClientAddress(invoice.client_address ?? "");
+      setClientState(invoice.client_state ?? "");
+      setClientGstin(invoice.client_gstin ?? "");
+      preserveLoadedTaxRef.current = true;
+      setItems((invoice.items ?? []).map((item) => ({ ...item, id: makeId() })));
+      setNotes(invoice.notes ?? "");
+      setDiscountType((invoice.discount_type as "percentage" | "fixed" | null) ?? "");
+      setDiscountValue(invoice.discount_value ? String(invoice.discount_value) : "");
+
+      if (invoice.exchange_rate && Number(invoice.exchange_rate) > 0) {
+        setExchangeRate(Number(invoice.exchange_rate));
+        setRateManualOverride(true);
+      }
+
+      setSourceLoading(false);
+    }
+
+    loadSourceInvoice();
+  }, [user, sourceInvoiceId, isEditMode, isDuplicateMode, profile?.country]);
 
   useEffect(() => {
     async function loadClients() {
@@ -196,10 +264,21 @@ export default function NewInvoice() {
     loadClients();
   }, [user]);
 
-  // GST calc stays in base currency (INR) — this never changes
+  // Calculate using the actual business/client countries. The previous call
+  // omitted both countries, which made calculateInvoice fall back to India and
+  // could apply CGST/SGST logic to international businesses.
   const calc = useMemo(
-    () => calculateInvoice(items, businessState, clientState || null),
-    [items, businessState, clientState]
+    () =>
+      calculateInvoice(
+        items,
+        businessState,
+        clientState || null,
+        profile?.country ?? null,
+        clientCountry || null,
+        discountType || null,
+        Number(discountValue) || 0
+      ),
+    [items, businessState, clientState, profile?.country, clientCountry, discountType, discountValue]
   );
 
   // Tax decision — determines label, note, and tax type for display.
@@ -216,27 +295,51 @@ export default function NewInvoice() {
     [businessState, clientCountry, clientState, items]
   );
 
-  // Priority 1: for every country except India, tax is fully automatic —
-  // the rate the tax engine decided IS the rate used in the calculation.
-  // No manual selection. India keeps its existing per-item GST-slab picker,
-  // since real Indian invoices commonly mix multiple HSN/GST rates on one
-  // invoice — that is correct behaviour, not something to automate away.
+  const automaticTaxConfigured = hasConfiguredCountryTax(profile?.country);
+  const lastTaxContextRef = useRef<string>("");
+  const preserveLoadedTaxRef = useRef(false);
+
+  // Suggest a default tax rate when the tax context changes. The field stays
+  // editable because real tax treatment can vary by product, registration,
+  // customer type and locality. Existing invoice rates are preserved on edit.
   useEffect(() => {
     if (profile?.country === "India") return;
 
-    setItems((prev) => {
-      const needsUpdate = prev.some((it) => it.gstRate !== taxDecision.taxRate);
-      if (!needsUpdate) return prev;
-      return prev.map((it) => ({ ...it, gstRate: taxDecision.taxRate }));
-    });
-  }, [taxDecision.taxRate, profile?.country]);
+    const contextKey = [profile?.country ?? "", clientCountry, clientState].join("|");
+    if (lastTaxContextRef.current === contextKey) return;
+    lastTaxContextRef.current = contextKey;
 
-  // Converted amounts for display when invoice currency differs from base
-  const displaySubtotal = isForeignCurrency ? convertCurrency(calc.subtotal, exchangeRate) : calc.subtotal;
-  const displayCgst     = isForeignCurrency ? convertCurrency(calc.cgst, exchangeRate)     : calc.cgst;
-  const displaySgst     = isForeignCurrency ? convertCurrency(calc.sgst, exchangeRate)     : calc.sgst;
-  const displayIgst     = isForeignCurrency ? convertCurrency(calc.igst, exchangeRate)     : calc.igst;
-  const displayTotal    = isForeignCurrency ? convertCurrency(calc.total, exchangeRate)    : calc.total;
+    if (preserveLoadedTaxRef.current) {
+      preserveLoadedTaxRef.current = false;
+      return;
+    }
+
+    setItems((prev) =>
+      prev.map((it) => ({ ...it, gstRate: taxDecision.taxRate }))
+    );
+  }, [taxDecision.taxRate, profile?.country, clientCountry, clientState]);
+
+  // Item rates are entered directly in the selected invoice currency.
+  // Therefore calc.* is already expressed in invoiceCurrency and must never
+  // be multiplied by the exchange rate again. The exchange rate is used only
+  // to derive the business/base-currency equivalent stored for reporting.
+  const displaySubtotal = calc.subtotal;
+  const displayCgst = calc.cgst;
+  const displaySgst = calc.sgst;
+  const displayIgst = calc.igst;
+  const displayTotal = calc.total;
+
+  const toBaseCurrency = (amount: number) =>
+    isForeignCurrency && exchangeRate > 0
+      ? Math.round((amount / exchangeRate) * 100) / 100
+      : amount;
+
+  const baseSubtotal = toBaseCurrency(calc.subtotal);
+  const baseDiscountAmount = toBaseCurrency(calc.discountAmount);
+  const baseCgst = toBaseCurrency(calc.cgst);
+  const baseSgst = toBaseCurrency(calc.sgst);
+  const baseIgst = toBaseCurrency(calc.igst);
+  const baseTotal = toBaseCurrency(calc.total);
 
   function updateItem(id: string, patch: Partial<LineItem>) {
     setItems((prev) =>
@@ -245,7 +348,9 @@ export default function NewInvoice() {
   }
 
   function addItem() {
-    setItems((prev) => [...prev, emptyItem()]);
+    const item = emptyItem();
+    item.gstRate = profile?.country === "India" ? 18 : taxDecision.taxRate;
+    setItems((prev) => [...prev, item]);
   }
 
   function deleteItem(id: string) {
@@ -291,112 +396,129 @@ export default function NewInvoice() {
       return;
     }
 
-    if (!profile?.is_pro) {
+    if (!isEditMode && !profile?.is_pro) {
+      const monthStart = new Date();
+      monthStart.setDate(1);
+      monthStart.setHours(0, 0, 0, 0);
       const { count } = await supabase
         .from("invoices")
         .select("*", { count: "exact", head: true })
-        .eq("user_id", user.id);
+        .eq("user_id", workspaceOwnerId || user.id)
+        .gte("created_at", monthStart.toISOString());
       if ((count ?? 0) >= FREE_PLAN_LIMIT) {
         openUpgrade();
         return;
       }
     }
 
+    const payload = {
+      user_id: workspaceOwnerId || user.id,
+      invoice_number: invoiceNumber,
+      client_name: clientName.trim(),
+      client_phone: clientPhone.trim()
+        ? `${clientCountryCode} ${clientPhone.trim()}`
+        : null,
+      client_email: clientEmail.trim() || null,
+      client_address: clientAddress.trim() || null,
+      client_state: clientState || null,
+      client_gstin: clientGstin.trim().toUpperCase() || null,
+      items,
+      subtotal: baseSubtotal,
+      discount_type: discountType || null,
+      discount_value: discountType ? Number(discountValue) || 0 : 0,
+      discount_amount: baseDiscountAmount,
+      cgst: baseCgst,
+      sgst: baseSgst,
+      igst: baseIgst,
+      total: baseTotal,
+      status,
+      notes: notes.trim() || null,
+      invoice_date: invoiceDate,
+      due_date: dueDate,
+      invoice_currency: invoiceCurrency,
+      exchange_rate: isForeignCurrency ? exchangeRate : 1,
+      base_total: baseTotal,
+      business_country: profile?.country ?? "India",
+      business_state: businessState,
+      business_currency: baseCurrency,
+      client_country: clientCountry,
+      base_currency: baseCurrency,
+      exchange_rate_date: todayISO(),
+      tax_type: taxDecision.taxType,
+      tax_label: taxDecision.taxLabel,
+      tax_note: taxDecision.taxNote,
+      base_subtotal: baseSubtotal,
+      invoice_subtotal: calc.subtotal,
+      invoice_total: calc.total,
+    };
+
     setSaving(true);
-    const { data, error: insertErr } = await supabase
-      .from("invoices")
-      .insert({
-        user_id: user.id,
-        invoice_number: invoiceNumber,
-        client_name: clientName.trim(),
-        client_phone: clientPhone.trim()
-          ? `${clientCountryCode} ${clientPhone.trim()}`
-          : null,
-        client_email: clientEmail.trim() || null,
-        client_address: clientAddress.trim() || null,
-        client_state: clientState || null,
-        client_gstin: clientGstin.trim().toUpperCase() || null,
-        items,
-        // GST fields always stored in base currency (INR) — unchanged
-        subtotal: calc.subtotal,
-        cgst: calc.cgst,
-        sgst: calc.sgst,
-        igst: calc.igst,
-        total: calc.total,
-        status,
-        notes: notes.trim() || null,
-        invoice_date: invoiceDate,
-        due_date: dueDate,
-        // ── Currency fields (locked at save time) ──
-        invoice_currency: invoiceCurrency,
-        exchange_rate: isForeignCurrency ? exchangeRate : 1,
-        base_total: calc.total,  // always in base currency
+    const query = isEditMode && editId
+      ? supabase
+          .from("invoices")
+          .update(payload)
+          .eq("id", editId)
+          .eq("user_id", workspaceOwnerId || user.id)
+      : supabase.from("invoices").insert(payload);
 
-        // ── Self-contained snapshot fields ──────────────────────────
-        // Everything an invoice needs so Preview/PDF/Reports never have to
-        // look back at Clients or Profile again. Business side is hardcoded
-        // "India" to stay consistent with the decideTax() call above — this
-        // is not a new decision, just persisting what was already computed.
-        business_country: profile?.country ?? "India",
-        business_state: businessState,
-        business_currency: baseCurrency,
-
-        client_country: clientCountry,
-
-        base_currency: baseCurrency,
-        exchange_rate_date: todayISO(),
-
-        tax_type: taxDecision.taxType,
-        tax_label: taxDecision.taxLabel,
-        tax_note: taxDecision.taxNote,
-
-        base_subtotal: calc.subtotal,
-        invoice_subtotal: displaySubtotal,
-        invoice_total: displayTotal,
-      })
-      .select("*")
-      .single();
-
+    const { data, error: saveError } = await query.select("*").single();
     setSaving(false);
-    if (insertErr) {
-      setError(insertErr.message);
+
+    if (saveError) {
+      setError(saveError.message);
       return;
     }
 
-    // Auto-create client if not already saved
-    const { data: existingClient } = await supabase
-      .from("clients")
-      .select("id")
-      .eq("user_id", user.id)
-      .ilike("name", clientName.trim())
-      .maybeSingle();
+    if (!isEditMode) {
+      const { data: existingClient } = await supabase
+        .from("clients")
+        .select("id")
+        .eq("user_id", workspaceOwnerId || user.id)
+        .ilike("name", clientName.trim())
+        .maybeSingle();
 
-    if (!existingClient) {
-      await supabase.from("clients").insert({
-        user_id: user.id,
-        name: clientName.trim(),
-        phone: clientPhone.trim() || null,
-        email: clientEmail.trim() || null,
-        address: clientAddress.trim() || null,
-        state: clientState || null,
-        gstin: clientGstin.trim().toUpperCase() || null,
-        country: clientCountry,
-        country_code: clientCountryCode,
-      });
+      if (!existingClient) {
+        const { error: clientInsertError } = await supabase.from("clients").insert({
+          user_id: workspaceOwnerId || user.id,
+          name: clientName.trim(),
+          phone: clientPhone.trim() || null,
+          email: clientEmail.trim() || null,
+          address: clientAddress.trim() || null,
+          state: clientState || null,
+          gstin: clientGstin.trim().toUpperCase() || null,
+          country: clientCountry,
+          country_code: clientCountryCode,
+        });
+        // Don't block invoice creation on this -- the invoice itself already
+        // saved successfully above. But surface it so a real failure here
+        // (e.g. a schema mismatch) is never silent again.
+        if (clientInsertError) console.error("Failed to save client from invoice:", clientInsertError.message);
+      }
     }
 
     if (data) {
+      deliverPendingWebhooks();
       navigate(`/invoice/${data.id}`);
     }
+  }
+
+  if (sourceLoading) {
+    return <div className="card p-8 text-center text-sm text-slate-500">Loading invoice...</div>;
   }
 
   return (
     <div className="max-w-7xl mx-auto space-y-6 animate-fade-in">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">New Invoice</h1>
+          <h1 className="text-2xl font-bold text-slate-900">
+            {isEditMode ? "Edit Invoice" : isDuplicateMode ? "Duplicate Invoice" : "New Invoice"}
+          </h1>
           <p className="text-sm text-slate-500 mt-0.5">
-            Fill in the details below to create a professional invoice
+            {isEditMode
+              ? "Update the invoice details below"
+              : isDuplicateMode
+                ? "Review the copied details and save as a new invoice"
+                : "Fill in the details below to create a professional invoice"}
           </p>
         </div>
       </div>
@@ -507,17 +629,7 @@ export default function NewInvoice() {
               </div>
               <div>
                 <label className="label">Country</label>
-                <select
-                  value={clientCountry}
-                  onChange={(e) => handleCountryChange(e.target.value)}
-                  className="input"
-                >
-                  {COUNTRIES.map((c) => (
-                    <option key={c.name} value={c.name}>
-                      {c.name}
-                    </option>
-                  ))}
-                </select>
+                <CountrySelect value={clientCountry} onChange={handleCountryChange} />
               </div>
               <div>
                 <label className="label">Phone</label>
@@ -545,18 +657,31 @@ export default function NewInvoice() {
               </div>
               <div>
                 <label className="label">State</label>
-                <select
-                  value={clientState}
-                  onChange={(e) => setClientState(e.target.value)}
-                  className="input"
-                >
-                  <option value="">Select state</option>
-                  {statesForSelectedCountry.map((s: string) => (
-                    <option key={s} value={s}>
-                      {s}
-                    </option>
-                  ))}
-                </select>
+                {statesForSelectedCountry.length > 0 ? (
+                  <select
+                    value={clientState}
+                    onChange={(e) => setClientState(e.target.value)}
+                    className="input"
+                  >
+                    <option value="">Select state</option>
+                    {statesForSelectedCountry.map((s: string) => (
+                      <option key={s} value={s}>
+                        {s}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  // Bug-001 fix: countries without a maintained state list used
+                  // to show a select with only "Select state" and no way to
+                  // ever enter one. A free-text input lets any country's state
+                  // still be recorded and used for CGST/SGST vs IGST checks.
+                  <input
+                    value={clientState}
+                    onChange={(e) => setClientState(e.target.value)}
+                    className="input"
+                    placeholder="Enter state / region"
+                  />
+                )}
               </div>
               <div className="sm:col-span-2">
                 <label className="label">Address</label>
@@ -713,11 +838,29 @@ export default function NewInvoice() {
                         ))}
                       </select>
                     ) : (
-                      <div
-                        className="input flex items-center bg-slate-100 text-slate-600 cursor-not-allowed"
-                        title={`${taxDecision.taxLabel} — set automatically from ${clientCountry || "client country"}. Not editable.`}
-                      >
-                        {taxDecision.taxRate}%
+                      <div>
+                        <div className="relative">
+                          <input
+                            type="number"
+                            min={0}
+                            max={100}
+                            step="0.01"
+                            value={item.gstRate}
+                            onChange={(e) =>
+                              updateItem(item.id, {
+                                gstRate: Math.max(0, Math.min(100, Number(e.target.value) || 0)),
+                              })
+                            }
+                            className="input pr-8"
+                            aria-label={`${taxDecision.taxLabel} rate`}
+                          />
+                          <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-sm text-slate-400">%</span>
+                        </div>
+                        <p className={`mt-1 text-[11px] ${automaticTaxConfigured ? "text-slate-400" : "text-amber-600"}`}>
+                          {automaticTaxConfigured
+                            ? `Suggested ${taxDecision.taxRate}%. You can override it.`
+                            : "No default rate available — enter it manually."}
+                        </p>
                       </div>
                     )}
                   </div>
@@ -735,12 +878,7 @@ export default function NewInvoice() {
                     )}
                   </div>
                   <div className="col-span-12 text-right text-sm font-medium text-slate-700">
-                    Amount: {formatMoney(
-                      isForeignCurrency
-                        ? convertCurrency(lineAmount(item), exchangeRate)
-                        : lineAmount(item),
-                      invoiceCurrency
-                    )}
+                    Amount: {formatMoney(lineAmount(item), invoiceCurrency)}
                   </div>
                 </div>
               ))}
@@ -772,6 +910,32 @@ export default function NewInvoice() {
               </div>
             )}
 
+            <div className="mb-4 pb-4 border-b border-slate-100">
+              <label className="text-xs font-semibold text-slate-500 uppercase">Discount</label>
+              <div className="mt-2 flex gap-2">
+                <select
+                  className="input-field text-sm"
+                  value={discountType}
+                  onChange={(e) => setDiscountType(e.target.value as "percentage" | "fixed" | "")}
+                >
+                  <option value="">No discount</option>
+                  <option value="percentage">%</option>
+                  <option value="fixed">{invoiceCurrency}</option>
+                </select>
+                {discountType && (
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    className="input-field text-sm"
+                    placeholder={discountType === "percentage" ? "e.g. 10" : "e.g. 50"}
+                    value={discountValue}
+                    onChange={(e) => setDiscountValue(e.target.value)}
+                  />
+                )}
+              </div>
+            </div>
+
             <div className="space-y-2.5 text-sm">
               <div className="flex justify-between">
                 <span className="text-slate-500">Subtotal</span>
@@ -779,6 +943,15 @@ export default function NewInvoice() {
                   {formatMoney(displaySubtotal, invoiceCurrency)}
                 </span>
               </div>
+
+              {calc.discountAmount > 0 && (
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Discount</span>
+                  <span className="font-medium text-emerald-600">
+                    −{formatMoney(calc.discountAmount, invoiceCurrency)}
+                  </span>
+                </div>
+              )}
 
               {calc.isInterState ? (
                 <div className="flex justify-between">
@@ -835,13 +1008,13 @@ export default function NewInvoice() {
                           <td className="py-1">{b.rate}%</td>
                           <td className="text-right py-1">
                             {formatMoney(
-                              isForeignCurrency ? convertCurrency(b.taxable, exchangeRate) : b.taxable,
+                              b.taxable,
                               invoiceCurrency
                             )}
                           </td>
                           <td className="text-right py-1">
                             {formatMoney(
-                              isForeignCurrency ? convertCurrency(b.tax, exchangeRate) : b.tax,
+                              b.tax,
                               invoiceCurrency
                             )}
                           </td>
@@ -876,7 +1049,7 @@ export default function NewInvoice() {
               disabled={saving}
               className="btn-primary w-full mt-5"
             >
-              {saving ? "Saving..." : "Save Invoice"}
+              {saving ? "Saving..." : isEditMode ? "Update Invoice" : isDuplicateMode ? "Save Duplicate" : "Save Invoice"}
             </button>
           </div>
         </div>

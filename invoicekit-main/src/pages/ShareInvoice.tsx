@@ -3,16 +3,38 @@ import { useParams, Link } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 import type { Invoice, Profile } from "../lib/types";
 import { formatDate } from "../lib/constants";
-import { formatMoney } from "../lib/currency";
+import { convertCurrency, formatMoney } from "../lib/currency";
 import { lineAmount } from "../lib/gst";
+import { DEFAULT_BRANDING, brandingFont, type WorkspaceBranding } from "../lib/branding";
+import { getTaxLabel } from "../lib/international";
 
 export default function ShareInvoice() {
   const { token } = useParams<{ token: string }>();
   const [invoice, setInvoice] = useState<Invoice | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
+  const [branding, setBranding] = useState<WorkspaceBranding | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showPayModal, setShowPayModal] = useState(false);
+  const [paymentAvailable, setPaymentAvailable] = useState(false);
+  const [paymentProvider, setPaymentProvider] = useState<"paypal" | "stripe" | null>(null);
+  const [paymentEnvironment, setPaymentEnvironment] = useState<"sandbox" | "live" | null>(null);
+  const [paymentLoading, setPaymentLoading] = useState(false);
+  const [paymentMessage, setPaymentMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
+
+  async function callPayment(functionName: "paypal-invoice-payments" | "stripe-invoice-payments", body: Record<string, unknown>) {
+    const { data, error: functionError } = await supabase.functions.invoke(functionName, { body });
+    if (functionError) {
+      let detail = functionError.message;
+      try {
+        const response = (functionError as { context?: Response }).context;
+        if (response) detail = (await response.clone().json())?.error || detail;
+      } catch { /* keep the function error */ }
+      throw new Error(detail);
+    }
+    if (data?.error) throw new Error(data.error);
+    return data;
+  }
 
   useEffect(() => {
     async function load() {
@@ -46,10 +68,84 @@ export default function ShareInvoice() {
       if (profData) {
         setProfile(profData as Profile);
       }
+      const { data: brandData, error: brandError } = await supabase.rpc("get_shared_invoice_branding", { p_token: token });
+      if (brandData) setBranding({ ...DEFAULT_BRANDING, ...brandData } as WorkspaceBranding);
+      if (brandError) console.error("Could not load shared invoice branding", brandError);
+
+      try {
+        const [paypal, stripe] = await Promise.all([
+          callPayment("paypal-invoice-payments", { action: "availability", shareToken: token }),
+          callPayment("stripe-invoice-payments", { action: "availability", shareToken: token }),
+        ]);
+        const availability = paypal.available ? paypal : stripe;
+        setPaymentAvailable(Boolean(availability.available));
+        setPaymentProvider(availability.provider || null);
+        setPaymentEnvironment(availability.environment || null);
+      } catch {
+        setPaymentAvailable(false);
+      }
+
+      const query = new URLSearchParams(window.location.search);
+      if (query.get("payment") === "paypal-return") {
+        if (query.get("cancelled") === "1") {
+          setPaymentMessage({ type: "error", text: "PayPal checkout was cancelled. No payment was taken." });
+        } else if (query.get("token")) {
+          setPaymentLoading(true);
+          try {
+            const result = await callPayment("paypal-invoice-payments", { action: "capture_order", shareToken: token, orderId: query.get("token") });
+            if (result.paid) {
+              setInvoice({ ...inv, status: "paid" });
+              setPaymentMessage({ type: "success", text: `Payment successful. Receipt reference: ${result.captureId}` });
+            }
+          } catch (captureError) {
+            setPaymentMessage({ type: "error", text: captureError instanceof Error ? captureError.message : "Payment verification failed" });
+          } finally {
+            setPaymentLoading(false);
+            window.history.replaceState({}, "", window.location.pathname);
+          }
+        }
+      } else if (query.get("payment") === "stripe-cancelled") {
+        setPaymentMessage({ type: "error", text: "Stripe checkout was cancelled. No payment was taken." });
+        window.history.replaceState({}, "", window.location.pathname);
+      } else if (query.get("payment") === "stripe-return" && query.get("session_id")) {
+        setPaymentLoading(true);
+        try {
+          const result = await callPayment("stripe-invoice-payments", { action: "verify_session", shareToken: token, sessionId: query.get("session_id") });
+          if (result.paid) {
+            setInvoice({ ...inv, status: "paid" });
+            setPaymentMessage({ type: "success", text: `Payment successful. Receipt reference: ${result.paymentId}` });
+          }
+        } catch (stripeError) {
+          setPaymentMessage({ type: "error", text: stripeError instanceof Error ? stripeError.message : "Stripe payment verification failed" });
+        } finally {
+          setPaymentLoading(false);
+          window.history.replaceState({}, "", window.location.pathname);
+        }
+      }
       setLoading(false);
     }
     load();
   }, [token]);
+
+  async function startPayment() {
+    if (!token || !paymentAvailable) return;
+    setPaymentLoading(true);
+    setPaymentMessage(null);
+    try {
+      if (paymentProvider === "stripe") {
+        const result = await callPayment("stripe-invoice-payments", { action: "create_session", shareToken: token });
+        if (!result.checkoutUrl) throw new Error("Stripe checkout link was not returned");
+        window.location.assign(result.checkoutUrl);
+      } else {
+        const result = await callPayment("paypal-invoice-payments", { action: "create_order", shareToken: token });
+        if (!result.approvalUrl) throw new Error("PayPal checkout link was not returned");
+        window.location.assign(result.approvalUrl);
+      }
+    } catch (paymentError) {
+      setPaymentMessage({ type: "error", text: paymentError instanceof Error ? paymentError.message : "Could not open PayPal" });
+      setPaymentLoading(false);
+    }
+  }
 
   if (loading) {
     return (
@@ -88,16 +184,67 @@ export default function ShareInvoice() {
   "USD";
 
   const isInterState = invoice.igst > 0;
+  const effectiveTaxLabel =
+    invoice.tax_label ?? (invoice.business_country === "India" ? "IGST" : "Tax");
+
+  // Country-aware business/client tax-ID labels (GSTIN only for India,
+  // "Tax ID"/"VAT Number"/etc. everywhere else) and the line-item code
+  // column label (HSN/SAC only for India, "Tax Code" everywhere else).
+  // getTaxLabel() covers every country in the catalog via COUNTRY_SETTINGS
+  // with a neutral fallback, so this never needs a per-country special case.
+  const businessCountry = invoice.business_country ?? profile?.country ?? "United States";
+  const clientCountry = invoice.client_country ?? null;
+  const businessTaxLabel = getTaxLabel(businessCountry);
+  const clientTaxLabel = getTaxLabel(clientCountry);
+  const isIndiaLineItemLabels = businessCountry === "India";
+  const baseCurrency =
+    invoice.base_currency ?? invoice.business_currency ?? profile?.currency ?? "USD";
+  const isForeignCurrency = invoiceCurrency !== baseCurrency;
+  const exchangeRate = invoice.exchange_rate ?? 1;
+
+  const itemSubtotal = invoice.items.reduce(
+    (sum, item) => sum + lineAmount(item),
+    0
+  );
+  const displayCgst = isForeignCurrency
+    ? convertCurrency(Number(invoice.cgst), exchangeRate)
+    : Number(invoice.cgst);
+  const displaySgst = isForeignCurrency
+    ? convertCurrency(Number(invoice.sgst), exchangeRate)
+    : Number(invoice.sgst);
+  const displayIgst = isForeignCurrency
+    ? convertCurrency(Number(invoice.igst), exchangeRate)
+    : Number(invoice.igst);
+  const displayDiscountAmount = isForeignCurrency
+    ? convertCurrency(Number(invoice.discount_amount ?? 0), exchangeRate)
+    : Number(invoice.discount_amount ?? 0);
+  const displaySubtotal = itemSubtotal;
+  const displayTotal =
+    displaySubtotal - displayDiscountAmount + displayCgst + displaySgst + displayIgst;
+  const hiddenBlocks = new Set(branding?.hidden_blocks || []);
+  const blockOrder = branding?.block_order || DEFAULT_BRANDING.block_order;
+  const blockStyle = (id: string) => ({ order: Math.max(0, blockOrder.indexOf(id)), gridColumn: branding?.layout_mode === "grid" && branding.block_widths?.[id] === "half" ? "span 1" : "1 / -1" });
+  const template = branding?.pdf_template || "modern";
+  const invoiceShell = template === "luxury" ? "border-amber-300 bg-[#fffdf7]" : template === "executive" ? "border-slate-300" : template === "minimal" ? "rounded-none border-x-0 shadow-none" : template === "corporate" ? "border-t-[10px] border-t-blue-700" : "";
+  const headerTheme = template === "luxury" ? "-mx-6 -mt-6 bg-stone-950 px-6 pt-6 text-amber-50 sm:-mx-10 sm:-mt-10 sm:px-10 sm:pt-10 [&_h1]:!text-amber-50 [&_p]:!text-amber-100/70" : template === "executive" ? "-mx-6 -mt-6 bg-slate-950 px-6 pt-6 text-white sm:-mx-10 sm:-mt-10 sm:px-10 sm:pt-10 [&_h1]:!text-white [&_p]:!text-slate-300" : template === "minimal" ? "pb-10" : template === "corporate" ? "bg-blue-50/60" : "rounded-2xl bg-gradient-to-r from-violet-50 to-indigo-50 p-5";
+  const canvasWidth = branding?.content_width === "compact" ? "max-w-3xl" : branding?.content_width === "wide" ? "max-w-6xl" : "max-w-4xl";
+  const canvasGap = branding?.spacing_density === "compact" ? "gap-1" : branding?.spacing_density === "spacious" ? "gap-8" : "gap-4";
+  const canvasPadding = branding?.spacing_density === "compact" ? "p-4 sm:p-6" : branding?.spacing_density === "spacious" ? "p-8 sm:p-14" : "p-6 sm:p-10";
+  const canvasCorner = branding?.corner_style === "square" ? "!rounded-none" : branding?.corner_style === "soft" ? "!rounded-xl" : "!rounded-[28px]";
+  const headerAlignment = branding?.header_alignment === "center" ? "text-center sm:flex-col sm:items-center [&>div]:items-center" : branding?.header_alignment === "left" ? "sm:flex-col" : "sm:flex-row sm:justify-between";
 
   return (
-    <div className="min-h-screen bg-slate-50 py-6 px-4">
-      <div className="max-w-4xl mx-auto space-y-4">
+    <div className="min-h-screen bg-slate-50 py-6 px-4" style={{fontFamily:branding?brandingFont(branding.font_family):undefined}}>
+      <div className={`${canvasWidth} mx-auto space-y-4`}>
+        {paymentMessage && (
+          <div className={`rounded-xl border px-4 py-3 text-sm font-medium ${paymentMessage.type === "success" ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-red-200 bg-red-50 text-red-700"}`}>
+            {paymentMessage.text}
+          </div>
+        )}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <div className="w-8 h-8 bg-primary-600 rounded-lg flex items-center justify-center">
-              <span className="text-white text-sm font-bold">⚡</span>
-            </div>
-            <span className="font-bold text-slate-900">Rivox</span>
+            {branding?.logo_url?<img src={branding.logo_url} className="h-9 w-9 rounded-lg object-contain"/>:<div className="w-8 h-8 bg-primary-600 rounded-lg flex items-center justify-center"><span className="text-white text-sm font-bold">⚡</span></div>}
+            <span className="font-bold text-slate-900">{branding?.remove_rivox_branding?(profile?.business_name||"Business"):"Rivox"}</span>
           </div>
           {invoice.status !== "paid" && invoice.status !== "draft" && (
             <button
@@ -109,12 +256,12 @@ export default function ShareInvoice() {
           )}
         </div>
 
-        <div className="card p-6 sm:p-10">
-          <div className="flex flex-col sm:flex-row sm:justify-between gap-6 pb-6 border-b border-slate-200">
+        <div className={`card ${branding?.layout_mode === "grid" ? "grid grid-cols-1 md:grid-cols-2" : "flex flex-col"} ${canvasGap} ${canvasPadding} ${canvasCorner} ${invoiceShell}`}>
+          {!hiddenBlocks.has("header") && <div style={blockStyle("header")} className={`flex flex-col gap-6 border-b border-slate-200 pb-6 ${headerAlignment} ${headerTheme}`}>
             <div className="flex items-start gap-4">
-              {profile?.logo_url ? (
+              {(branding?.logo_url||profile?.logo_url) ? (
                 <img
-                  src={profile.logo_url}
+                  src={branding?.logo_url||profile?.logo_url||""}
                   alt="Logo"
                   className="w-16 h-16 rounded-lg object-cover border border-slate-200"
                 />
@@ -134,7 +281,7 @@ export default function ShareInvoice() {
                 )}
                 {profile?.gstin && (
                   <p className="text-sm text-slate-500 mt-1">
-                    GSTIN: {profile.gstin}
+                    {businessTaxLabel}: {profile.gstin}
                   </p>
                 )}
                 {profile?.phone && (
@@ -147,8 +294,8 @@ export default function ShareInvoice() {
             </div>
 
             <div className="sm:text-right">
-              <span className="inline-block bg-primary-600 text-white px-4 py-1.5 rounded-lg text-sm font-bold tracking-wide">
-                INVOICE
+              <span className="inline-block text-white px-4 py-1.5 rounded-lg text-sm font-bold tracking-wide" style={{backgroundColor:branding?.brand_color||"#4f46e5"}}>
+                {branding?.invoice_title||"INVOICE"}
               </span>
               <p className="text-lg font-bold text-slate-900 mt-3">
                 {invoice.invoice_number}
@@ -160,9 +307,9 @@ export default function ShareInvoice() {
                 Due Date: {formatDate(invoice.due_date)}
               </p>
             </div>
-          </div>
+          </div>}
 
-          <div className="py-6 border-b border-slate-200">
+          {!hiddenBlocks.has("client") && <div style={blockStyle("client")} className="py-6 border-b border-slate-200">
             <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-2">
               Bill To
             </p>
@@ -171,7 +318,7 @@ export default function ShareInvoice() {
             </p>
             {invoice.client_gstin && (
               <p className="text-sm text-slate-500 mt-1">
-                GSTIN: {invoice.client_gstin}
+                {clientTaxLabel}: {invoice.client_gstin}
               </p>
             )}
             {invoice.client_address && (
@@ -188,18 +335,18 @@ export default function ShareInvoice() {
             {invoice.client_email && (
               <p className="text-sm text-slate-500">Email: {invoice.client_email}</p>
             )}
-          </div>
+          </div>}
 
-          <div className="py-6">
+          {!hiddenBlocks.has("items") && <div style={blockStyle("items")} className="py-6">
             <div className="overflow-x-auto">
               <table className="w-full">
                 <thead>
-                  <tr className="bg-primary-600 text-white">
+                  <tr className="text-white" style={{backgroundColor:branding?.brand_color||"#4f46e5"}}>
                     <th className="text-left text-xs font-semibold uppercase tracking-wide px-4 py-3 rounded-l-lg">
                       Description
                     </th>
                     <th className="text-center text-xs font-semibold uppercase tracking-wide px-4 py-3">
-                      HSN/SAC
+                      {isIndiaLineItemLabels ? "HSN/SAC" : "Tax Code"}
                     </th>
                     <th className="text-center text-xs font-semibold uppercase tracking-wide px-4 py-3">
                       Qty
@@ -208,7 +355,7 @@ export default function ShareInvoice() {
                       Rate
                     </th>
                     <th className="text-center text-xs font-semibold uppercase tracking-wide px-4 py-3">
-                      GST
+                      {isIndiaLineItemLabels ? "GST" : "Tax %"}
                     </th>
                     <th className="text-right text-xs font-semibold uppercase tracking-wide px-4 py-3 rounded-r-lg">
                       Amount
@@ -244,16 +391,17 @@ export default function ShareInvoice() {
                 </tbody>
               </table>
             </div>
-          </div>
+          </div>}
 
-          <div className="flex flex-col sm:flex-row gap-6 pb-6">
+          {!hiddenBlocks.has("totals") && <div style={blockStyle("totals")} className="flex flex-col sm:flex-row gap-6 pb-6">
             <div className="flex-1">
               {isInterState ? (
                 <GSTBreakup
-  title="IGST Breakup"
+  title={`${effectiveTaxLabel} Breakup`}
   items={invoice.items}
   type="igst"
   currency={invoiceCurrency}
+  taxLabel={effectiveTaxLabel}
 />
               ) : invoice.cgst > 0 || invoice.sgst > 0 ? (
                 <GSTBreakup
@@ -269,14 +417,22 @@ export default function ShareInvoice() {
               <div className="flex justify-between">
                 <span className="text-slate-500">Subtotal</span>
                 <span className="font-medium text-slate-900">
-                  {formatMoney(Number(invoice.subtotal), invoiceCurrency)}
+                  {formatMoney(displaySubtotal, invoiceCurrency)}
                 </span>
               </div>
+              {displayDiscountAmount > 0 && (
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Discount</span>
+                  <span className="font-medium text-emerald-600">
+                    −{formatMoney(displayDiscountAmount, invoiceCurrency)}
+                  </span>
+                </div>
+              )}
               {isInterState ? (
                 <div className="flex justify-between">
-                  <span className="text-slate-500">IGST</span>
+                  <span className="text-slate-500">{effectiveTaxLabel}</span>
                   <span className="font-medium text-slate-900">
-                    {formatMoney(Number(invoice.igst), invoiceCurrency)}
+                    {formatMoney(displayIgst, invoiceCurrency)}
                   </span>
                 </div>
               ) : (
@@ -284,13 +440,13 @@ export default function ShareInvoice() {
                   <div className="flex justify-between">
                     <span className="text-slate-500">CGST</span>
                     <span className="font-medium text-slate-900">
-                      {formatMoney(Number(invoice.cgst), invoiceCurrency)}
+                      {formatMoney(displayCgst, invoiceCurrency)}
                     </span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-slate-500">SGST</span>
                     <span className="font-medium text-slate-900">
-                      {formatMoney(Number(invoice.sgst), invoiceCurrency)}
+                      {formatMoney(displaySgst, invoiceCurrency)}
                     
                     </span>
                   </div>
@@ -299,14 +455,14 @@ export default function ShareInvoice() {
               <div className="bg-primary-600 text-white rounded-lg px-4 py-3 flex justify-between items-center mt-3">
                 <span className="font-semibold">Grand Total</span>
                 <span className="text-lg font-bold">
-                  {formatMoney(Number(invoice.total), invoiceCurrency)}
+                  {formatMoney(displayTotal, invoiceCurrency)}
                 </span>
               </div>
             </div>
-          </div>
+          </div>}
 
           {invoice.notes && (
-            <div className="py-4 border-t border-slate-200">
+            <div style={blockStyle("items")} className="py-4 border-t border-slate-200">
               <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1">
                 Notes
               </p>
@@ -316,24 +472,28 @@ export default function ShareInvoice() {
             </div>
           )}
 
-          <div className="pt-6 border-t border-slate-200 text-center">
-            <p className="text-base font-semibold text-primary-600">
-              Thank you for your business!
+          {!hiddenBlocks.has("payment") && branding?.payment_instructions && <div style={blockStyle("payment")} className="py-4 border-t border-slate-200"><p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1">Payment instructions</p><p className="text-sm text-slate-600 whitespace-pre-line">{branding.payment_instructions}</p></div>}
+          {!hiddenBlocks.has("terms") && branding?.terms_text && <div style={blockStyle("terms")} className="py-4 border-t border-slate-200"><p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1">Terms & conditions</p><p className="text-xs text-slate-500 whitespace-pre-line">{branding.terms_text}</p></div>}
+          {!hiddenBlocks.has("approval") && branding && ((branding.show_signature&&branding.signature_url)||(branding.show_stamp&&branding.stamp_url)) && <div style={blockStyle("approval")} className="flex justify-end gap-5 py-4 border-t border-slate-200">{branding.show_signature&&branding.signature_url&&<img src={branding.signature_url} className="h-16 object-contain" alt="Authorized signature"/>}{branding.show_stamp&&branding.stamp_url&&<img src={branding.stamp_url} className="h-16 object-contain" alt="Company stamp"/>}</div>}
+
+          {!hiddenBlocks.has("footer") && <div style={blockStyle("footer")} className="pt-6 border-t border-slate-200 text-center">
+            <p className="text-base font-semibold" style={{color:branding?.accent_color||"#4f46e5"}}>
+              {branding?.footer_text||"Thank you for your business!"}
             </p>
-            {!profile?.is_pro && (
+            {!branding?.remove_rivox_branding && !profile?.is_pro && (
               <p className="text-xs text-slate-400 mt-2">
                 Created with Rivox
               </p>
             )}
-          </div>
+          </div>}
         </div>
 
-        <p className="text-center text-xs text-slate-400">
+        {!branding?.remove_rivox_branding&&<p className="text-center text-xs text-slate-400">
           Powered by{" "}
           <Link to="/" className="text-primary-600 font-medium hover:underline">
             Rivox
           </Link>
-        </p>
+        </p>}
       </div>
 
       {showPayModal && (
@@ -361,17 +521,28 @@ export default function ShareInvoice() {
             </div>
             <h2 className="text-xl font-bold text-slate-900 mb-2">Pay Invoice</h2>
             <p className="text-sm text-slate-500 mb-1">
-              Amount due: {formatMoney(Number(invoice.total), invoiceCurrency)}
+              Amount due: {formatMoney(displayTotal, invoiceCurrency)}
             </p>
-            <p className="text-sm text-amber-600 font-medium mt-4">
-              Payment gateway coming soon
-            </p>
-            <button
-              onClick={() => setShowPayModal(false)}
-              className="btn-secondary w-full mt-6"
-            >
-              Close
-            </button>
+            {paymentAvailable ? (
+              <>
+                <div className="mt-5 rounded-xl border border-blue-100 bg-blue-50 p-4 text-left">
+                  <p className="text-sm font-bold text-blue-900">Pay securely with {paymentProvider === "stripe" ? "Stripe" : "PayPal"}</p>
+                  <p className="mt-1 text-xs leading-5 text-blue-700">Payment goes directly to {profile?.business_name || "this business"}. Rivox does not store your card details.</p>
+                  {paymentEnvironment === "sandbox" && <p className="mt-2 text-xs font-bold text-amber-700">Test mode — no real money will be charged.</p>}
+                </div>
+                <button onClick={startPayment} disabled={paymentLoading} className={`mt-5 w-full rounded-xl px-5 py-3 font-bold text-white disabled:opacity-60 ${paymentProvider === "stripe" ? "bg-[#635bff] hover:bg-[#5149e8]" : "bg-[#0070ba] hover:bg-[#005ea6]"}`}>
+                  {paymentLoading ? "Opening secure checkout…" : `Continue to ${paymentProvider === "stripe" ? "Stripe" : "PayPal"}`}
+                </button>
+              </>
+            ) : (
+              <>
+                <div className="mt-5 rounded-xl border border-amber-200 bg-amber-50 p-4 text-left">
+                  <p className="text-sm font-bold text-amber-900">Online payment is not configured</p>
+                  <p className="mt-1 text-xs leading-5 text-amber-700">Please contact {profile?.business_name || "the business"} directly to arrange payment.</p>
+                </div>
+                <button onClick={() => setShowPayModal(false)} className="btn-secondary w-full mt-5">Close</button>
+              </>
+            )}
           </div>
         </div>
       )}
@@ -384,11 +555,13 @@ function GSTBreakup({
   items,
   type,
   currency,
+  taxLabel = "IGST",
 }: {
   title: string;
   items: Invoice["items"];
   type: "igst" | "cgstsgst";
   currency: string;
+  taxLabel?: string;
 }) {
   const merged = new Map<number, { taxable: number; tax: number }>();
   for (const it of items) {
@@ -412,7 +585,7 @@ function GSTBreakup({
             <th className="text-left text-xs font-medium text-slate-500 px-3 py-2">Rate</th>
             <th className="text-right text-xs font-medium text-slate-500 px-3 py-2">Taxable</th>
             {type === "igst" ? (
-              <th className="text-right text-xs font-medium text-slate-500 px-3 py-2">IGST</th>
+              <th className="text-right text-xs font-medium text-slate-500 px-3 py-2">{taxLabel}</th>
             ) : (
               <>
                 <th className="text-right text-xs font-medium text-slate-500 px-3 py-2">CGST</th>

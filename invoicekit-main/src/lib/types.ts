@@ -41,6 +41,10 @@ export interface Profile {
 
   plan_expires_at: string | null;
 
+  workspace_owner_id?: string | null;
+  workspace_role?: "owner" | "manager" | "accountant" | "staff" | null;
+  workspace_member_status?: "active" | "disabled" | "pending" | null;
+
   created_at: string;
 }
 
@@ -49,6 +53,7 @@ export interface Client {
   user_id: string;
 
   name: string;
+  company_name: string | null;
 
   country: string | null;
   country_code: string | null;
@@ -87,6 +92,9 @@ export interface Invoice {
   items: LineItem[];
 
   subtotal: number;
+  discount_type: "percentage" | "fixed" | null;
+  discount_value: number;
+  discount_amount: number;
   cgst: number;
   sgst: number;
   igst: number;
@@ -122,6 +130,7 @@ export interface Invoice {
   base_subtotal: number | null;    // subtotal in business base currency
   invoice_subtotal: number | null; // subtotal converted to invoice currency
   invoice_total: number | null;    // total converted to invoice currency
+  refunded_amount?: number | null; // successful gateway refunds in invoice currency
   // ────────────────────────────────────────────────────────────────────────
 
   status: InvoiceStatus;

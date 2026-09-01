@@ -2,6 +2,10 @@ import { useEffect, useState, useRef, type FormEvent } from "react";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../context/AuthContext";
 import { COUNTRIES, getCountrySetting } from "../lib/constants";
+import CountrySelect from "../components/CountrySelect";
+import { getCountryTaxSummary } from "../lib/tax";
+import PaymentGatewaySettings from "../components/PaymentGatewaySettings";
+import InvoicePaymentHistory from "../components/InvoicePaymentHistory";
 
 // ── Per-country auto-derived settings ────────────────────────────────────────
 // When businessCountry changes, these values update automatically.
@@ -60,11 +64,19 @@ export default function Settings() {
 
   // Auto-derived from businessCountry — never manually edited
   const config = getConfig(businessCountry);
+  const taxSummary = getCountryTaxSummary(businessCountry);
   const statesForCountry = COUNTRIES.find((c) => c.name === businessCountry)?.states ?? [];
 
-  // Load existing profile
+  // Load existing profile.
+  // IMPORTANT (fixes Bug-002): this must only run ONCE per visit, not every
+  // time `profile` changes reference. AuthContext refreshes `profile` in the
+  // background (e.g. on token refresh / tab focus) with a brand-new object
+  // even when nothing changed — if this effect re-ran on every such refresh,
+  // it would silently wipe out whatever the user is mid-typing (and any logo
+  // they just uploaded but haven't saved yet) back to the last-saved values.
+  const profileLoadedRef = useRef(false);
   useEffect(() => {
-    if (profile) {
+    if (profile && !profileLoadedRef.current) {
       setBusinessName(profile.business_name ?? "");
       setBusinessCountry(profile.country ?? "India");
       setGstin(profile.gstin ?? "");
@@ -73,6 +85,7 @@ export default function Settings() {
       setState(profile.state ?? "");
       setAddress(profile.address ?? "");
       setLogoUrl(profile.logo_url ?? null);
+      profileLoadedRef.current = true;
     }
   }, [profile]);
 
@@ -81,12 +94,12 @@ export default function Settings() {
     async function loadBusinessStats() {
       if (!user) return;
       const [invoiceRes, clientRes] = await Promise.all([
-        supabase.from("invoices").select("status,total,invoice_total").eq("user_id", user.id),
+        supabase.from("invoices").select("status,total,invoice_total,refunded_amount").eq("user_id", user.id),
         supabase.from("clients").select("id").eq("user_id", user.id),
       ]);
       const rows = invoiceRes.data ?? [];
       const paidRows = rows.filter((row) => row.status === "paid");
-      const revenue = paidRows.reduce((sum, row) => sum + Number(row.invoice_total ?? row.total ?? 0), 0);
+      const revenue = paidRows.reduce((sum, row) => sum + Math.max(0, Number(row.invoice_total ?? row.total ?? 0) - Number(row.refunded_amount ?? 0)), 0);
       setBusinessStats({ clients: clientRes.data?.length ?? 0, invoices: rows.length, revenue, paid: paidRows.length });
     }
     loadBusinessStats();
@@ -268,20 +281,22 @@ export default function Settings() {
             <div className="space-y-7">
               <section><h3 className="text-sm font-semibold text-slate-900">Company information</h3><div className="mt-4 grid grid-cols-1 gap-5 sm:grid-cols-2">
                 <div className="sm:col-span-2"><label className="label">Business Name <span className="text-red-500">*</span></label><input required value={businessName} onChange={(e)=>setBusinessName(e.target.value)} className="input h-12" placeholder="Acme Enterprises" /></div>
-                <div><label className="label">Business Country</label><select value={businessCountry} onChange={(e)=>handleCountryChange(e.target.value)} className="input h-12">{COUNTRIES.map((c)=><option key={c.name} value={c.name}>{c.name}</option>)}</select></div>
-                <div><label className="label">{businessCountry === "Canada" ? "Province" : businessCountry === "UAE" ? "Emirate" : businessCountry === "United Kingdom" ? "Region" : "State / Region"}</label><select value={state} onChange={(e)=>setState(e.target.value)} className="input h-12" disabled={statesForCountry.length===0}><option value="">{statesForCountry.length===0 ? "Not applicable" : "Select"}</option>{statesForCountry.map((s:string)=><option key={s} value={s}>{s}</option>)}</select></div>
+                <div><label className="label">Business Country</label><CountrySelect value={businessCountry} onChange={handleCountryChange} /></div>
+                <div><label className="label">{businessCountry === "Canada" ? "Province" : businessCountry === "UAE" ? "Emirate" : businessCountry === "United Kingdom" ? "Region" : "State / Region"}</label>{statesForCountry.length>0 ? <select value={state} onChange={(e)=>setState(e.target.value)} className="input h-12"><option value="">Select</option>{statesForCountry.map((s:string)=><option key={s} value={s}>{s}</option>)}</select> : <input value={state} onChange={(e)=>setState(e.target.value)} className="input h-12" placeholder="Enter state / region" />}</div>
                 <div><label className="label">{config.taxLabel}</label><input value={gstin} onChange={(e)=>setGstin(e.target.value.toUpperCase())} className="input h-12" placeholder={config.taxPlaceholder} /></div>
                 <div><label className="label">Phone</label><div className="flex gap-2"><span className="input h-12 w-20 flex-none bg-slate-50 text-slate-500 flex items-center justify-center">{config.code}</span><input value={phone} onChange={(e)=>setPhone(e.target.value)} className="input h-12" placeholder="Phone number" /></div></div>
                 <div className="sm:col-span-2"><label className="label">Business Email</label><input type="email" value={email} onChange={(e)=>setEmail(e.target.value)} className="input h-12" placeholder="billing@business.com" /></div>
                 <div className="sm:col-span-2"><label className="label">Address</label><textarea value={address} onChange={(e)=>setAddress(e.target.value)} className="input" rows={4} placeholder="Street, City, PIN / ZIP" /></div>
               </div></section>
 
-              <section className="rounded-2xl border border-slate-200 bg-slate-50 p-5"><div className="flex items-center justify-between"><div><h3 className="text-sm font-semibold text-slate-900">Regional configuration</h3><p className="mt-1 text-xs text-slate-500">Updated automatically from your country.</p></div><span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-violet-600 shadow-sm">Auto</span></div><div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">{[["Currency",`${config.currency} (${config.symbol})`],["Phone code",config.code],["Date format",config.dateFormat],["Timezone",config.timezone.split("/")[1]?.replace("_"," ") ?? config.timezone]].map(([label,value])=><div key={label} className="rounded-xl bg-white p-3"><p className="text-xs text-slate-400">{label}</p><p className="mt-1 truncate text-sm font-semibold text-slate-800" title={value}>{value}</p></div>)}</div></section>
+              <section className="rounded-2xl border border-slate-200 bg-slate-50 p-5"><div className="flex items-center justify-between"><div><h3 className="text-sm font-semibold text-slate-900">Regional configuration</h3><p className="mt-1 text-xs text-slate-500">Updated automatically from your country.</p></div><span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-violet-600 shadow-sm">Auto</span></div><div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-5">{[["Currency",`${config.currency} (${config.symbol})`],["Phone code",config.code],["Date format",config.dateFormat],["Timezone",config.timezone.split("/")[1]?.replace("_"," ") ?? config.timezone],["Default tax",taxSummary.defaultRate === null ? "Manual" : `${taxSummary.label} ${taxSummary.defaultRate}%`]].map(([label,value])=><div key={label} className="rounded-xl bg-white p-3"><p className="text-xs text-slate-400">{label}</p><p className="mt-1 truncate text-sm font-semibold text-slate-800" title={value}>{value}</p></div>)}</div><p className={`mt-3 text-xs ${taxSummary.configured ? "text-slate-500" : "text-amber-600"}`}>{taxSummary.note}</p></section>
             </div>
           </div>
           <div className="sticky bottom-0 flex justify-end gap-3 border-t border-slate-100 bg-white/95 px-6 py-4 backdrop-blur sm:px-8"><button type="submit" disabled={saving} className="btn-primary min-w-36 justify-center">{saving ? "Saving..." : profileComplete ? "Save changes" : "Complete setup"}</button></div>
         </form>
       )}
+      <PaymentGatewaySettings profile={profile} />
+      <InvoicePaymentHistory />
     </div>
   );
 }

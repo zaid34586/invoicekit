@@ -1,0 +1,11 @@
+import { useState, type FormEvent } from "react";
+import { useNavigate } from "react-router-dom";
+import { supabase } from "../lib/supabase";
+import PasswordField from "../components/PasswordField";
+
+export default function ResetPassword() {
+  const [password,setPassword]=useState(""); const [confirm,setConfirm]=useState(""); const [loading,setLoading]=useState(false); const [error,setError]=useState("");
+  const navigate=useNavigate();
+  async function submit(event:FormEvent){event.preventDefault();setError("");if(password.length<8){setError("Password must be at least 8 characters.");return;}if(password!==confirm){setError("Passwords do not match.");return;}setLoading(true);const {error:updateError}=await supabase.auth.updateUser({password});setLoading(false);if(updateError){setError(updateError.message);return;}await supabase.auth.signOut();navigate("/login?password_reset=1",{replace:true});}
+  return <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-violet-950 px-4 py-10 grid place-items-center"><form onSubmit={submit} className="w-full max-w-md rounded-3xl bg-white p-8 shadow-2xl"><div className="flex items-center gap-3"><img src="/rivox-logo.svg" className="h-11 w-11 rounded-xl" alt="Rivox"/><div><p className="text-xl font-black">Rivox</p><p className="text-xs font-bold uppercase tracking-widest text-violet-600">Secure password reset</p></div></div><h1 className="mt-8 text-3xl font-black">Create a new password</h1><p className="mt-2 text-sm text-slate-500">Use at least 8 characters and do not reuse an old password.</p>{error&&<div className="mt-5 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div>}<label className="mt-5 block"><span className="label">New password</span><PasswordField required autoComplete="new-password" value={password} onChange={e=>setPassword(e.target.value)}/></label><label className="mt-5 block"><span className="label">Confirm password</span><PasswordField required autoComplete="new-password" value={confirm} onChange={e=>setConfirm(e.target.value)}/></label><button className="btn-primary mt-6 h-12 w-full" disabled={loading}>{loading?"Updating…":"Update password"}</button></form></div>;
+}

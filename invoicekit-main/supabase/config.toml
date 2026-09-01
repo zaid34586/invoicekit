@@ -49,5 +49,64 @@ verify_jwt = true
 import_map = "./functions/create-team-member/deno.json"
 entrypoint = "./functions/create-team-member/index.ts"
 
+[functions.paddle-webhook]
+enabled = true
+verify_jwt = false
+import_map = "./functions/paddle-webhook/deno.json"
+entrypoint = "./functions/paddle-webhook/index.ts"
+# Paddle calls this URL directly with a Paddle-Signature header, not a Supabase
+# user JWT. verify_jwt must stay false or Supabase rejects the request with a
+# 401 before our own signature check in index.ts ever runs.
+
+[functions.lemon-webhook]
+enabled = true
+verify_jwt = false
+import_map = "./functions/lemon-webhook/deno.json"
+entrypoint = "./functions/lemon-webhook/index.ts"
+# Same reasoning as paddle-webhook: Lemon Squeezy signs requests itself and
+# does not send a Supabase JWT.
+
 [functions.subscription-automation]
 verify_jwt = true
+
+[functions.workspace-team]
+enabled = true
+verify_jwt = true
+import_map = "./functions/workspace-team/deno.json"
+entrypoint = "./functions/workspace-team/index.ts"
+
+[functions.payment-gateway]
+enabled = true
+verify_jwt = true
+import_map = "./functions/payment-gateway/deno.json"
+entrypoint = "./functions/payment-gateway/index.ts"
+
+[functions.paypal-invoice-payments]
+enabled = true
+verify_jwt = false
+import_map = "./functions/paypal-invoice-payments/deno.json"
+entrypoint = "./functions/paypal-invoice-payments/index.ts"
+
+[functions.stripe-invoice-payments]
+enabled = true
+verify_jwt = false
+import_map = "./functions/stripe-invoice-payments/deno.json"
+entrypoint = "./functions/stripe-invoice-payments/index.ts"
+
+[functions.business-api]
+enabled = true
+verify_jwt = false
+import_map = "./functions/business-api/deno.json"
+entrypoint = "./functions/business-api/index.ts"
+
+[functions.business-webhooks]
+enabled = true
+verify_jwt = true
+import_map = "./functions/business-webhooks/deno.json"
+entrypoint = "./functions/business-webhooks/index.ts"
+
+[functions.github-sync]
+enabled = true
+verify_jwt = false
+import_map = "./functions/github-sync/deno.json"
+entrypoint = "./functions/github-sync/index.ts"

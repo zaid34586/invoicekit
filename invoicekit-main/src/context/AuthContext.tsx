@@ -15,15 +15,40 @@ interface AuthContextValue {
   user: User | null;
   profile: Profile | null;
   loading: boolean;
+  workspaceOwnerId: string | null;
+  workspaceRole: "owner" | "manager" | "accountant" | "staff" | null;
+  workspaceStatus: "active" | "disabled" | "removed" | null;
+  workspaceName: string | null;
+  workspacePermissions: string[];
+  workspaceCustomRole: string | null;
   signUp: (email: string, password: string) => Promise<{ error: string | null }>;
   signIn: (email: string, password: string, options?: { skipProfile?: boolean }) => Promise<{ error: string | null }>;
   signOut: () => Promise<void>;
   refreshProfile: (options?: { skipProfile?: boolean }) => Promise<Profile | null>;
+  refreshWorkspace: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
 const VERIFICATION_PENDING_KEY = "rivox_email_verification_pending";
+// A pending-verification flag older than this is treated as stale (an
+// abandoned/never-completed signup) and ignored, instead of being able to
+// silently force-sign-out a completely unrelated future login on the same
+// browser. Without this, a stuck flag from one signup attempt could bounce
+// every subsequent login (login -> verify-phone -> forced back to /login)
+// forever, since the flag never expired or got cleared on a normal login.
+const VERIFICATION_PENDING_TTL_MS = 30 * 60 * 1000; // 30 minutes
+
+function isVerificationPending() {
+  const raw = localStorage.getItem(VERIFICATION_PENDING_KEY);
+  if (!raw) return false;
+  const setAt = Number(raw);
+  if (!Number.isFinite(setAt) || Date.now() - setAt > VERIFICATION_PENDING_TTL_MS) {
+    localStorage.removeItem(VERIFICATION_PENDING_KEY);
+    return false;
+  }
+  return true;
+}
 
 function isVerificationCallbackUrl() {
   if (typeof window === "undefined") return false;
@@ -44,6 +69,50 @@ function isVerificationCallbackUrl() {
 
 function normalizeEmail(email: string) {
   return email.trim().toLowerCase();
+}
+
+function getSecurityDeviceId() {
+  const key = "rivox_security_device_id";
+  let value = localStorage.getItem(key);
+  if (!value) {
+    value = crypto.randomUUID();
+    localStorage.setItem(key, value);
+  }
+  return value;
+}
+
+function deviceLabel() {
+  const ua = navigator.userAgent;
+  const browser = ua.includes("Edg/") ? "Edge" : ua.includes("Chrome/") ? "Chrome" : ua.includes("Firefox/") ? "Firefox" : ua.includes("Safari/") ? "Safari" : "Browser";
+  const platform = (navigator as Navigator & { userAgentData?: { platform?: string } }).userAgentData?.platform || navigator.platform || "Device";
+  return `${browser} on ${platform}`;
+}
+
+function securityPortal(user: User): "admin" | "staff" | "customer" {
+  if (String(user.email || "").toLowerCase() === ADMIN_EMAIL.toLowerCase()) return "admin";
+  return isStaffPortalRoute() ? "staff" : "customer";
+}
+
+async function registerSecuritySession(user: User) {
+  try {
+    const sessionKey = `${user.id}:${getSecurityDeviceId()}`;
+    await supabase.from("admin_active_sessions").upsert({
+      session_key: sessionKey,
+      user_id: user.id,
+      email: user.email || null,
+      portal: securityPortal(user),
+      device_label: deviceLabel(),
+      user_agent: navigator.userAgent,
+      last_seen_at: new Date().toISOString(),
+      expires_at: null,
+      force_logout: false,
+      status: "active",
+      revoked_at: null,
+      revoke_reason: null,
+    }, { onConflict: "session_key" });
+  } catch (error) {
+    console.warn("Security session registration unavailable", error);
+  }
 }
 
 function clearSupabaseStorage() {
@@ -108,6 +177,50 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
+  const [workspaceOwnerId, setWorkspaceOwnerId] = useState<string | null>(null);
+  const [workspaceRole, setWorkspaceRole] = useState<AuthContextValue["workspaceRole"]>(null);
+  const [workspaceStatus, setWorkspaceStatus] = useState<AuthContextValue["workspaceStatus"]>(null);
+  const [workspaceName, setWorkspaceName] = useState<string | null>(null);
+  const [workspacePermissions, setWorkspacePermissions] = useState<string[]>([]);
+  const [workspaceCustomRole, setWorkspaceCustomRole] = useState<string | null>(null);
+
+  function clearAuthState() {
+    setSession(null);
+    setProfile(null);
+    setWorkspaceOwnerId(null);
+    setWorkspaceRole(null);
+    setWorkspaceStatus(null);
+    setWorkspaceName(null);
+    setWorkspacePermissions([]);
+    setWorkspaceCustomRole(null);
+  }
+
+  async function loadWorkspaceContext(): Promise<Profile | null> {
+    const [{ data, error }, { data: permissionData }] = await Promise.all([
+      supabase.rpc("get_my_workspace_context"),
+      supabase.rpc("get_my_workspace_permissions"),
+    ]);
+    if (error || !data) return null;
+    setWorkspaceOwnerId(data.owner_user_id ?? null);
+    setWorkspaceRole(data.role ?? null);
+    setWorkspaceStatus(data.status ?? null);
+    setWorkspaceName(data.workspace_name ?? null);
+    setWorkspacePermissions(Array.isArray(permissionData) ? permissionData : Array.isArray(data.permissions) ? data.permissions : []);
+    setWorkspaceCustomRole(data.custom_role_name ?? null);
+    if (data.owner_profile && data.role === "owner") {
+      const ownerProfile = { ...data.owner_profile, workspace_owner_id: data.owner_user_id, workspace_role: "owner", workspace_member_status: "active" } as Profile;
+      setProfile(ownerProfile);
+      return ownerProfile;
+    }
+    if (data.owner_profile && data.role !== "owner" && data.status === "active") {
+      const merged = { ...data.owner_profile, workspace_owner_id: data.owner_user_id, workspace_role: data.role, workspace_member_status: data.status } as Profile;
+      setProfile(merged);
+      return merged;
+    }
+    return null;
+  }
+
+  async function refreshWorkspace() { await loadWorkspaceContext(); }
 
   async function fetchOrCreateProfile(
     userId: string,
@@ -168,7 +281,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
 
       setProfile(existing as Profile);
-      return existing as Profile;
+      const workspaceProfile = await loadWorkspaceContext();
+      return workspaceProfile || existing as Profile;
     }
 
     // Use upsert (not insert) here. Right after email confirmation,
@@ -193,27 +307,59 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
 
     setProfile(created as Profile);
-    return created as Profile;
+    const workspaceProfile = await loadWorkspaceContext();
+    return workspaceProfile || created as Profile;
   }
 
   async function syncSession(nextSession: Session | null, options?: { skipProfile?: boolean }) {
     if (!nextSession?.user) {
-      setSession(null);
-      setProfile(null);
+      clearAuthState();
       return null;
     }
 
-    const { data, error } = await supabase.auth.getUser();
+    let { data, error } = await supabase.auth.getUser();
 
-    if (error || !data.user) {
+    // Bug fix: a refresh used to log staff/customers out instantly on ANY
+    // getUser() hiccup (a cold network request, a brief Supabase blip right
+    // after a token refresh, etc). That's not proof the session is invalid --
+    // only an explicit auth error (expired/invalid JWT) is. For anything
+    // else, retry once before giving up, and otherwise trust the session we
+    // already have from localStorage rather than force-signing-out.
+    if (error) {
+      const authInvalid = error.status === 401 || /invalid|expired|revoked/i.test(error.message || "");
+      if (authInvalid) {
+        await supabase.auth.signOut();
+        clearSupabaseStorage();
+        clearAuthState();
+        return null;
+      }
+      // Transient error (network blip, cold start) -- retry once.
+      await new Promise((resolve) => setTimeout(resolve, 600));
+      const retry = await supabase.auth.getUser();
+      data = retry.data;
+      error = retry.error;
+      if (error || !data.user) {
+        // Still failing, but not a confirmed-invalid session -- keep the
+        // person signed in on the session we have rather than bouncing them.
+        setSession(nextSession);
+        return null;
+      }
+    }
+
+    if (!data.user) {
       await supabase.auth.signOut();
       clearSupabaseStorage();
-      setSession(null);
-      setProfile(null);
+      clearAuthState();
       return null;
     }
 
     setSession(nextSession);
+    void registerSecuritySession(data.user);
+    const auditKey = `rivox_login_audit_${nextSession.access_token.slice(-12)}`;
+    if (!sessionStorage.getItem(auditKey)) {
+      sessionStorage.setItem(auditKey, "1");
+      void supabase.rpc("log_workspace_event", { p_action: "login", p_metadata: { source: "web" } });
+    }
 
     if (!data.user.email_confirmed_at) {
       setProfile(null);
@@ -250,12 +396,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } = supabase.auth.onAuthStateChange(async (event, nextSession) => {
       if (!mounted) return;
 
-      const verificationPending =
-        localStorage.getItem(VERIFICATION_PENDING_KEY) === "1";
+      const verificationPending = isVerificationPending();
       const cameFromVerificationLink = isVerificationCallbackUrl();
       const isAutoVerificationSession =
         event === "SIGNED_IN" &&
         Boolean(nextSession?.user?.email_confirmed_at) &&
+        window.location.pathname !== "/accept-invitation" &&
         window.location.pathname !== "/login" &&
         (verificationPending || cameFromVerificationLink);
 
@@ -263,8 +409,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         localStorage.removeItem(VERIFICATION_PENDING_KEY);
         await supabase.auth.signOut({ scope: "local" });
         clearSupabaseStorage();
-        setSession(null);
-        setProfile(null);
+        clearAuthState();
         window.location.replace("/login?confirmed=1");
         return;
       }
@@ -277,6 +422,47 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       subscription.unsubscribe();
     };
   }, []);
+
+  useEffect(() => {
+    if (!session?.user) return;
+    let stopped = false;
+    const sessionKey = `${session.user.id}:${getSecurityDeviceId()}`;
+
+    const heartbeat = async () => {
+      const { data } = await supabase.from("admin_active_sessions")
+        .select("force_logout,status")
+        .eq("session_key", sessionKey)
+        .maybeSingle();
+      if (stopped) return;
+      if (data?.force_logout || data?.status === "revoked") {
+        await supabase.from("admin_security_events").insert({
+          event_type: "force_logout",
+          actor_user_id: session.user.id,
+          actor_email: session.user.email || null,
+          portal: securityPortal(session.user),
+          status: "warning",
+          severity: "warning",
+          device_label: deviceLabel(),
+          user_agent: navigator.userAgent,
+          details: { source: "security_center" },
+        });
+        await supabase.auth.signOut({ scope: "local" });
+        clearSupabaseStorage();
+        clearAuthState();
+        window.location.replace(isStaffPortalRoute() ? "/staff/login?session=revoked" : "/login?session=revoked");
+        return;
+      }
+      await supabase.from("admin_active_sessions").update({
+        last_seen_at: new Date().toISOString(),
+        device_label: deviceLabel(),
+        user_agent: navigator.userAgent,
+      }).eq("session_key", sessionKey);
+    };
+
+    void heartbeat();
+    const timer = window.setInterval(() => void heartbeat(), 60000);
+    return () => { stopped = true; window.clearInterval(timer); };
+  }, [session?.user?.id]);
 
   const signUp = async (email: string, password: string) => {
     const cleanEmail = normalizeEmail(email);
@@ -302,7 +488,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       };
     }
 
-    const { error } = await supabase.auth.signUp({
+    const { data: signUpData, error } = await supabase.auth.signUp({
       email: cleanEmail,
       password,
       options: {
@@ -318,7 +504,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return { error: error.message };
     }
 
-    localStorage.setItem(VERIFICATION_PENDING_KEY, "1");
+    // Supabase deliberately returns a successful-looking response for an
+    // existing email in some configurations. An empty identities array is the
+    // reliable signal that no new account was created.
+    if (signUpData.user && Array.isArray(signUpData.user.identities) && signUpData.user.identities.length === 0) {
+      await supabase.auth.signOut({ scope: "local" });
+      clearSupabaseStorage();
+      clearAuthState();
+      return { error: "This email is already registered. Please sign in or reset your password." };
+    }
+
+    localStorage.setItem(VERIFICATION_PENDING_KEY, String(Date.now()));
     return { error: null };
   };
 
@@ -331,14 +527,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     if (error) return { error: error.message };
 
+    // A deliberate password login from the login form is never the
+    // "auto-signed-in from an email confirmation link" case that
+    // VERIFICATION_PENDING_KEY exists to detect -- clear it so a stuck flag
+    // from an earlier abandoned signup can never force-sign-out this login.
+    localStorage.removeItem(VERIFICATION_PENDING_KEY);
+
     if (data.user?.email_confirmed_at) {
       if (options?.skipProfile) {
         const staff = await findActiveStaffMember(data.user.id, data.user.email);
         if (!staff) {
           await supabase.auth.signOut();
           clearSupabaseStorage();
-          setSession(null);
-          setProfile(null);
+          clearAuthState();
           return { error: "This staff account is not active or not authorized." };
         }
         await syncSession(data.session, { skipProfile: true });
@@ -349,8 +550,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (!profileAfterLogin) {
         await supabase.auth.signOut();
         clearSupabaseStorage();
-        setSession(null);
-        setProfile(null);
+        clearAuthState();
         return { error: "This account is disabled, is a staff account, or could not be loaded." };
       }
     }
@@ -359,18 +559,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const signOut = async () => {
+    if (session?.user) {
+      const sessionKey = `${session.user.id}:${getSecurityDeviceId()}`;
+      await supabase.from("admin_active_sessions").update({
+        status: "expired",
+        last_seen_at: new Date().toISOString(),
+      }).eq("session_key", sessionKey);
+    }
     await supabase.auth.signOut({ scope: "global" });
     clearSupabaseStorage();
-    setSession(null);
-    setProfile(null);
+    clearAuthState();
   };
 
   const refreshProfile = async (options?: { skipProfile?: boolean }) => {
     const { data } = await supabase.auth.getSession();
 
     if (!data.session?.user) {
-      setSession(null);
-      setProfile(null);
+      clearAuthState();
       return null;
     }
 
@@ -395,10 +600,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         user: session?.user ?? null,
         profile,
         loading,
+        workspaceOwnerId,
+        workspaceRole,
+        workspaceStatus,
+        workspaceName,
+        workspacePermissions,
+        workspaceCustomRole,
         signUp,
         signIn,
         signOut,
         refreshProfile,
+        refreshWorkspace,
       }}
     >
       {children}

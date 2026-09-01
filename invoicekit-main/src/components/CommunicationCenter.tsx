@@ -93,6 +93,8 @@ export default function CommunicationCenter({
   const [showNewGroup, setShowNewGroup] = useState(false);
   const [newGroup, setNewGroup] = useState({ name: "", description: "", autoJoin: true });
   const messageEndRef = useRef<HTMLDivElement | null>(null);
+  const [typingName, setTypingName] = useState<string | null>(null);
+  const typingChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
 
   const ensureMembership = async () => {
     if (!user) return;
@@ -181,6 +183,24 @@ export default function CommunicationCenter({
       .subscribe();
     return () => { void supabase.removeChannel(realtime); };
   }, [selectedId]);
+
+  useEffect(() => {
+    if (!selectedId) { setTypingName(null); return; }
+    let clearTimer: number | undefined;
+    const typingChannel = supabase.channel(`team-chat-typing-${selectedId}`, { config: { broadcast: { self: false } } });
+    typingChannel.on("broadcast", { event: "typing" }, ({ payload }) => {
+      if (payload?.userId === user?.id) return;
+      setTypingName(payload?.name || "Someone");
+      window.clearTimeout(clearTimer);
+      clearTimer = window.setTimeout(() => setTypingName(null), 3000);
+    }).subscribe();
+    typingChannelRef.current = typingChannel;
+    return () => { window.clearTimeout(clearTimer); void supabase.removeChannel(typingChannel); typingChannelRef.current = null; setTypingName(null); };
+  }, [selectedId, user?.id]);
+
+  function broadcastTyping() {
+    void typingChannelRef.current?.send({ type: "broadcast", event: "typing", payload: { userId: user?.id, name: actorName } });
+  }
 
   useEffect(() => {
     messageEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -403,10 +423,12 @@ export default function CommunicationCenter({
                 <div ref={messageEndRef} />
               </div>
 
+              {typingName && <p className="px-5 pb-1 text-xs italic text-slate-400">{typingName} is typing...</p>}
+
               <form onSubmit={sendMessage} className="border-t border-slate-200 bg-white p-4 sm:p-5">
                 <div className="flex items-end gap-3 rounded-3xl border border-slate-200 bg-slate-50 p-2 focus-within:border-violet-400 focus-within:ring-4 focus-within:ring-violet-100">
                   <button type="button" className="grid h-10 w-10 shrink-0 place-items-center rounded-2xl text-lg text-slate-500 transition hover:bg-white hover:text-violet-600" title="Attachments coming soon">＋</button>
-                  <textarea value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void sendMessage(); } }} rows={1} placeholder="Write a message..." className="max-h-32 min-h-[40px] flex-1 resize-none bg-transparent px-1 py-2 text-sm text-slate-800 outline-none placeholder:text-slate-400" />
+                  <textarea value={draft} onChange={(event) => { setDraft(event.target.value); broadcastTyping(); }} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void sendMessage(); } }} rows={1} placeholder="Write a message..." className="max-h-32 min-h-[40px] flex-1 resize-none bg-transparent px-1 py-2 text-sm text-slate-800 outline-none placeholder:text-slate-400" />
                   <button type="submit" disabled={!draft.trim() || sending} className="rounded-2xl bg-violet-600 px-5 py-3 text-sm font-black text-white shadow-lg shadow-violet-600/20 transition hover:bg-violet-500 disabled:cursor-not-allowed disabled:opacity-40">{sending ? "Sending" : "Send"}</button>
                 </div>
               </form>

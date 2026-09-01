@@ -2,7 +2,8 @@ import { useState, useRef, useEffect, type FormEvent } from "react";
 import { supabase } from "../lib/supabase";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
-import { getGlobalCountryConfig, getGlobalCountries } from "../lib/globalConfig";
+import { getGlobalCountryConfig } from "../lib/globalConfig";
+import CountrySelect from "../components/CountrySelect";
 
 
 // Time zones list
@@ -18,13 +19,6 @@ const TIME_ZONES = [
   { value: "Asia/Tokyo", label: "Japan Standard Time (JST)" },
   { value: "Australia/Sydney", label: "Australian Eastern Time (AET)" },
 ];
-
-// Previously a hand-picked 10-country list (+ "Other") that was completely
-// disconnected from the Settings page's country list — meaning a user could
-// come here instead of Settings, pick "Other" (or any country not in this
-// list), and silently have their currency reset to USD. Now derived from
-// the same shared country config as everywhere else in the app.
-const COUNTRIES = getGlobalCountries();
 
 // Password strength calculator
 function getPasswordStrength(password: string): {
@@ -198,16 +192,22 @@ export default function Account() {
     variant?: "primary" | "danger";
   } | null>(null);
 
-  // Initialize form from profile
+  // Initialize form from profile.
+  // IMPORTANT (fixes Bug-002): only populate once per visit — see the matching
+  // fix/comment in Settings.tsx. Re-running this on every background profile
+  // refresh would wipe unsaved edits (and any just-uploaded avatar/logo) back
+  // to the last-saved values after a short delay.
+  const profileLoadedRef = useRef(false);
   useEffect(() => {
-    if (profile) {
+    if (profile && !profileLoadedRef.current) {
       setFullName(profile.business_name ?? "");
       setBusinessName(profile.business_name ?? "");
       setPhone(profile.phone ?? "");
       setAvatarUrl(profile.logo_url ?? null);
 
       setCountry(profile.country ?? "");
-setTimezone(profile.timezone ?? "UTC");
+      setTimezone(profile.timezone ?? "UTC");
+      profileLoadedRef.current = true;
     }
   }, [profile]);
 
@@ -277,10 +277,34 @@ currency: config.currency,
 
   async function handleChangePassword(e: FormEvent) {
     e.preventDefault();
-    if (!user || newPassword !== confirmPassword) {
+
+    if (!user?.email) {
+      setMessage({ type: "error", text: "Unable to verify your account." });
+      return;
+    }
+
+    if (!currentPassword) {
+      setMessage({ type: "error", text: "Enter your current password." });
+      return;
+    }
+
+    if (newPassword.length < 8) {
       setMessage({
         type: "error",
-        text: "Passwords do not match",
+        text: "New password must be at least 8 characters.",
+      });
+      return;
+    }
+
+    if (newPassword !== confirmPassword) {
+      setMessage({ type: "error", text: "Passwords do not match." });
+      return;
+    }
+
+    if (currentPassword === newPassword) {
+      setMessage({
+        type: "error",
+        text: "New password must be different from your current password.",
       });
       return;
     }
@@ -288,17 +312,46 @@ currency: config.currency,
     setChangingPassword(true);
     setMessage(null);
 
-    // Placeholder - would call Supabase auth in real implementation
-    await new Promise((resolve) => setTimeout(resolve, 1000));
+    try {
+      // Re-authenticate first so a wrong current password can never show a
+      // false success message. This also refreshes a stale auth session.
+      const { error: verifyError } = await supabase.auth.signInWithPassword({
+        email: user.email,
+        password: currentPassword,
+      });
 
-    setChangingPassword(false);
-    setMessage({
-      type: "success",
-      text: "Password updated successfully!",
-    });
-    setCurrentPassword("");
-    setNewPassword("");
-    setConfirmPassword("");
+      if (verifyError) {
+        setMessage({
+          type: "error",
+          text: "Current password is incorrect.",
+        });
+        return;
+      }
+
+      const { error: updateError } = await supabase.auth.updateUser({
+        password: newPassword,
+      });
+
+      if (updateError) {
+        setMessage({ type: "error", text: updateError.message });
+        return;
+      }
+
+      setCurrentPassword("");
+      setNewPassword("");
+      setConfirmPassword("");
+      setMessage({
+        type: "success",
+        text: "Password updated successfully. Use the new password next time you log in.",
+      });
+    } catch (error) {
+      setMessage({
+        type: "error",
+        text: error instanceof Error ? error.message : "Unable to update password.",
+      });
+    } finally {
+      setChangingPassword(false);
+    }
   }
 
   function handleExportData() {
@@ -526,17 +579,7 @@ currency: config.currency,
             </div>
             <div>
               <label className="label">Country</label>
-              <select
-                value={country}
-                onChange={(e) => setCountry(e.target.value)}
-                className="input"
-              >
-                {COUNTRIES.map((c) => (
-                  <option key={c} value={c}>
-                    {c}
-                  </option>
-                ))}
-              </select>
+              <CountrySelect value={country} onChange={setCountry} />
             </div>
             <div>
               <label className="label">Time Zone</label>
@@ -599,6 +642,8 @@ currency: config.currency,
                       onChange={(e) => setCurrentPassword(e.target.value)}
                       className="input pr-10"
                       placeholder="••••••••"
+                      autoComplete="current-password"
+                      required
                     />
                     <button
                       type="button"
@@ -650,6 +695,9 @@ currency: config.currency,
                     onChange={(e) => setNewPassword(e.target.value)}
                     className="input"
                     placeholder="••••••••"
+                    autoComplete="new-password"
+                    minLength={8}
+                    required
                   />
                 </div>
                 <div>
@@ -660,6 +708,9 @@ currency: config.currency,
                     onChange={(e) => setConfirmPassword(e.target.value)}
                     className="input"
                     placeholder="••••••••"
+                    autoComplete="new-password"
+                    minLength={8}
+                    required
                   />
                 </div>
               </div>

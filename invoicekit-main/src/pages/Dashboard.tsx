@@ -5,6 +5,7 @@ import { useAuth } from "../context/AuthContext";
 import type { Invoice, Client } from "../lib/types";
 import { formatDate, FREE_PLAN_LIMIT } from "../lib/constants";
 import { formatMoney } from "../lib/currency";
+import { invoiceBaseAmount, invoicePaidBaseAmount, invoiceDate, startOfDay, endOfDay, isWithin } from "../lib/invoiceAnalytics";
 
 // Skeleton loader component
 function Skeleton({ className }: { className?: string }) {
@@ -231,7 +232,7 @@ function ActivityItem({
   );
 }
 
-// Revenue chart built from the user's real paid invoices (no placeholder data)
+// Revenue chart built from real paid invoices in the business base currency
 function RevenueChart({
   period,
   currency,
@@ -242,19 +243,19 @@ function RevenueChart({
   invoices: Invoice[];
 }) {
   const now = new Date();
-  const startOfDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
-  const endOfDay = (d: Date) =>
-    new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59, 999);
-  const invoiceDate = (inv: Invoice) => new Date(inv.invoice_date || inv.created_at);
-
-  const paid = invoices.filter((inv) => inv.status === "paid");
+  const paid = invoices.filter((invoice) => invoice.status === "paid");
   const buckets: { label: string; value: number; start: Date; end: Date }[] = [];
 
   if (period === "year") {
     for (let month = 0; month < 12; month += 1) {
       const start = new Date(now.getFullYear(), month, 1);
       const end = new Date(now.getFullYear(), month + 1, 0, 23, 59, 59, 999);
-      buckets.push({ label: start.toLocaleDateString("en-US", { month: "short" }), start, end, value: 0 });
+      buckets.push({
+        label: start.toLocaleDateString("en-US", { month: "short" }),
+        start,
+        end,
+        value: 0,
+      });
     }
   } else {
     const days = period === "7d" ? 7 : 30;
@@ -270,14 +271,14 @@ function RevenueChart({
     }
   }
 
-  paid.forEach((inv) => {
-    const date = invoiceDate(inv);
-    const bucket = buckets.find((b) => date >= b.start && date <= b.end);
-    if (bucket) bucket.value += Number(inv.total) || 0;
+  paid.forEach((invoice) => {
+    const date = invoiceDate(invoice);
+    const bucket = buckets.find((item) => isWithin(date, item.start, item.end));
+    if (bucket) bucket.value += invoicePaidBaseAmount(invoice);
   });
 
-  const data = buckets.map((b) => b.value);
-  const total = data.reduce((sum, v) => sum + v, 0);
+  const data = buckets.map((bucket) => bucket.value);
+  const total = data.reduce((sum, value) => sum + value, 0);
   const maxValue = Math.max(...data, 1);
 
   const currentStart = buckets[0]?.start ?? startOfDay(now);
@@ -286,11 +287,8 @@ function RevenueChart({
   const previousEnd = new Date(currentStart.getTime() - 1);
   const previousStart = new Date(previousEnd.getTime() - duration + 1);
   const previousTotal = paid
-    .filter((inv) => {
-      const d = invoiceDate(inv);
-      return d >= previousStart && d <= previousEnd;
-    })
-    .reduce((sum, inv) => sum + (Number(inv.total) || 0), 0);
+    .filter((invoice) => isWithin(invoiceDate(invoice), previousStart, previousEnd))
+    .reduce((sum, invoice) => sum + invoicePaidBaseAmount(invoice), 0);
   const growth = previousTotal > 0 ? ((total - previousTotal) / previousTotal) * 100 : total > 0 ? 100 : 0;
 
   return (
@@ -298,44 +296,29 @@ function RevenueChart({
       <div className="pointer-events-none absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-violet-600 via-indigo-500 to-cyan-400" />
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h3 className="text-lg font-semibold text-slate-900">
-            Revenue Overview
-          </h3>
-          <p className="text-sm text-slate-500 mt-0.5">
-            Paid revenue: {formatMoney(total, currency)}
-          </p>
+          <h3 className="text-lg font-semibold text-slate-900">Revenue Overview</h3>
+          <p className="text-sm text-slate-500 mt-0.5">Paid revenue: {formatMoney(total, currency)}</p>
         </div>
-        {total > 0 || previousTotal > 0 ? (
-          <div className={`text-sm font-medium ${growth >= 0 ? "text-green-600" : "text-red-600"}`}>
-            {growth >= 0 ? "+" : ""}
-            {growth.toFixed(1)}% <span className="font-normal text-slate-500">vs previous period</span>
-          </div>
-        ) : null}
+        <div className={`text-sm font-medium ${growth >= 0 ? "text-green-600" : "text-red-600"}`}>
+          {growth >= 0 ? "+" : ""}{growth.toFixed(1)}% <span className="font-normal text-slate-500">vs previous period</span>
+        </div>
       </div>
-
-      {/* Simple bar chart */}
       <div className="flex items-end gap-1.5 h-40">
-        {buckets.map((bucket, i) => (
-          <div
-            key={`${bucket.label}-${i}`}
-            className="flex-1 bg-gradient-to-t from-primary-500 to-primary-400 rounded-t transition-all duration-500 hover:from-primary-600 hover:to-primary-500 group relative"
-            style={{ height: `${Math.max((bucket.value / maxValue) * 100, bucket.value > 0 ? 4 : 1)}%` }}
-          >
-            <div className="absolute -top-8 left-1/2 -translate-x-1/2 bg-slate-900 text-white text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">
+        {buckets.map((bucket, index) => (
+          <div key={`${bucket.label}-${index}`} className="group relative flex-1 bg-gradient-to-t from-primary-500 to-primary-400 rounded-t" style={{ height: `${Math.max((bucket.value / maxValue) * 100, bucket.value > 0 ? 4 : 1)}%` }}>
+            <div className="absolute -top-12 left-1/2 -translate-x-1/2 bg-slate-900 text-white text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10">
               {bucket.label}: {formatMoney(bucket.value, currency)}
             </div>
           </div>
         ))}
       </div>
-      {total === 0 && (
-        <p className="mt-4 text-center text-sm text-slate-500">No paid revenue in this period.</p>
-      )}
+      {total === 0 && <p className="mt-4 text-center text-sm text-slate-500">No paid revenue in this period.</p>}
     </div>
   );
 }
 
 export default function Dashboard() {
-  const { user, profile } = useAuth();
+  const { user, profile, workspaceOwnerId, workspaceRole, workspaceName } = useAuth();
   const navigate = useNavigate();
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
@@ -350,13 +333,13 @@ export default function Dashboard() {
       supabase
         .from("invoices")
         .select("*")
-        .eq("user_id", user.id)
+        .eq("user_id", workspaceOwnerId || user.id)
         .order("created_at", { ascending: false }),
 
       supabase
         .from("clients")
         .select("*")
-        .eq("user_id", user.id)
+        .eq("user_id", workspaceOwnerId || user.id)
         .order("created_at", { ascending: false }),
     ]);
 
@@ -367,7 +350,7 @@ export default function Dashboard() {
   }
 
   load();
-}, [user]);
+}, [user, workspaceOwnerId]);
 
   // Calculate statistics
   const now = new Date();
@@ -382,19 +365,20 @@ export default function Dashboard() {
   const overdueInvoices = invoices.filter((inv) => inv.status === "overdue");
 
   const totalRevenue = paidInvoices.reduce(
-    (sum, inv) => sum + Number(inv.total),
+    (sum, inv) => sum + invoicePaidBaseAmount(inv),
     0
   );
   const pendingAmount = pendingInvoices.reduce(
-    (sum, inv) => sum + Number(inv.total),
+    (sum, inv) => sum + invoiceBaseAmount(inv),
     0
   );
   const overdueAmount = overdueInvoices.reduce(
-    (sum, inv) => sum + Number(inv.total),
+    (sum, inv) => sum + invoiceBaseAmount(inv),
     0
   );
 
-  const isPro = profile?.is_pro ?? false;
+  const planName = profile?.plan === "business" ? "Business" : profile?.plan === "pro" || profile?.is_pro ? "Pro" : "Free";
+  const isPro = planName !== "Free";
   const invoiceBalance = Number(profile?.credits ?? 0);
   const freeRemaining = Math.max(0, FREE_PLAN_LIMIT - invoicesThisMonth);
   // Business rule: 1 invoice balance = 1 extra invoice after free monthly limit.
@@ -413,8 +397,9 @@ export default function Dashboard() {
     .slice(0, 5);
 
   // Plan badge
-  const planName = isPro ? "Pro" : "Free";
-  const planBadgeColor = isPro
+  const planBadgeColor = planName === "Business"
+    ? "bg-gradient-to-r from-amber-300 to-yellow-400 text-amber-950"
+    : isPro
     ? "bg-gradient-to-r from-primary-600 to-primary-700 text-white"
     : "bg-slate-100 text-slate-600";
 
@@ -429,14 +414,14 @@ export default function Dashboard() {
           <div>
             <div className="flex items-center gap-3 mb-1">
               <h1 className="text-3xl font-black tracking-tight text-white sm:text-4xl">
-                Welcome back{profile?.business_name ? `, ${profile.business_name}` : ""}
+                {workspaceRole === "owner" ? `Welcome back${profile?.business_name ? `, ${profile.business_name}` : ""}` : workspaceName || profile?.business_name || "Workspace"}
               </h1>
-              <Link
+              {workspaceRole === "owner" ? <Link
   to="/billing"
   className={`px-3 py-1 rounded-full text-xs font-semibold hover:scale-105 transition ${planBadgeColor}`}
 >
   {planName}
-</Link>
+</Link> : <span className={`px-3 py-1 rounded-full text-xs font-semibold ${planBadgeColor}`}>{planName}</span>}
             </div>
             <p className="mt-2 max-w-xl text-sm text-indigo-100 sm:text-base">
               A live view of revenue, invoices, clients and the work that needs your attention.
@@ -481,7 +466,7 @@ export default function Dashboard() {
             </svg>
             Add Client
           </Link>
-         <Link
+         {workspaceRole === "owner" && <Link
   to="/billing"
   className="inline-flex items-center gap-2 rounded-xl border border-white/20 bg-white/10 px-5 py-3 font-semibold text-white backdrop-blur transition hover:bg-white/20"
 >
@@ -500,7 +485,7 @@ export default function Dashboard() {
   </svg>
 
   Billing
-</Link>
+</Link>}
         </div>
       </div>
       </section>
@@ -720,8 +705,8 @@ export default function Dashboard() {
                     type={inv.status === "paid" ? "payment" : inv.status === "overdue" ? "overdue" : "invoice"}
                     title={`${inv.invoice_number} ${inv.status === "paid" ? "paid" : "created"}`}
                     description={`${inv.client_name} • ${formatMoney(
-  Number(inv.invoice_total ?? inv.total),
-  inv.invoice_currency ?? profile?.currency ?? "USD"
+  invoiceBaseAmount(inv),
+  profile?.currency ?? "USD"
 )}`}
                     timestamp={formatDate(inv.created_at)}
                     icon={

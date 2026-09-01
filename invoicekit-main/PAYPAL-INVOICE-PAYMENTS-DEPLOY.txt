@@ -1,0 +1,28 @@
+Rivox PayPal BYOG invoice payments
+==================================
+
+Files in this package:
+- src/components/PaymentGatewaySettings.tsx
+- src/pages/Settings.tsx
+- src/pages/ShareInvoice.tsx
+- src/pages/Billing.tsx
+- supabase/migrations/20260719090000_invoice_payments_byog.sql
+- supabase/functions/payment-gateway/index.ts + deno.json
+- supabase/functions/paypal-invoice-payments/index.ts + deno.json
+- supabase/config.toml
+
+Required Supabase secrets:
+- PAYMENT_CREDENTIALS_ENCRYPTION_KEY (random value, minimum 32 characters)
+- SITE_URL=https://getrivox.vercel.app
+- RESEND_API_KEY and RESEND_FROM_EMAIL (already used by Rivox emails)
+
+Deployment order:
+1. Copy all files into the Rivox project.
+2. Run: supabase db push
+3. Set PAYMENT_CREDENTIALS_ENCRYPTION_KEY and SITE_URL using supabase secrets set.
+4. Deploy payment-gateway.
+5. Deploy paypal-invoice-payments with JWT verification disabled.
+6. Run npm run build, commit and push.
+7. In Rivox Settings, connect PayPal Sandbox credentials and test one invoice.
+
+Never commit PayPal Client Secrets or PAYMENT_CREDENTIALS_ENCRYPTION_KEY to Git.
