@@ -21,11 +21,25 @@ function invoiceDiscountAmount(invoice: Invoice, itemsSubtotal: number): number 
   return Math.min(Math.max(0, raw), itemsSubtotal);
 }
 
-function lineTax(items: LineItem[] | null | undefined, reductionFactor = 1): number {
+function lineTax(items: LineItem[] | null | undefined, reductionFactor = 1, taxApplies = true): number {
+  if (!taxApplies) return 0;
   return (items ?? []).reduce((sum, item) => {
     const taxable = Number(item.qty || 0) * Number(item.rate || 0) * reductionFactor;
     return sum + (taxable * Number(item.gstRate || 0)) / 100;
   }, 0);
+}
+
+// Mirrors gst.ts calculateInvoice()'s India-export zero-rating rule: an
+// India-based business billing a foreign client is zero-rated by law
+// (Section 16 IGST Act) regardless of each line's own gstRate. Without this,
+// the "repair a stale stored total" check below would recompute tax on
+// every line at its nominal rate and overwrite a correct zero-rated total
+// with an inflated one -- exactly the Dashboard/Invoice mismatch bug this
+// comment is here to prevent from coming back.
+function isIndiaExportZeroRated(invoice: Invoice): boolean {
+  const businessCountry = invoice.business_country ?? "India";
+  const clientCountry = invoice.client_country ?? businessCountry;
+  return businessCountry === "India" && businessCountry !== clientCountry;
 }
 
 export function invoiceDisplayAmount(invoice: Invoice): number {
@@ -33,7 +47,7 @@ export function invoiceDisplayAmount(invoice: Invoice): number {
   const discountAmount = invoiceDiscountAmount(invoice, itemsSubtotal);
   const discountedSubtotal = itemsSubtotal - discountAmount;
   const reductionFactor = itemsSubtotal > 0 ? discountedSubtotal / itemsSubtotal : 1;
-  const itemTotal = discountedSubtotal + lineTax(invoice.items, reductionFactor);
+  const itemTotal = discountedSubtotal + lineTax(invoice.items, reductionFactor, !isIndiaExportZeroRated(invoice));
   const storedInvoiceTotal = Number(invoice.invoice_total ?? invoice.total ?? 0);
 
   // Old cross-currency rows can contain an inflated stored total. The invoice
