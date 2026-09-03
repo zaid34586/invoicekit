@@ -1035,7 +1035,7 @@ export default function NewInvoice() {
               {/* Show base equivalent when foreign currency is used */}
               {isForeignCurrency && (
                 <p className="text-xs text-slate-400 text-right">
-                  ≈ {formatMoney(calc.total, baseCurrency)} (base {baseCurrency})
+                  ≈ {formatMoney(baseTotal, baseCurrency)} (base {baseCurrency})
                 </p>
               )}
             </div>
