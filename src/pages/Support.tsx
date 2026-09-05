@@ -415,7 +415,7 @@ export default function Support() {
             </div>
           </div>
           <div className="max-h-[620px] overflow-y-auto divide-y divide-slate-100">
-            {loading ? <p className="p-6 text-sm text-slate-500">Loading tickets...</p> : filteredTickets.length === 0 ? (
+            {loading && tickets.length === 0 ? <p className="p-6 text-sm text-slate-500">Loading tickets...</p> : filteredTickets.length === 0 ? (
               <div className="p-8 text-center"><div className="text-4xl">🎫</div><p className="mt-3 font-semibold text-slate-800">No tickets found</p><p className="mt-1 text-sm text-slate-500">Create a ticket whenever you need help.</p></div>
             ) : filteredTickets.map((ticket) => (
               <button key={ticket.id} onClick={() => setSelectedId(ticket.id)} className={`w-full p-4 text-left hover:bg-slate-50 transition ${selectedId === ticket.id ? "bg-primary-50/70 border-l-4 border-primary-600" : "border-l-4 border-transparent"}`}>
