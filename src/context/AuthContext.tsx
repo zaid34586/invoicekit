@@ -231,17 +231,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // Staff accounts must never become customer profiles. Staff login has its
     // own portal and reads admin_team_members instead of profiles. Without this
     // guard, every /staff/login created a customer row and polluted Admin → Users.
-    const activeStaff = await findActiveStaffMember(userId, cleanEmail);
+    //
+    // The staff check and the profile lookup are independent queries keyed
+    // off the same userId/email -- for the ~99% of logins that are ordinary
+    // customers, waiting for the staff check to finish before even starting
+    // the profile fetch added a whole extra sequential network round trip to
+    // every single page load. Firing both together and picking the right
+    // result once both land cuts that wait in half.
+    const [activeStaff, { data: existing, error: fetchError }] = await Promise.all([
+      findActiveStaffMember(userId, cleanEmail),
+      supabase.from("profiles").select("*").or(`user_id.eq.${userId},id.eq.${userId}`).maybeSingle(),
+    ]);
+
     if (activeStaff) {
       setProfile(null);
       return null;
     }
-
-    const { data: existing, error: fetchError } = await supabase
-      .from("profiles")
-      .select("*")
-      .or(`user_id.eq.${userId},id.eq.${userId}`)
-      .maybeSingle();
 
     if (fetchError) {
       console.error("Profile fetch error:", fetchError.message);
@@ -317,65 +322,52 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return null;
     }
 
-    let { data, error } = await supabase.auth.getUser();
-
-    // Bug fix: a refresh used to log staff/customers out instantly on ANY
-    // getUser() hiccup (a cold network request, a brief Supabase blip right
-    // after a token refresh, etc). That's not proof the session is invalid --
-    // only an explicit auth error (expired/invalid JWT) is. For anything
-    // else, retry once before giving up, and otherwise trust the session we
-    // already have from localStorage rather than force-signing-out.
-    if (error) {
+    // Bug fix (perf): this used to block every single page load on an extra
+    // supabase.auth.getUser() network round trip (plus a 600ms-delayed retry
+    // on any hiccup) before rendering anything. nextSession here already
+    // comes from Supabase's own getSession()/onAuthStateChange, which have
+    // already validated the JWT's signature and expiry locally -- that's
+    // trustworthy enough to render on immediately. We still perform the
+    // server-side revalidation (it catches a token that was revoked/banned
+    // server-side, which local validation can't see), just in the
+    // background so it no longer blocks the page.
+    const user = nextSession.user;
+    void supabase.auth.getUser().then(({ error }) => {
+      if (!error) return;
       const authInvalid = error.status === 401 || /invalid|expired|revoked/i.test(error.message || "");
       if (authInvalid) {
-        await supabase.auth.signOut();
-        clearSupabaseStorage();
-        clearAuthState();
-        return null;
+        void supabase.auth.signOut().then(() => {
+          clearSupabaseStorage();
+          clearAuthState();
+        });
       }
-      // Transient error (network blip, cold start) -- retry once.
-      await new Promise((resolve) => setTimeout(resolve, 600));
-      const retry = await supabase.auth.getUser();
-      data = retry.data;
-      error = retry.error;
-      if (error || !data.user) {
-        // Still failing, but not a confirmed-invalid session -- keep the
-        // person signed in on the session we have rather than bouncing them.
-        setSession(nextSession);
-        return null;
-      }
-    }
-
-    if (!data.user) {
-      await supabase.auth.signOut();
-      clearSupabaseStorage();
-      clearAuthState();
-      return null;
-    }
+      // Any other error is transient (network blip, cold start) -- the
+      // session we already rendered with stays trusted.
+    });
 
     setSession(nextSession);
-    void registerSecuritySession(data.user);
+    void registerSecuritySession(user);
     const auditKey = `rivox_login_audit_${nextSession.access_token.slice(-12)}`;
     if (!sessionStorage.getItem(auditKey)) {
       sessionStorage.setItem(auditKey, "1");
       void supabase.rpc("log_workspace_event", { p_action: "login", p_metadata: { source: "web" } });
     }
 
-    if (!data.user.email_confirmed_at) {
+    if (!user.email_confirmed_at) {
       setProfile(null);
       return null;
     }
 
     const skipProfile = options?.skipProfile || isStaffPortalRoute();
     if (skipProfile) {
-      const staff = await findActiveStaffMember(data.user.id, data.user.email);
+      const staff = await findActiveStaffMember(user.id, user.email);
       if (staff) {
         setProfile(null);
         return null;
       }
     }
 
-    return await fetchOrCreateProfile(data.user.id, data.user.email);
+    return await fetchOrCreateProfile(user.id, user.email);
   }
 
   useEffect(() => {
