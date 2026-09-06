@@ -75,7 +75,7 @@ Deno.serve(async (req) => {
         .eq("status", "pending")
         .lte("expires_at", new Date().toISOString());
 
-      const [{ data: dbMembers, error: memberError }, { data: invites, error: inviteError }] =
+      const [{ data: dbMembers, error: memberError }, { data: invites, error: inviteError }, { data: templates, error: templateError }] =
         await Promise.all([
           admin
             .from("workspace_members")
@@ -84,13 +84,18 @@ Deno.serve(async (req) => {
             .order("created_at"),
           admin
             .from("workspace_invitations")
-            .select("id,email,name,role,status,expires_at,created_at,email_status,email_sent_at,email_error,last_email_attempt_at")
+            .select("id,email,name,role,status,expires_at,created_at,email_status,email_sent_at,email_error,last_email_attempt_at,permissions,custom_role_name")
             .eq("workspace_id", workspaceId)
             .eq("status", "pending")
             .order("created_at", { ascending: false }),
+          admin
+            .from("workspace_role_templates")
+            .select("id,name,permissions")
+            .eq("workspace_id", workspaceId)
+            .order("name"),
         ]);
 
-      if (memberError || inviteError) throw memberError || inviteError;
+      if (memberError || inviteError || templateError) throw memberError || inviteError || templateError;
 
       const owner = {
         id: `owner-${user.id}`,
@@ -111,7 +116,33 @@ Deno.serve(async (req) => {
         plan,
         seatLimit: limit,
         seatsUsed: members.filter((m: any) => m.role !== "owner" && m.status === "active").length,
+        roleTemplates: plan === "business" ? (templates || []) : [],
       });
+    }
+
+    if (action === "save_template") {
+      const plan = (profile?.plan || (profile?.is_pro ? "pro" : "free")) as string;
+      if (plan !== "business") return json({ error: "Custom role templates are a Business-plan feature." }, 403);
+      const name = String(body.name || "").trim();
+      const permissions = Array.isArray(body.permissions) ? body.permissions : [];
+      if (!name) return json({ error: "Template name is required." }, 400);
+      if (permissions.length === 0) return json({ error: "Select at least one permission." }, 400);
+      const { data: saved, error: saveError } = await admin
+        .from("workspace_role_templates")
+        .upsert({ workspace_id: workspaceId, name, permissions, updated_at: new Date().toISOString() }, { onConflict: "workspace_id,name" })
+        .select("id,name,permissions")
+        .single();
+      if (saveError) return json({ error: saveError.message }, 400);
+      return json({ success: true, template: saved });
+    }
+
+    if (action === "delete_template") {
+      const plan = (profile?.plan || (profile?.is_pro ? "pro" : "free")) as string;
+      if (plan !== "business") return json({ error: "Custom role templates are a Business-plan feature." }, 403);
+      const templateId = String(body.templateId || "");
+      if (!templateId) return json({ error: "templateId is required." }, 400);
+      await admin.from("workspace_role_templates").delete().eq("id", templateId).eq("workspace_id", workspaceId);
+      return json({ success: true });
     }
 
     if (action === "invite") {
@@ -123,10 +154,13 @@ Deno.serve(async (req) => {
       }
 
       // Expired pending rows must not block a fresh invitation. Remove only
-      // unaccepted Auth accounts created by those invitations.
+      // unaccepted Auth accounts created by those invitations. Run these
+      // independent per-invite cleanups in parallel -- previously this ran
+      // one invite at a time, adding real latency to every single new
+      // invite whenever old expired invites had piled up.
       const { data: expiredInvites } = await admin.from("workspace_invitations")
         .select("id,email").eq("workspace_id", workspaceId).eq("status", "pending").lte("expires_at", new Date().toISOString());
-      for (const expired of expiredInvites || []) {
+      await Promise.all((expiredInvites || []).map(async (expired) => {
         const expiredUser = await findAuthUserByEmail(admin, expired.email.toLowerCase());
         if (expiredUser?.user_metadata?.workspace_invitation_id === expired.id) {
           const [{ count: memberships }, { count: ownedWorkspaces }] = await Promise.all([
@@ -138,11 +172,16 @@ Deno.serve(async (req) => {
             await admin.auth.admin.deleteUser(expiredUser.id);
           }
         }
-      }
+      }));
       if (expiredInvites?.length) await admin.from("workspace_invitations").update({ status: "expired", updated_at: new Date().toISOString() }).in("id", expiredInvites.map((item) => item.id));
 
       const plan = (profile?.plan || (profile?.is_pro ? "pro" : "free")) as string;
       const limit = plan === "business" ? 999999 : plan === "pro" ? 3 : 0;
+      // Custom permissions at invite time is a Business-plan feature -- Pro
+      // stays limited to the 3 preset roles (manager/accountant/staff),
+      // which is what actually differentiates Business beyond seat count.
+      const customPermissions = plan === "business" && Array.isArray(body.permissions) && body.permissions.length > 0 ? body.permissions : null;
+      const customRoleName = plan === "business" && typeof body.customRoleName === "string" && body.customRoleName.trim() ? body.customRoleName.trim() : null;
       const { count } = await admin
         .from("workspace_members")
         .select("id", { count: "exact", head: true })
@@ -206,7 +245,7 @@ Deno.serve(async (req) => {
       const expires = new Date(Date.now() + 7 * 86400000).toISOString();
       const { data: invite, error: inviteError } = await admin
         .from("workspace_invitations")
-        .insert({ workspace_id: workspaceId, email, name, role, invited_by: user.id, expires_at: expires })
+        .insert({ workspace_id: workspaceId, email, name, role, permissions: customPermissions, custom_role_name: customRoleName, invited_by: user.id, expires_at: expires })
         .select()
         .single();
 
@@ -235,7 +274,7 @@ Deno.serve(async (req) => {
       }
       const emailResult = { sent: true, id: invitedUser.user?.id };
       await recordInvitationEmail(admin, invite.id, email, emailResult);
-      await admin.from("workspace_audit_logs").insert({ workspace_id: workspaceId, actor_user_id: user.id, actor_email: user.email, action: "member.invited", entity_type: "workspace_invitation", entity_id: invite.id, metadata: { email, role } });
+      await admin.from("workspace_audit_logs").insert({ workspace_id: workspaceId, actor_user_id: user.id, actor_email: user.email, action: "member.invited", entity_type: "workspace_invitation", entity_id: invite.id, metadata: { email, role, customRoleName } });
       return json({ success: true, invite, emailSent: emailResult.sent, emailError: emailResult.error || null });
     }
 
