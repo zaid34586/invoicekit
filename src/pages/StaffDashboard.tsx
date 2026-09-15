@@ -20,6 +20,7 @@ interface TaskRow {
   task_type?: "simple" | "queue";
   queue_field_schema?: { key: string; label: string }[] | null;
   queue_target_count?: number | null;
+  sample_files?: { url: string; name: string; type?: string }[] | null;
 }
 interface QueueItemRow {
   id: string; task_id: string; data: Record<string, string>; status: "pending" | "red" | "orange" | "green";
@@ -86,6 +87,27 @@ function taskStatusLabel(status: string) {
   if (status === "blocked") return "Need Help";
   if (status === "done") return "Completed";
   return status.replace("_", " ");
+}
+
+// Explicit extension -> MIME map so uploads always send a content-type the
+// bucket allows. Browser file.type is often empty for CSV/DOC, which would
+// otherwise default to application/octet-stream and get rejected.
+const DOC_MIME_BY_EXT: Record<string, string> = {
+  pdf: "application/pdf",
+  doc: "application/msword",
+  docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  xls: "application/vnd.ms-excel",
+  xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  csv: "text/csv",
+  png: "image/png",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  webp: "image/webp",
+  gif: "image/gif",
+};
+function mimeForFile(file: File) {
+  const ext = (file.name.split(".").pop() || "").toLowerCase();
+  return DOC_MIME_BY_EXT[ext] || file.type || "application/octet-stream";
 }
 
 // Finds an already-existing queue item that duplicates the lead being added,
@@ -214,7 +236,7 @@ export default function StaffDashboard() {
     if (hasStaffPermission(team.role, "tasks")) {
       const { data: taskData } = await supabase
         .from("admin_tasks")
-        .select("id, title, description, status, priority, due_date, progress, staff_notes, internal_notes, department, last_staff_update, resources, requires_verification, draft_content, ai_verification_status, ai_verification_feedback, submission_url, submission_screenshot_url, submission_notes, submitted_at, task_type, queue_field_schema, queue_target_count")
+        .select("id, title, description, status, priority, due_date, progress, staff_notes, internal_notes, department, last_staff_update, resources, requires_verification, draft_content, ai_verification_status, ai_verification_feedback, submission_url, submission_screenshot_url, submission_notes, submitted_at, task_type, queue_field_schema, queue_target_count, sample_files")
         .or(`assigned_to.eq.${team.id},assigned_to.is.null`)
         .order("created_at", { ascending: false })
         .limit(40);
@@ -583,15 +605,22 @@ export default function StaffDashboard() {
 
   // Uploads the prepared lead document (PDF / DOC / Excel / CSV) for the task.
   async function uploadLeadDocFile(task: TaskRow, file: File) {
-    if (!user) return;
+    if (!user) { setMessage("Please sign in again and retry the upload."); return; }
     setQueueLeadDocUploading(true);
     try {
-      const ext = file.name.split(".").pop() || "bin";
+      const ext = file.name.split(".").pop()?.toLowerCase() || "bin";
       const path = `lead-docs/${task.id}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
-      const { error: uploadError } = await supabase.storage.from("task-attachments").upload(path, file, { contentType: file.type || undefined, upsert: false });
-      if (uploadError) { setMessage(`Upload failed: ${uploadError.message}`); return; }
+      const { error: uploadError } = await supabase.storage.from("task-attachments").upload(path, file, { contentType: mimeForFile(file), upsert: false });
+      if (uploadError) {
+        const msg = uploadError.message.toLowerCase();
+        if (msg.includes("row-level security") || msg.includes("policy")) setMessage("Upload blocked by database policy — admin ne nayi migration (task-attachments bucket update) run nahi ki hai. Migration chalao ya admin se bolo.");
+        else if (msg.includes("mimetype") || msg.includes("content-type") || msg.includes("mime")) setMessage(`File type not allowed — sirf PDF / DOC / XLS / CSV / images upload kar sakte ho. (${uploadError.message})`);
+        else if (msg.includes("size") || msg.includes("large")) setMessage(`File too large — max 25MB. (${uploadError.message})`);
+        else setMessage(`Upload failed: ${uploadError.message}`);
+        return;
+      }
       const { data } = supabase.storage.from("task-attachments").getPublicUrl(path);
-      setQueueLeadDocs((cur) => [...cur, { url: data.publicUrl, name: file.name, type: file.type || ext }]);
+      setQueueLeadDocs((cur) => [...cur, { url: data.publicUrl, name: file.name, type: mimeForFile(file) }]);
       setMessage("Document uploaded — add more files or submit for verification.");
     } finally {
       setQueueLeadDocUploading(false);
@@ -1206,6 +1235,36 @@ export default function StaffDashboard() {
                 ))}
               </div>
             </div>
+
+            {(task.sample_files && task.sample_files.length > 0) && (
+              <div className="rounded-2xl border-2 border-dashed border-amber-300 bg-amber-50 p-5">
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="text-xl">📎</span>
+                  <p className="text-sm font-black text-amber-900">Sample / Example — isi format mein apna kaam banao</p>
+                </div>
+                <p className="text-xs text-amber-700 mb-3">Admin ne ye example attach kiya hai taaki tumhe pata ho ki expected lead document kaisa dikhna chahiye. Naya tab mein kholo aur reference lo.</p>
+                <div className="flex flex-wrap gap-2">
+                  {task.sample_files.map((s, i) => {
+                    const isImage = /^image\//.test(s.type || "");
+                    return (
+                      <div key={i} className="rounded-xl bg-white border border-amber-200 overflow-hidden">
+                        <a href={s.url} target="_blank" rel="noreferrer" className="block">
+                          {isImage ? (
+                            <img src={s.url} alt={s.name} className="h-24 w-40 object-cover" />
+                          ) : (
+                            <div className="h-24 w-40 flex flex-col items-center justify-center gap-1 bg-amber-50">
+                              <span className="text-2xl">📄</span>
+                              <span className="text-[10px] font-bold text-amber-800 px-1 truncate max-w-full">{s.name}</span>
+                            </div>
+                          )}
+                        </a>
+                        <a href={s.url} target="_blank" rel="noreferrer" className="block text-center text-[11px] font-bold text-amber-700 hover:text-amber-900 bg-white px-2 py-1.5 border-t border-amber-100 truncate">Open sample: {s.name}</a>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
 
             {!queueSession ? (
               <div className="rounded-2xl border-2 border-dashed border-purple-200 bg-purple-50 p-6 text-center">

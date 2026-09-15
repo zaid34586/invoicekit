@@ -91,6 +91,7 @@ type AdminTask = {
   task_type?: "simple" | "queue";
   queue_field_schema?: { key: string; label: string }[] | null;
   queue_target_count?: number | null;
+  sample_files?: { url: string; name: string; type?: string }[] | null;
   created_at: string;
 };
 
@@ -424,8 +425,11 @@ export default function Admin() {
     queueItemDraft: {} as Record<string, string>,
     queueItems: [] as Record<string, string>[],
     queueTargetCount: "",
+    queueSampleFiles: [] as { url: string; name: string; type?: string }[],
   });
   const [queueImport, setQueueImport] = useState<{ headers: string[]; rows: Record<string, string>[]; mapping: Record<string, string>; parsing: boolean }>({ headers: [], rows: [], mapping: {}, parsing: false });
+  const [queueSampleUploading, setQueueSampleUploading] = useState(false);
+  const [detailSampleUploading, setDetailSampleUploading] = useState(false);
   const [editQueueImport, setEditQueueImport] = useState<{ headers: string[]; rows: Record<string, string>[]; mapping: Record<string, string>; parsing: boolean; importing: boolean }>({ headers: [], rows: [], mapping: {}, parsing: false, importing: false });
   const [selectedAdminTaskId, setSelectedAdminTaskId] = useState<string | null>(null);
   const [adminTaskNote, setAdminTaskNote] = useState("");
@@ -1248,6 +1252,7 @@ export default function Admin() {
       task_type: taskForm.taskType,
       queue_field_schema: taskForm.taskType === "queue" ? taskForm.queueFields : [],
       queue_target_count: targetCount,
+      sample_files: taskForm.taskType === "queue" ? taskForm.queueSampleFiles : [],
     }).select("id").single();
     if (insertError) return setError(insertError.message);
 
@@ -1262,10 +1267,36 @@ export default function Admin() {
     const assignee = team.find((m) => m.id === taskForm.assigned_to);
     const createdItems = taskForm.queueItems.length;
     const targetNote = targetCount ? ` (target: ${targetCount})` : "";
-    setTaskForm({ title: "", description: "", assigned_to: "", department: "general", priority: "medium", due_date: "", requiresVerification: false, resourceLabel: "", resourceUrl: "", resources: [], taskType: "simple", queueFields: DEFAULT_QUEUE_FIELDS, queueNewFieldLabel: "", queueItemDraft: {}, queueItems: [], queueTargetCount: "" });
-    setNotice(taskForm.taskType === "queue" ? `Task created with ${createdItems} item${createdItems === 1 ? "" : "s"}${targetNote}.` : "Task created.");
+    const sampleNote = taskForm.queueSampleFiles.length ? `, ${taskForm.queueSampleFiles.length} sample${taskForm.queueSampleFiles.length === 1 ? "" : "s"} attached` : "";
+    setTaskForm({ title: "", description: "", assigned_to: "", department: "general", priority: "medium", due_date: "", requiresVerification: false, resourceLabel: "", resourceUrl: "", resources: [], taskType: "simple", queueFields: DEFAULT_QUEUE_FIELDS, queueNewFieldLabel: "", queueItemDraft: {}, queueItems: [], queueTargetCount: "", queueSampleFiles: [] });
+    setNotice(taskForm.taskType === "queue" ? `Task created with ${createdItems} item${createdItems === 1 ? "" : "s"}${targetNote}${sampleNote}.` : "Task created.");
     showAssignToast(assignee ? `Assigned to ${assignee.name || assignee.email} ✓` : "Task created ✓");
     await load();
+  }
+
+  // Uploads a sample/example file to the task-attachments bucket (used both in
+  // the create form and the task detail panel).
+  async function uploadSampleToBucket(file: File) {
+    const ext = file.name.split(".").pop()?.toLowerCase() || "bin";
+    const mimeMap: Record<string, string> = {
+      pdf: "application/pdf", doc: "application/msword",
+      docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      xls: "application/vnd.ms-excel",
+      xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      csv: "text/csv",
+      png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", webp: "image/webp", gif: "image/gif",
+    };
+    const path = `samples/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+    const { error } = await supabase.storage.from("task-attachments").upload(path, file, { contentType: mimeMap[ext] || file.type || "application/octet-stream", upsert: false });
+    if (error) { setError(`Sample upload failed: ${error.message}`); return null; }
+    const { data } = supabase.storage.from("task-attachments").getPublicUrl(path);
+    return { url: data.publicUrl, name: file.name, type: mimeMap[ext] || file.type || "application/octet-stream" };
+  }
+
+  async function removeSampleFromBucket(s: { url: string; name: string; type?: string }) {
+    const parts = s.url.split("/");
+    const path = parts.slice(parts.indexOf("task-attachments") + 1).join("/");
+    if (path && !path.includes("..")) await supabase.storage.from("task-attachments").remove([path]);
   }
 
   async function reviewLeadSubmission(sub: TaskLeadSubmission, status: "verified" | "rejected") {
@@ -2301,7 +2332,7 @@ export default function Admin() {
                 <h2 className="text-lg font-semibold text-slate-900 mb-4">Assign New Task</h2>
                 <form onSubmit={handleAddTask} className="space-y-3">
                   <input className="input" required placeholder="Task title" value={taskForm.title} onChange={(e) => setTaskForm({ ...taskForm, title: e.target.value })} />
-                  <textarea className="input min-h-24" placeholder="Description / guide for staff — what they should do" value={taskForm.description} onChange={(e) => setTaskForm({ ...taskForm, description: e.target.value })} />
+                  <textarea className="input min-h-24" placeholder="Description & guidelines for the intern — kya karna hai, kya format follow karna hai, kitne leads, deadline etc." value={taskForm.description} onChange={(e) => setTaskForm({ ...taskForm, description: e.target.value })} />
 
                   <div className="flex rounded-xl border border-slate-200 p-1 bg-slate-50">
                     <button type="button" onClick={() => setTaskForm({ ...taskForm, taskType: "simple" })} className={`flex-1 rounded-lg px-3 py-2 text-xs font-bold ${taskForm.taskType === "simple" ? "bg-white shadow text-slate-900" : "text-slate-500"}`}>📄 Simple Task</button>
@@ -2349,6 +2380,39 @@ export default function Admin() {
                           onChange={(e) => setTaskForm({ ...taskForm, queueTargetCount: e.target.value })}
                         />
                         <p className="text-[11px] text-slate-500 mt-1">Set this to let the intern research and add their own leads up to this count — then you can skip pre-filling items.</p>
+                      </div>
+
+                      <div className="pt-2 border-t border-purple-100">
+                        <p className="text-xs font-semibold text-purple-700 uppercase mb-1.5">Sample / Example (optional)</p>
+                        <label className="flex items-center justify-center gap-2 rounded-xl border border-dashed border-purple-300 bg-white px-3 py-2.5 text-xs font-bold text-purple-700 cursor-pointer hover:bg-purple-50">
+                          {queueSampleUploading ? "Uploading..." : "📎 Upload sample (PDF / DOC / Excel / CSV / image)"}
+                          <input
+                            type="file"
+                            accept=".pdf,.doc,.docx,.xls,.xlsx,.csv,image/*"
+                            className="hidden"
+                            disabled={queueSampleUploading}
+                            onChange={async (e) => {
+                              const f = e.target.files?.[0];
+                              e.target.value = "";
+                              if (!f) return;
+                              setQueueSampleUploading(true);
+                              const uploaded = await uploadSampleToBucket(f);
+                              setQueueSampleUploading(false);
+                              if (uploaded) setTaskForm({ ...taskForm, queueSampleFiles: [...taskForm.queueSampleFiles, uploaded] });
+                            }}
+                          />
+                        </label>
+                        <p className="text-[11px] text-slate-500 mt-1">Intern ko task kholne par ye example dikhega — expected format samajhne ke liye.</p>
+                        {taskForm.queueSampleFiles.length > 0 && (
+                          <div className="mt-2 space-y-1.5">
+                            {taskForm.queueSampleFiles.map((s, i) => (
+                              <div key={i} className="flex items-center justify-between gap-2 rounded-lg bg-white border border-purple-100 px-3 py-1.5">
+                                <span className="text-xs font-bold text-slate-800 truncate">📎 {s.name}</span>
+                                <button type="button" onClick={() => { void removeSampleFromBucket(s); setTaskForm({ ...taskForm, queueSampleFiles: taskForm.queueSampleFiles.filter((_, idx) => idx !== i) }); }} className="text-slate-400 hover:text-red-600 text-xs font-black shrink-0">✕</button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
                       </div>
 
                       <div className="pt-2 border-t border-purple-100">
@@ -3180,6 +3244,61 @@ export default function Admin() {
                     </div>
                     <button className="btn-primary w-full mt-4" disabled={editTaskSaving || !editTaskForm.title.trim()} onClick={() => saveTaskEdits(selectedAdminTask)}>{editTaskSaving ? "Saving..." : "Save changes"}</button>
                   </div>
+                  {selectedAdminTask.task_type === "queue" && (
+                    <div className="rounded-2xl border-2 border-dashed border-amber-300 bg-amber-50 p-5">
+                      <div className="flex items-center justify-between mb-1">
+                        <p className="text-xs font-bold uppercase tracking-wide text-amber-700">📎 Sample / Example files ({(selectedAdminTask.sample_files || []).length})</p>
+                        <label className="rounded-xl bg-amber-600 text-white px-3 py-1.5 text-xs font-black cursor-pointer hover:bg-amber-700">
+                          {detailSampleUploading ? "Uploading..." : "＋ Add sample"}
+                          <input
+                            type="file"
+                            accept=".pdf,.doc,.docx,.xls,.xlsx,.csv,image/*"
+                            className="hidden"
+                            disabled={detailSampleUploading}
+                            onChange={async (e) => {
+                              const f = e.target.files?.[0];
+                              e.target.value = "";
+                              if (!f) return;
+                              setDetailSampleUploading(true);
+                              const uploaded = await uploadSampleToBucket(f);
+                              setDetailSampleUploading(false);
+                              if (!uploaded || !selectedAdminTask) return;
+                              const updated = [...(selectedAdminTask.sample_files || []), uploaded];
+                              const { error } = await supabase.from("admin_tasks").update({ sample_files: updated }).eq("id", selectedAdminTask.id);
+                              if (error) { setError(error.message); return; }
+                              setTasks((cur) => cur.map((t) => t.id === selectedAdminTask.id ? { ...t, sample_files: updated } : t));
+                              setNotice("Sample added — intern will see it when opening the task.");
+                            }}
+                          />
+                        </label>
+                      </div>
+                      <p className="text-[11px] text-amber-600 mb-2">Example jo intern ko task kholne par dikhega — expected format samajhne ke liye.</p>
+                      {selectedAdminTask.sample_files && selectedAdminTask.sample_files.length > 0 ? (
+                        <div className="flex flex-wrap gap-2">
+                          {selectedAdminTask.sample_files.map((s, i) => (
+                            <div key={i} className="flex items-center gap-1.5 rounded-lg bg-white border border-amber-200 pl-3 pr-1.5 py-1.5">
+                              <a href={s.url} target="_blank" rel="noreferrer" className="text-xs font-bold text-amber-800 underline truncate max-w-[220px]">📎 {s.name}</a>
+                              <button
+                                className="text-slate-400 hover:text-red-600 text-xs font-black"
+                                onClick={async () => {
+                                  if (!selectedAdminTask) return;
+                                  await removeSampleFromBucket(s);
+                                  const updated = (selectedAdminTask.sample_files || []).filter((_, idx) => idx !== i);
+                                  const { error } = await supabase.from("admin_tasks").update({ sample_files: updated }).eq("id", selectedAdminTask.id);
+                                  if (error) { setError(error.message); return; }
+                                  setTasks((cur) => cur.map((t) => t.id === selectedAdminTask.id ? { ...t, sample_files: updated } : t));
+                                }}
+                              >
+                                ✕
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="text-xs text-amber-500">Koi sample nahi — add karo taaki intern ko format ka pata chale.</p>
+                      )}
+                    </div>
+                  )}
                   {selectedAdminTask.task_type === "queue" && (
                     <div className="rounded-2xl border border-indigo-200 bg-indigo-50 p-5">
                       <div className="flex items-center justify-between mb-3">
