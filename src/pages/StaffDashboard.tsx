@@ -85,6 +85,7 @@ function taskStatusLabel(status: string) {
   if (status === "pending") return "Assigned";
   if (status === "in_progress") return "In Progress";
   if (status === "blocked") return "Need Help";
+  if (status === "submitted") return "Under Review";
   if (status === "done") return "Completed";
   return status.replace("_", " ");
 }
@@ -108,29 +109,6 @@ const DOC_MIME_BY_EXT: Record<string, string> = {
 function mimeForFile(file: File) {
   const ext = (file.name.split(".").pop() || "").toLowerCase();
   return DOC_MIME_BY_EXT[ext] || file.type || "application/octet-stream";
-}
-
-// Finds an already-existing queue item that duplicates the lead being added,
-// matching on the most identifying field available (email > phone > LinkedIn >
-// name+company). Field keys are dynamic per task, so they're matched by name.
-function findDuplicateLead(task: TaskRow, items: QueueItemRow[], draft: Record<string, string>) {
-  const fields = task.queue_field_schema || [];
-  const norm = (v?: string) => (v || "").trim().toLowerCase().replace(/\s+/g, " ");
-  const digits = (v?: string) => (v || "").replace(/[^0-9]/g, "");
-  const keyOf = (re: RegExp) => fields.find((f) => re.test(`${f.key} ${f.label}`))?.key;
-  const emailKey = keyOf(/mail/i);
-  const phoneKey = keyOf(/phone|whatsapp|mobile|contact/i);
-  const linkKey = keyOf(/linkedin|profile|website/i);
-  const nameKey = keyOf(/^name\b|full.?name|first.?name/i);
-  const companyKey = keyOf(/company|business/i);
-  for (const item of items) {
-    const d = item.data || {};
-    if (emailKey && norm(draft[emailKey]) && norm(d[emailKey]) === norm(draft[emailKey])) return item;
-    if (phoneKey && digits(draft[phoneKey]) && digits(d[phoneKey]) === digits(draft[phoneKey])) return item;
-    if (linkKey && norm(draft[linkKey]) && norm(d[linkKey]).replace(/\/+$/, "") === norm(draft[linkKey]).replace(/\/+$/, "")) return item;
-    if (nameKey && companyKey && norm(draft[nameKey]) && norm(d[nameKey]) === norm(draft[nameKey]) && norm(d[companyKey]) === norm(draft[companyKey])) return item;
-  }
-  return null;
 }
 
 function appendLog(existing: string | null | undefined, author: string, text: string) {
@@ -185,15 +163,13 @@ export default function StaffDashboard() {
   const [queueItemFilter, setQueueItemFilter] = useState<"all" | "pending" | "red" | "orange" | "green">("all");
   const [selectedQueueItemId, setSelectedQueueItemId] = useState<string | null>(null);
   const [queueDraft, setQueueDraft] = useState({ notes: "", screenshotUrl: "", recordingUrl: "" });
-  const [queueItemDraft, setQueueItemDraft] = useState<Record<string, string>>({});
-  const [queueAddLeadOpen, setQueueAddLeadOpen] = useState(false);
-  const [queueAddLeadDraft, setQueueAddLeadDraft] = useState<Record<string, string>>({});
-  const [queueAddLeadSaving, setQueueAddLeadSaving] = useState(false);
   const [queueSubmissions, setQueueSubmissions] = useState<LeadSubmissionRow[]>([]);
   const [queueLeadDocs, setQueueLeadDocs] = useState<{ url: string; name: string; type: string }[]>([]);
   const [queueLeadDocUploading, setQueueLeadDocUploading] = useState(false);
   const [queueLeadNotes, setQueueLeadNotes] = useState("");
   const [queueSubmitting, setQueueSubmitting] = useState(false);
+  const [queueSubmitPopup, setQueueSubmitPopup] = useState(false);
+  const [queueVerifiedPopup, setQueueVerifiedPopup] = useState<string | null>(null);
   const [queueFileUploading, setQueueFileUploading] = useState<"screenshot" | "recording" | null>(null);
   const [queueItemSaving, setQueueItemSaving] = useState(false);
   const [recordingState, setRecordingState] = useState<"idle" | "requesting" | "recording" | "unsupported" | "denied">("idle");
@@ -296,6 +272,20 @@ export default function StaffDashboard() {
     return () => { void supabase.removeChannel(channel); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [staff?.id]);
+
+  // When a submitted (Under Review) task flips to done, pop up "verified &
+  // completed" — the admin just approved the lead document.
+  const prevTaskStatusRef = useRef<Record<string, string>>({});
+  useEffect(() => {
+    for (const t of tasks) {
+      if (prevTaskStatusRef.current[t.id] === "submitted" && t.status === "done") {
+        setQueueVerifiedPopup(t.title);
+      }
+    }
+    const next: Record<string, string> = {};
+    for (const t of tasks) next[t.id] = t.status;
+    prevTaskStatusRef.current = next;
+  }, [tasks]);
 
   const role = staff?.role as StaffRole | undefined;
   const todayIso = new Date().toISOString().slice(0, 10);
@@ -508,7 +498,6 @@ export default function StaffDashboard() {
     }).eq("id", sessionId);
     await supabase.from("task_activity_log").insert({ task_id: task.id, session_id: sessionId, staff_id: staff?.id, action: "session_end", details: { completed } });
     setQueueSession(null);
-    if (completed) await updateTask(task.id, { status: "done", progress: 100 } as Partial<TaskRow>);
     await load();
   }
 
@@ -516,7 +505,6 @@ export default function StaffDashboard() {
   function openQueueItem(task: TaskRow, item: QueueItemRow) {
     setSelectedQueueItemId(item.id);
     setQueueDraft({ notes: item.proof_notes || "", screenshotUrl: item.proof_screenshot_url || "", recordingUrl: item.proof_recording_url || "" });
-    setQueueItemDraft({ ...(item.data || {}) });
     if (queueSession) void supabase.from("task_activity_log").insert({ task_id: task.id, queue_item_id: item.id, session_id: queueSession.id, staff_id: staff?.id, action: "item_opened", details: {} });
   }
 
@@ -541,15 +529,8 @@ export default function StaffDashboard() {
       return;
     }
     setQueueItemSaving(true);
-    // Interns may have filled in / corrected the lead fields while working the
-    // item — persist any non-empty edits alongside the mark.
-    const updatedData: Record<string, string> = { ...(item.data || {}) };
-    for (const [k, v] of Object.entries(queueItemDraft)) {
-      if (typeof v === "string" && v.trim()) updatedData[k] = v.trim();
-    }
     const { error } = await supabase.from("task_queue_items").update({
       status,
-      data: updatedData,
       proof_notes: queueDraft.notes.trim() || null,
       proof_screenshot_url: queueDraft.screenshotUrl.trim() || null,
       proof_recording_url: queueDraft.recordingUrl.trim() || null,
@@ -563,44 +544,9 @@ export default function StaffDashboard() {
       await supabase.from("task_activity_log").insert({ task_id: task.id, queue_item_id: item.id, session_id: queueSession.id, staff_id: staff?.id, action: "item_marked", details: { status } });
     }
 
-    setQueueItemsState((cur) => cur.map((i) => i.id === item.id ? { ...i, data: updatedData, status, proof_notes: queueDraft.notes.trim() || null, proof_screenshot_url: queueDraft.screenshotUrl.trim() || null, proof_recording_url: queueDraft.recordingUrl.trim() || null, marked_at: new Date().toISOString() } : i));
+    setQueueItemsState((cur) => cur.map((i) => i.id === item.id ? { ...i, status, proof_notes: queueDraft.notes.trim() || null, proof_screenshot_url: queueDraft.screenshotUrl.trim() || null, proof_recording_url: queueDraft.recordingUrl.trim() || null, marked_at: new Date().toISOString() } : i));
     setSelectedQueueItemId(null);
     setQueueDraft({ notes: "", screenshotUrl: "", recordingUrl: "" });
-    setQueueItemDraft({});
-  }
-
-  // Intern adds a researched lead to their own queue task. Blocks duplicates
-  // against everything already in the queue (email/phone/LinkedIn/name+company).
-  async function addQueueLead(task: TaskRow) {
-    const fields = task.queue_field_schema || [];
-    const hasAny = fields.some((f) => (queueAddLeadDraft[f.key] || "").trim());
-    if (!hasAny) {
-      setMessage("Fill at least one field before adding the lead.");
-      return;
-    }
-    const dupe = findDuplicateLead(task, queueItemsState, queueAddLeadDraft);
-    if (dupe) {
-      const primary = fields[0] ? dupe.data?.[fields[0].key] : null;
-      setMessage(`Duplicate lead — this matches "${primary || "an existing item"}" already in the queue.`);
-      return;
-    }
-    setQueueAddLeadSaving(true);
-    const data: Record<string, string> = {};
-    for (const f of fields) {
-      const v = (queueAddLeadDraft[f.key] || "").trim();
-      if (v) data[f.key] = v;
-    }
-    const maxSort = queueItemsState.reduce((m, i) => Math.max(m, i.sort_order ?? 0), 0);
-    const { data: inserted, error } = await supabase.from("task_queue_items").insert({ task_id: task.id, data, sort_order: maxSort + 1 }).select("*").single();
-    setQueueAddLeadSaving(false);
-    if (error || !inserted) { setMessage(error?.message || "Could not add the lead."); return; }
-    if (queueSession) {
-      await supabase.from("task_activity_log").insert({ task_id: task.id, queue_item_id: inserted.id, session_id: queueSession.id, staff_id: staff?.id, action: "item_added", details: {} });
-    }
-    setQueueItemsState((cur) => [...cur, inserted as QueueItemRow]);
-    setQueueAddLeadOpen(false);
-    setQueueAddLeadDraft({});
-    setMessage("Lead added to the queue.");
   }
 
   // Uploads the prepared lead document (PDF / DOC / Excel / CSV) for the task.
@@ -633,6 +579,8 @@ export default function StaffDashboard() {
       setMessage("Upload at least one lead document (PDF / DOC / Excel / CSV) before submitting.");
       return;
     }
+    const pendingCount = queueItemsState.filter((i) => i.status === "pending").length;
+    if (pendingCount > 0 && !confirm(`${pendingCount} item${pendingCount === 1 ? "" : "s"} abhi bhi pending hain (marked nahi). Phir bhi document submit karna hai?`)) return;
     setQueueSubmitting(true);
     const rows = queueLeadDocs.map((d) => ({
       task_id: task.id,
@@ -647,13 +595,18 @@ export default function StaffDashboard() {
     if (error || !inserted) { setMessage(error?.message || "Could not submit the documents."); return; }
     if (queueSession) {
       await supabase.from("task_activity_log").insert({ task_id: task.id, session_id: queueSession.id, staff_id: staff?.id, action: "lead_docs_submitted", details: { files: queueLeadDocs.map((d) => d.name) } });
+      await endQueueSession(task, false);
     }
     await supabase.rpc("notify_admin", { p_type: "task_update", p_title: "Lead documents submitted", p_body: `${user?.email ?? "Staff"} submitted ${queueLeadDocs.length} lead document${queueLeadDocs.length === 1 ? "" : "s"} for "${task.title}" — ready for verification.`, p_metadata: { task_id: task.id } });
     setQueueSubmissions((cur) => [...(inserted as LeadSubmissionRow[]), ...cur]);
     setQueueLeadDocs([]);
     setQueueLeadNotes("");
-    await updateTask(task.id, { status: "in_progress" } as Partial<TaskRow>);
-    setMessage("Submitted for verification — admin will review your lead document.");
+    // Task closes for the intern: status -> submitted (Under Review). It only
+    // becomes done when admin verifies the document.
+    await updateTask(task.id, { status: "submitted" } as Partial<TaskRow>);
+    setQueueTaskId(null);
+    setSelectedQueueItemId(null);
+    setQueueSubmitPopup(true);
   }
 
   async function updateTicket(ticketId: string, changes: Partial<TicketRow>) {
@@ -1161,6 +1114,56 @@ export default function StaffDashboard() {
   function QueueWorkspace() {
     const task = queueTaskId ? tasks.find((t) => t.id === queueTaskId) ?? null : null;
     if (!task) return null;
+
+    // Task already submitted for verification — read-only screen. It reopens
+    // automatically (status back to in_progress) only if admin rejects it.
+    if (task.status === "submitted") {
+      return (
+        <div className="fixed inset-0 z-50 bg-white flex flex-col">
+          <div className="flex items-start justify-between gap-4 border-b border-slate-100 px-6 py-4">
+            <div>
+              <div className="flex flex-wrap gap-2 mb-2">
+                <Badge tone="amber">⏳ Under Review</Badge>
+                {task.department && <Badge tone="slate">{task.department}</Badge>}
+              </div>
+              <h2 className="text-xl font-black text-slate-950">{task.title}</h2>
+            </div>
+            <button onClick={() => setQueueTaskId(null)} className="rounded-2xl border border-slate-200 px-4 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50">✕ Close</button>
+          </div>
+          <div className="flex-1 overflow-y-auto">
+            <div className="max-w-2xl mx-auto p-6 space-y-4">
+              <div className="rounded-2xl bg-amber-50 border-2 border-amber-300 p-6 text-center">
+                <div className="text-4xl mb-2">📤</div>
+                <h3 className="text-xl font-black text-amber-900">Task submitted — under review</h3>
+                <p className="text-sm text-amber-800 mt-2">Tumne apna lead document submit kar diya hai. Admin abhi verify kar raha hai — verify hone par task complete ho jayega aur tumhe popup aayega.</p>
+                <p className="text-xs text-amber-700 mt-2">Agar rejected hua to feedback yahan dikhega, aur task wapas open ho jayega — fix karke dobara submit kar sakte ho.</p>
+              </div>
+              <div className="rounded-2xl border border-slate-200 p-5">
+                <p className="text-xs font-bold uppercase tracking-wide text-slate-500 mb-3">Tumhari submissions ({queueSubmissions.length})</p>
+                {queueSubmissions.length === 0 && <p className="text-xs text-slate-400">Koi submission nahi.</p>}
+                <div className="space-y-2">
+                  {queueSubmissions.map((s) => (
+                    <div key={s.id} className="rounded-xl bg-slate-50 border border-slate-100 px-3 py-2.5">
+                      <div className="flex items-center justify-between gap-2 flex-wrap">
+                        <a href={s.file_url} target="_blank" rel="noreferrer" className="text-xs font-bold text-indigo-700 underline truncate">📎 {s.file_name}</a>
+                        <span className={`rounded-full px-2 py-0.5 text-[11px] font-black ${s.status === "verified" ? "bg-emerald-50 text-emerald-700" : s.status === "rejected" ? "bg-red-50 text-red-700" : "bg-amber-50 text-amber-700"}`}>
+                          {s.status === "verified" ? "✅ Verified" : s.status === "rejected" ? "❌ Rejected" : "⏳ Pending review"}
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-slate-400 mt-0.5">{new Date(s.created_at).toLocaleString()}</p>
+                      {s.feedback && (
+                        <p className={`text-xs font-semibold mt-1.5 rounded-lg px-2 py-1.5 ${s.status === "rejected" ? "bg-red-50 text-red-700" : "bg-emerald-50 text-emerald-700"}`}>Admin: {s.feedback}</p>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
     const fields = task.queue_field_schema || [];
     const target = task.queue_target_count ?? null;
     const counts = {
@@ -1169,8 +1172,8 @@ export default function StaffDashboard() {
       orange: queueItemsState.filter((i) => i.status === "orange").length,
       green: queueItemsState.filter((i) => i.status === "green").length,
     };
-    // With a target (e.g. "research 50 leads"), the task is only done once the
-    // intern has added at least that many items AND marked every one of them.
+    // "All marked" = every item worked. Completion itself only happens via
+    // admin verification of the submitted lead document (status 'done').
     const targetMet = target === null || queueItemsState.length >= target;
     const allDone = queueItemsState.length > 0 && counts.pending === 0 && targetMet;
     const shown = queueItemsState.filter((i) => queueItemFilter === "all" ? true : i.status === queueItemFilter);
@@ -1220,10 +1223,10 @@ export default function StaffDashboard() {
               </div>
               <div className="mt-4 grid grid-cols-2 md:grid-cols-4 gap-2">
                 {[
-                  ["1", "Research & add leads", "Use ＋ Add new lead to fill in details for every lead you find"],
-                  ["2", "Work & mark each", "Mark each lead 🔴🟠🟢 based on the contact outcome"],
-                  ["3", "Prepare & upload doc", "Upload your lead list as PDF / Excel / DOC / CSV"],
-                  ["4", "Submit for verification", "Hit Submit — admin reviews the file and verifies"],
+                  ["1", "Work the lead list", "Har lead ko call/contact karke 🔴🟠🟢 mark karo"],
+                  ["2", "Prepare your doc", "Leads ki list PDF / Excel / DOC / CSV mein banao"],
+                  ["3", "Upload & submit", "Document upload karke Submit dabao — admin review karega"],
+                  ["4", "Verified = done", "Verify hone par task complete + popup"],
                 ].map(([n, t, d]) => (
                   <div key={n} className="rounded-xl bg-white/10 p-3">
                     <div className="flex items-center gap-1.5 mb-1">
@@ -1297,9 +1300,9 @@ export default function StaffDashboard() {
 
             {allDone && (
               <div className="rounded-2xl border border-emerald-300 bg-emerald-50 p-5 text-center">
-                <p className="text-lg font-black text-emerald-800">✅ All items complete</p>
+                <p className="text-lg font-black text-emerald-800">✅ All items marked</p>
                 <p className="text-sm text-emerald-700 mt-1">
-                  {target !== null ? `Target met — ${queueItemsState.length} leads researched and every one marked. Great work!` : "Great work — every item in this queue has been marked."}
+                  Har lead pe kaam ho gaya hai. Ab neeche apna lead document upload karke <b>Submit for verification</b> dabao — admin verify karega aur task complete hoga.
                 </p>
               </div>
             )}
@@ -1308,12 +1311,6 @@ export default function StaffDashboard() {
               <div className="flex items-center justify-between mb-3">
                 <p className="text-sm font-black text-slate-950">Items</p>
                 <div className="flex flex-wrap gap-1.5 items-center">
-                  <button
-                    onClick={() => { setQueueAddLeadDraft({}); setQueueAddLeadOpen(true); }}
-                    className="rounded-full px-3 py-1 text-xs font-black bg-purple-600 text-white hover:bg-purple-700"
-                  >
-                    ＋ Add new lead
-                  </button>
                   {([["all", "All", counts.pending + counts.red + counts.orange + counts.green, "bg-slate-950 text-white"], ["pending", "⚪ Pending", counts.pending, "bg-slate-100 text-slate-600"], ["red", "🔴 Red", counts.red, "bg-red-50 text-red-700"], ["orange", "🟠 Maybe Later", counts.orange, "bg-orange-50 text-orange-700"], ["green", "🟢 Converted", counts.green, "bg-emerald-50 text-emerald-700"]] as const).map(([key, label, count, cls]) => (
                     <button key={key} onClick={() => setQueueItemFilter(key)} className={`rounded-full px-3 py-1 text-xs font-bold border ${queueItemFilter === key ? cls + " ring-2 ring-offset-1 ring-purple-300" : "bg-white text-slate-500 border-slate-200"}`}>{label} ({count})</button>
                   ))}
@@ -1413,30 +1410,12 @@ export default function StaffDashboard() {
                 <h3 className="text-lg font-black text-slate-950">Item detail</h3>
                 <button onClick={() => setSelectedQueueItemId(null)} className="text-slate-400 hover:text-slate-700">✕</button>
               </div>
-              {selectedItem.status === "pending" ? (
-                <div className="mb-4">
-                  <p className="text-xs font-bold text-slate-500 uppercase mb-2">Lead details — fill in what you researched</p>
-                  <div className="space-y-2">
-                    {fields.map((f) => (
-                      <div key={f.key}>
-                        <label className="block text-xs font-semibold text-slate-500 mb-0.5">{f.label}</label>
-                        <input
-                          value={queueItemDraft[f.key] || ""}
-                          onChange={(e) => setQueueItemDraft({ ...queueItemDraft, [f.key]: e.target.value })}
-                          className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
-                          placeholder={f.label}
-                        />
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ) : (
-                <div className="rounded-2xl bg-slate-50 border border-slate-100 p-4 mb-4 space-y-1.5">
-                  {fields.map((f) => selectedItem.data[f.key] ? (
-                    <div key={f.key} className="flex justify-between text-sm gap-3"><span className="text-slate-500 font-semibold">{f.label}</span><span className="text-slate-950 font-bold text-right break-all">{selectedItem.data[f.key]}</span></div>
-                  ) : null)}
-                </div>
-              )}
+              <div className="rounded-2xl bg-slate-50 border border-slate-100 p-4 mb-4 space-y-1.5">
+                {fields.map((f) => selectedItem.data[f.key] ? (
+                  <div key={f.key} className="flex justify-between text-sm gap-3"><span className="text-slate-500 font-semibold">{f.label}</span><span className="text-slate-950 font-bold text-right break-all">{selectedItem.data[f.key]}</span></div>
+                ) : null)}
+                {fields.every((f) => !selectedItem.data[f.key]) && <p className="text-xs text-slate-400">Koi detail nahi.</p>}
+              </div>
 
               <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Notes — what happened</label>
               <textarea value={queueDraft.notes} onChange={(e) => setQueueDraft({ ...queueDraft, notes: e.target.value })} placeholder="What did you say, what did they say..." className="w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm min-h-[80px] mb-3" />
@@ -1462,46 +1441,6 @@ export default function StaffDashboard() {
             </div>
           </div>
         )}
-
-        {queueAddLeadOpen && (
-          <div className="fixed inset-0 z-[60] bg-slate-950/50 backdrop-blur-sm p-4 flex items-center justify-center" onClick={() => setQueueAddLeadOpen(false)}>
-            <div className="w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-3xl bg-white shadow-2xl border border-slate-200 p-6" onClick={(e) => e.stopPropagation()}>
-              <div className="flex items-start justify-between mb-4">
-                <div>
-                  <h3 className="text-lg font-black text-slate-950">Add new lead</h3>
-                  <p className="text-xs text-slate-500 mt-0.5">Fill in the details you researched. Duplicates are blocked automatically.</p>
-                </div>
-                <button onClick={() => setQueueAddLeadOpen(false)} className="text-slate-400 hover:text-slate-700">✕</button>
-              </div>
-              <div className="space-y-2 mb-4">
-                {fields.map((f) => (
-                  <div key={f.key}>
-                    <label className="block text-xs font-semibold text-slate-500 mb-0.5">{f.label}</label>
-                    <input
-                      value={queueAddLeadDraft[f.key] || ""}
-                      onChange={(e) => setQueueAddLeadDraft({ ...queueAddLeadDraft, [f.key]: e.target.value })}
-                      className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
-                      placeholder={f.label}
-                    />
-                  </div>
-                ))}
-              </div>
-              {(() => {
-                const dupe = findDuplicateLead(task, queueItemsState, queueAddLeadDraft);
-                if (!dupe) return null;
-                const primary = fields[0] ? dupe.data?.[fields[0].key] : null;
-                return <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-xl p-2.5 mb-3">⚠️ This looks like an existing lead in the queue{primary ? ` ("${primary}")` : ""} — save will be blocked.</p>;
-              })()}
-              <button
-                onClick={() => void addQueueLead(task)}
-                disabled={queueAddLeadSaving}
-                className="w-full rounded-2xl bg-purple-600 text-white py-3 text-sm font-black hover:bg-purple-700 disabled:opacity-40"
-              >
-                {queueAddLeadSaving ? "Saving..." : "＋ Add lead to queue"}
-              </button>
-            </div>
-          </div>
-        )}
       </div>
     );
   }
@@ -1524,6 +1463,28 @@ export default function StaffDashboard() {
       {ActivePage()}
       {TicketWorkspace()}
       {QueueWorkspace()}
+
+      {queueSubmitPopup && (
+        <div className="fixed inset-0 z-[70] bg-slate-950/50 backdrop-blur-sm p-4 flex items-center justify-center">
+          <div className="w-full max-w-md rounded-3xl bg-white shadow-2xl border border-slate-200 p-6 text-center">
+            <div className="w-16 h-16 mx-auto rounded-full bg-emerald-100 flex items-center justify-center text-3xl mb-3">✅</div>
+            <h3 className="text-xl font-black text-slate-950">Task submitted!</h3>
+            <p className="text-sm text-slate-500 mt-2">Tumhara lead document admin ke review ke liye chala gaya hai. Task ab <b>Under Review</b> hai — verify hone par complete ho jayega.</p>
+            <button onClick={() => setQueueSubmitPopup(false)} className="mt-5 w-full rounded-2xl bg-purple-600 text-white py-3 text-sm font-black hover:bg-purple-700">OK, got it</button>
+          </div>
+        </div>
+      )}
+
+      {queueVerifiedPopup && (
+        <div className="fixed inset-0 z-[70] bg-slate-950/50 backdrop-blur-sm p-4 flex items-center justify-center">
+          <div className="w-full max-w-md rounded-3xl bg-white shadow-2xl border border-slate-200 p-6 text-center">
+            <div className="w-16 h-16 mx-auto rounded-full bg-emerald-100 flex items-center justify-center text-3xl mb-3">🎉</div>
+            <h3 className="text-xl font-black text-slate-950">Task verified & completed!</h3>
+            <p className="text-sm text-slate-500 mt-2">Admin ne tumhara document verify kar liya — <b>{queueVerifiedPopup}</b> ab complete hai. Shaandar kaam!</p>
+            <button onClick={() => setQueueVerifiedPopup(null)} className="mt-5 w-full rounded-2xl bg-emerald-600 text-white py-3 text-sm font-black hover:bg-emerald-700">Great!</button>
+          </div>
+        </div>
+      )}
     </>
   );
 }

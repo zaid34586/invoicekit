@@ -70,7 +70,7 @@ type AdminTask = {
   assigned_to: string | null;
   department: "general" | "support" | "finance" | "sales" | "engineering" | "marketing" | "hr" | "legal" | "content";
   priority: "low" | "medium" | "high" | "urgent";
-  status: "pending" | "in_progress" | "done" | "blocked";
+  status: "pending" | "in_progress" | "done" | "blocked" | "submitted";
   progress: number;
   due_date: string | null;
   internal_notes: string | null;
@@ -1314,6 +1314,11 @@ export default function Admin() {
     if (status === "verified") {
       const { error: taskError } = await supabase.from("admin_tasks").update({ status: "done", progress: 100 }).eq("id", sub.task_id);
       if (taskError) return setError(taskError.message);
+    } else {
+      // Rejected -> reopen the task for the intern (feedback is shown on their
+      // side) so they can fix the document and resubmit.
+      const { error: taskError } = await supabase.from("admin_tasks").update({ status: "in_progress" }).eq("id", sub.task_id).eq("status", "submitted");
+      if (taskError) return setError(taskError.message);
     }
     const { data } = await supabase.from("task_lead_submissions").select("*").eq("task_id", sub.task_id).order("created_at", { ascending: false });
     setLeadSubmissions((data as TaskLeadSubmission[]) ?? []);
@@ -2297,9 +2302,10 @@ export default function Admin() {
         {active === "tasks" && (
           <section className="space-y-6">
             <SectionHeader title="Tasks" subtitle="Assign, track, review and approve staff work" />
-            <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
+            <div className="grid grid-cols-2 xl:grid-cols-5 gap-4">
               <Metric title="Pending" value={String(tasks.filter((t) => t.status === "pending").length)} icon="⏳" />
               <Metric title="In Progress" value={String(tasks.filter((t) => t.status === "in_progress").length)} icon="🚧" />
+              <Metric title="Under Review" value={String(tasks.filter((t) => t.status === "submitted").length)} icon="📤" />
               <Metric title="Blocked" value={String(tasks.filter((t) => t.status === "blocked").length)} icon="🛑" />
               <Metric title="Done" value={String(tasks.filter((t) => t.status === "done").length)} icon="✅" />
             </div>
@@ -2581,10 +2587,10 @@ export default function Admin() {
                   <h2 className="text-lg font-semibold text-slate-900">Task Board</h2>
                   <button className="btn-secondary" onClick={() => exportCsv(tasks as unknown as Record<string, unknown>[], "admin-tasks.csv")}>Export CSV</button>
                 </div>
-                <div className="grid md:grid-cols-2 xl:grid-cols-4 gap-4 p-4">
-                  {(["pending", "in_progress", "blocked", "done"] as AdminTask["status"][]).map((status) => (
-                    <div key={status} className="rounded-xl bg-slate-50 border border-slate-100 p-3">
-                      <p className="text-sm font-bold text-slate-700 capitalize mb-3">{status.replace("_", " ")}</p>
+                <div className="grid md:grid-cols-2 xl:grid-cols-5 gap-4 p-4">
+                  {(["pending", "in_progress", "submitted", "blocked", "done"] as AdminTask["status"][]).map((status) => (
+                    <div key={status} className={`rounded-xl border p-3 ${status === "submitted" ? "bg-amber-50 border-amber-200" : "bg-slate-50 border-slate-100"}`}>
+                      <p className={`text-sm font-bold mb-3 capitalize ${status === "submitted" ? "text-amber-700" : "text-slate-700"}`}>{status === "submitted" ? "⏳ Under Review" : status.replace("_", " ")}</p>
                       <div className="space-y-2">
                         {tasks.filter((t) => t.status === status).map((task) => (
                           <div key={task.id} className="rounded-xl bg-white border border-slate-100 p-3 hover:shadow-md transition">
@@ -2596,7 +2602,7 @@ export default function Admin() {
                               <p className="text-xs text-primary-700 font-bold mt-2">Open task →</p>
                             </button>
                             <div className="mt-3 grid grid-cols-2 gap-2">
-                              <select className="input text-xs py-1.5" value={task.status} onChange={(e) => updateTaskStatus(task, e.target.value as AdminTask["status"])}><option value="pending">Assigned</option><option value="in_progress">In Progress</option><option value="blocked">Need Help</option><option value="done">Completed</option></select>
+                              <select className="input text-xs py-1.5" value={task.status} onChange={(e) => updateTaskStatus(task, e.target.value as AdminTask["status"])}><option value="pending">Assigned</option><option value="in_progress">In Progress</option><option value="submitted">Under Review</option><option value="blocked">Need Help</option><option value="done">Completed</option></select>
                               <input className="input text-xs py-1.5" type="number" min="0" max="100" value={task.progress ?? 0} onChange={(e) => updateTaskProgress(task, Number(e.target.value))} />
                             </div>
                           </div>
@@ -3511,7 +3517,7 @@ export default function Admin() {
                 <div className="space-y-4">
                   <Card className="p-4">
                     <p className="text-xs font-bold uppercase tracking-wide text-slate-500 mb-3">Status</p>
-                    <select className="input mb-2" value={selectedAdminTask.status} onChange={(e) => updateTaskStatus(selectedAdminTask, e.target.value as AdminTask["status"])}><option value="pending">Assigned</option><option value="in_progress">In Progress</option><option value="blocked">Need Help</option><option value="done">Completed</option></select>
+                    <select className="input mb-2" value={selectedAdminTask.status} onChange={(e) => updateTaskStatus(selectedAdminTask, e.target.value as AdminTask["status"])}><option value="pending">Assigned</option><option value="in_progress">In Progress</option><option value="submitted">Under Review</option><option value="blocked">Need Help</option><option value="done">Completed</option></select>
                     <input className="input" type="number" min="0" max="100" value={selectedAdminTask.progress ?? 0} onChange={(e) => updateTaskProgress(selectedAdminTask, Number(e.target.value))} />
                     <div className="mt-3 h-2 rounded-full bg-slate-100 overflow-hidden"><div className="h-full bg-primary-500" style={{ width: `${selectedAdminTask.progress ?? 0}%` }} /></div>
                   </Card>
