@@ -26,6 +26,16 @@ interface QueueItemRow {
   proof_notes: string | null; proof_screenshot_url: string | null; proof_recording_url: string | null;
   marked_at: string | null; sort_order: number;
 }
+interface LeadSubmissionRow {
+  id: string; task_id: string; staff_id: string | null;
+  file_url: string; file_name: string; file_type?: string | null;
+  notes?: string | null;
+  status: "pending" | "verified" | "rejected";
+  feedback?: string | null;
+  reviewed_by?: string | null;
+  reviewed_at?: string | null;
+  created_at: string;
+}
 interface TicketRow { id: string; user_id?: string | null; ticket_number?: string | null; subject: string; message?: string | null; status: string; priority: string; created_at: string; staff_notes?: string | null; sla_target_minutes?: number | null; first_admin_reply_at?: string | null; assigned_to?: string | null; resolution_summary?: string | null; category?: string | null; }
 interface TicketMessage { id: string; author_type: string; message: string; is_internal: boolean; created_at: string; }
 interface CustomerContext { email: string | null; business_name: string | null; pastTicketCount: number; invoiceCount: number; invoiceTotal: number }
@@ -157,6 +167,11 @@ export default function StaffDashboard() {
   const [queueAddLeadOpen, setQueueAddLeadOpen] = useState(false);
   const [queueAddLeadDraft, setQueueAddLeadDraft] = useState<Record<string, string>>({});
   const [queueAddLeadSaving, setQueueAddLeadSaving] = useState(false);
+  const [queueSubmissions, setQueueSubmissions] = useState<LeadSubmissionRow[]>([]);
+  const [queueLeadDocs, setQueueLeadDocs] = useState<{ url: string; name: string; type: string }[]>([]);
+  const [queueLeadDocUploading, setQueueLeadDocUploading] = useState(false);
+  const [queueLeadNotes, setQueueLeadNotes] = useState("");
+  const [queueSubmitting, setQueueSubmitting] = useState(false);
   const [queueFileUploading, setQueueFileUploading] = useState<"screenshot" | "recording" | null>(null);
   const [queueItemSaving, setQueueItemSaving] = useState(false);
   const [recordingState, setRecordingState] = useState<"idle" | "requesting" | "recording" | "unsupported" | "denied">("idle");
@@ -377,8 +392,12 @@ export default function StaffDashboard() {
     setQueueSession(null);
     setQueueItemFilter("all");
     setRecordingState("idle");
+    setQueueLeadDocs([]);
+    setQueueLeadNotes("");
     const { data } = await supabase.from("task_queue_items").select("*").eq("task_id", task.id).order("sort_order");
     setQueueItemsState((data as QueueItemRow[]) ?? []);
+    const { data: subs } = await supabase.from("task_lead_submissions").select("*").eq("task_id", task.id).order("created_at", { ascending: false });
+    setQueueSubmissions((subs as LeadSubmissionRow[]) ?? []);
   }
 
   // Uploads whatever has been recorded so far, overwriting the same storage
@@ -560,6 +579,52 @@ export default function StaffDashboard() {
     setQueueAddLeadOpen(false);
     setQueueAddLeadDraft({});
     setMessage("Lead added to the queue.");
+  }
+
+  // Uploads the prepared lead document (PDF / DOC / Excel / CSV) for the task.
+  async function uploadLeadDocFile(task: TaskRow, file: File) {
+    if (!user) return;
+    setQueueLeadDocUploading(true);
+    try {
+      const ext = file.name.split(".").pop() || "bin";
+      const path = `lead-docs/${task.id}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+      const { error: uploadError } = await supabase.storage.from("task-attachments").upload(path, file, { contentType: file.type || undefined, upsert: false });
+      if (uploadError) { setMessage(`Upload failed: ${uploadError.message}`); return; }
+      const { data } = supabase.storage.from("task-attachments").getPublicUrl(path);
+      setQueueLeadDocs((cur) => [...cur, { url: data.publicUrl, name: file.name, type: file.type || ext }]);
+      setMessage("Document uploaded — add more files or submit for verification.");
+    } finally {
+      setQueueLeadDocUploading(false);
+    }
+  }
+
+  // Submits the uploaded lead document(s) to admin for verification.
+  async function submitLeadDocs(task: TaskRow) {
+    if (queueLeadDocs.length === 0) {
+      setMessage("Upload at least one lead document (PDF / DOC / Excel / CSV) before submitting.");
+      return;
+    }
+    setQueueSubmitting(true);
+    const rows = queueLeadDocs.map((d) => ({
+      task_id: task.id,
+      staff_id: staff?.id ?? null,
+      file_url: d.url,
+      file_name: d.name,
+      file_type: d.type,
+      notes: queueLeadNotes.trim() || null,
+    }));
+    const { data: inserted, error } = await supabase.from("task_lead_submissions").insert(rows).select("*");
+    setQueueSubmitting(false);
+    if (error || !inserted) { setMessage(error?.message || "Could not submit the documents."); return; }
+    if (queueSession) {
+      await supabase.from("task_activity_log").insert({ task_id: task.id, session_id: queueSession.id, staff_id: staff?.id, action: "lead_docs_submitted", details: { files: queueLeadDocs.map((d) => d.name) } });
+    }
+    await supabase.rpc("notify_admin", { p_type: "task_update", p_title: "Lead documents submitted", p_body: `${user?.email ?? "Staff"} submitted ${queueLeadDocs.length} lead document${queueLeadDocs.length === 1 ? "" : "s"} for "${task.title}" — ready for verification.`, p_metadata: { task_id: task.id } });
+    setQueueSubmissions((cur) => [...(inserted as LeadSubmissionRow[]), ...cur]);
+    setQueueLeadDocs([]);
+    setQueueLeadNotes("");
+    await updateTask(task.id, { status: "in_progress" } as Partial<TaskRow>);
+    setMessage("Submitted for verification — admin will review your lead document.");
   }
 
   async function updateTicket(ticketId: string, changes: Partial<TicketRow>) {
@@ -1107,14 +1172,39 @@ export default function StaffDashboard() {
 
         <div className="flex-1 overflow-y-auto">
           <div className="max-w-4xl mx-auto p-6 space-y-5">
-            <div className="rounded-2xl bg-slate-50 border border-slate-100 p-5">
-              <p className="text-xs font-bold uppercase tracking-wide text-slate-500 mb-2">Guide — what to do</p>
-              <p className="text-sm text-slate-700 whitespace-pre-wrap">{task.description || "No guide provided."}</p>
-              {task.resources && task.resources.length > 0 && (
-                <div className="flex flex-wrap gap-2 mt-3">
-                  {task.resources.map((r, i) => <a key={i} href={r.url || "#"} target="_blank" rel="noreferrer" className="rounded-full border border-primary-200 bg-white px-3 py-1 text-xs font-bold text-primary-700 hover:bg-primary-50">🔗 {r.label || r.url}</a>)}
-                </div>
-              )}
+            <div className="rounded-2xl bg-gradient-to-br from-purple-600 to-indigo-600 text-white p-6 shadow-sm">
+              <p className="text-[11px] font-black uppercase tracking-widest text-purple-200 mb-1">Task title</p>
+              <h3 className="text-2xl font-black leading-tight">{task.title}</h3>
+              <div className="flex flex-wrap gap-2 mt-2">
+                <span className="rounded-full bg-white/15 px-3 py-1 text-xs font-bold">Priority: {task.priority}</span>
+                {task.due_date && <span className="rounded-full bg-white/15 px-3 py-1 text-xs font-bold">Due: {new Date(task.due_date).toLocaleDateString()}</span>}
+                {target !== null && <span className="rounded-full bg-white/15 px-3 py-1 text-xs font-bold">Target: {target} leads</span>}
+              </div>
+              <div className="mt-4 rounded-xl bg-white/10 p-4">
+                <p className="text-[11px] font-black uppercase tracking-widest text-purple-200 mb-1">Description & guidelines — how to do this task</p>
+                <p className="text-sm whitespace-pre-wrap leading-relaxed">{task.description || "No guide provided."}</p>
+                {task.resources && task.resources.length > 0 && (
+                  <div className="flex flex-wrap gap-2 mt-3">
+                    {task.resources.map((r, i) => <a key={i} href={r.url || "#"} target="_blank" rel="noreferrer" className="rounded-full bg-white text-purple-700 px-3 py-1 text-xs font-bold hover:bg-purple-50">🔗 {r.label || r.url}</a>)}
+                  </div>
+                )}
+              </div>
+              <div className="mt-4 grid grid-cols-2 md:grid-cols-4 gap-2">
+                {[
+                  ["1", "Research & add leads", "Use ＋ Add new lead to fill in details for every lead you find"],
+                  ["2", "Work & mark each", "Mark each lead 🔴🟠🟢 based on the contact outcome"],
+                  ["3", "Prepare & upload doc", "Upload your lead list as PDF / Excel / DOC / CSV"],
+                  ["4", "Submit for verification", "Hit Submit — admin reviews the file and verifies"],
+                ].map(([n, t, d]) => (
+                  <div key={n} className="rounded-xl bg-white/10 p-3">
+                    <div className="flex items-center gap-1.5 mb-1">
+                      <span className="w-5 h-5 rounded-full bg-white text-purple-700 text-[11px] font-black flex items-center justify-center">{n}</span>
+                      <p className="text-xs font-black leading-tight">{t}</p>
+                    </div>
+                    <p className="text-[11px] text-purple-100 leading-snug">{d}</p>
+                  </div>
+                ))}
+              </div>
             </div>
 
             {!queueSession ? (
@@ -1189,6 +1279,70 @@ export default function StaffDashboard() {
                   );
                 })}
               </div>
+            </div>
+
+            <div className="rounded-2xl border-2 border-indigo-200 bg-indigo-50 p-5">
+              <div className="flex items-center gap-2 mb-1">
+                <span className="text-xl">📄</span>
+                <p className="text-sm font-black text-indigo-900">Lead document — upload & submit for verification</p>
+              </div>
+              <p className="text-xs text-indigo-700 mb-4">Prepare the leads you found as a document (PDF / Word / Excel / CSV) and upload it here. Admin will check this file and verify the task. The screen recording keeps running while you switch windows and prepare your file.</p>
+
+              <label className="flex items-center justify-center gap-2 rounded-xl border border-dashed border-indigo-300 bg-white px-4 py-4 text-sm font-bold text-indigo-700 cursor-pointer hover:bg-indigo-50 mb-3">
+                {queueLeadDocUploading ? "Uploading..." : "📎 Upload lead document (PDF / DOC / XLS / CSV)"}
+                <input
+                  type="file"
+                  accept=".pdf,.doc,.docx,.xls,.xlsx,.csv"
+                  className="hidden"
+                  disabled={queueLeadDocUploading}
+                  onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) void uploadLeadDocFile(task, f); }}
+                />
+              </label>
+
+              {queueLeadDocs.length > 0 && (
+                <div className="space-y-1.5 mb-3">
+                  {queueLeadDocs.map((d, i) => (
+                    <div key={i} className="flex items-center justify-between gap-2 rounded-xl bg-white border border-indigo-100 px-3 py-2">
+                      <span className="text-xs font-bold text-slate-800 truncate">📎 {d.name}</span>
+                      <button onClick={() => setQueueLeadDocs((cur) => cur.filter((_, idx) => idx !== i))} className="text-slate-400 hover:text-red-600 text-xs font-black shrink-0">✕</button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <label className="block text-xs font-bold text-indigo-700 uppercase mb-1">Notes for admin (optional)</label>
+              <textarea value={queueLeadNotes} onChange={(e) => setQueueLeadNotes(e.target.value)} placeholder="Anything admin should know about this lead list..." className="w-full rounded-xl border border-indigo-200 px-3 py-2 text-sm min-h-[60px] mb-3" />
+
+              <button
+                onClick={() => void submitLeadDocs(task)}
+                disabled={queueLeadDocs.length === 0 || queueSubmitting}
+                className="w-full rounded-2xl bg-indigo-600 text-white py-3 text-sm font-black hover:bg-indigo-700 disabled:opacity-40"
+              >
+                {queueSubmitting ? "Submitting..." : `📤 Submit for verification${queueLeadDocs.length > 0 ? ` (${queueLeadDocs.length} file${queueLeadDocs.length === 1 ? "" : "s"})` : ""}`}
+              </button>
+              <p className="text-[11px] text-indigo-600 mt-2 text-center">Admin verifies your document → task marked complete. If rejected, you'll see feedback here.</p>
+
+              {queueSubmissions.length > 0 && (
+                <div className="mt-4 pt-4 border-t border-indigo-200">
+                  <p className="text-xs font-bold uppercase tracking-wide text-indigo-700 mb-2">Your submissions</p>
+                  <div className="space-y-2">
+                    {queueSubmissions.map((s) => (
+                      <div key={s.id} className="rounded-xl bg-white border border-indigo-100 px-3 py-2.5">
+                        <div className="flex items-center justify-between gap-2 flex-wrap">
+                          <a href={s.file_url} target="_blank" rel="noreferrer" className="text-xs font-bold text-indigo-700 underline truncate">📎 {s.file_name}</a>
+                          <span className={`rounded-full px-2 py-0.5 text-[11px] font-black ${s.status === "verified" ? "bg-emerald-50 text-emerald-700" : s.status === "rejected" ? "bg-red-50 text-red-700" : "bg-amber-50 text-amber-700"}`}>
+                            {s.status === "verified" ? "✅ Verified" : s.status === "rejected" ? "❌ Rejected" : "⏳ Pending review"}
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-slate-400 mt-0.5">{new Date(s.created_at).toLocaleString()}</p>
+                        {s.feedback && (
+                          <p className={`text-xs font-semibold mt-1.5 rounded-lg px-2 py-1.5 ${s.status === "rejected" ? "bg-red-50 text-red-700" : "bg-emerald-50 text-emerald-700"}`}>Admin: {s.feedback}</p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </div>

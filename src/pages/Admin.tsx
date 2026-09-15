@@ -129,6 +129,21 @@ type TaskActivityLogEntry = {
   created_at: string;
 };
 
+type TaskLeadSubmission = {
+  id: string;
+  task_id: string;
+  staff_id: string | null;
+  file_url: string;
+  file_name: string;
+  file_type: string | null;
+  notes: string | null;
+  status: "pending" | "verified" | "rejected";
+  feedback: string | null;
+  reviewed_by: string | null;
+  reviewed_at: string | null;
+  created_at: string;
+};
+
 type AdminFinanceEntry = {
   id: string;
   entry_date: string;
@@ -1253,6 +1268,28 @@ export default function Admin() {
     await load();
   }
 
+  async function reviewLeadSubmission(sub: TaskLeadSubmission, status: "verified" | "rejected") {
+    setLeadReviewingId(sub.id);
+    const { error } = await supabase.from("task_lead_submissions").update({
+      status,
+      feedback: leadReviewFeedback.trim() || null,
+      reviewed_by: user?.email ?? null,
+      reviewed_at: new Date().toISOString(),
+    }).eq("id", sub.id);
+    setLeadReviewingId(null);
+    if (error) return setError(error.message);
+    await logAction("review_lead_submission", "task_lead_submissions", sub.id, { status, feedback: leadReviewFeedback.trim() || null });
+    setLeadReviewFeedback("");
+    if (status === "verified") {
+      const { error: taskError } = await supabase.from("admin_tasks").update({ status: "done", progress: 100 }).eq("id", sub.task_id);
+      if (taskError) return setError(taskError.message);
+    }
+    const { data } = await supabase.from("task_lead_submissions").select("*").eq("task_id", sub.task_id).order("created_at", { ascending: false });
+    setLeadSubmissions((data as TaskLeadSubmission[]) ?? []);
+    await load();
+    setNotice(status === "verified" ? "Lead submission verified — task marked complete." : "Lead submission rejected with feedback.");
+  }
+
   async function updateTaskStatus(task: AdminTask, status: AdminTask["status"]) {
     const progress = status === "done" ? 100 : status === "in_progress" ? Math.max(task.progress ?? 25, 25) : status === "blocked" ? task.progress ?? 0 : 0;
     const { error: updateError } = await supabase.from("admin_tasks").update({ status, progress }).eq("id", task.id);
@@ -1511,6 +1548,9 @@ export default function Admin() {
   const [queueItems, setQueueItems] = useState<TaskQueueItem[]>([]);
   const [taskSessions, setTaskSessions] = useState<TaskSession[]>([]);
   const [taskActivity, setTaskActivity] = useState<TaskActivityLogEntry[]>([]);
+  const [leadSubmissions, setLeadSubmissions] = useState<TaskLeadSubmission[]>([]);
+  const [leadReviewFeedback, setLeadReviewFeedback] = useState("");
+  const [leadReviewingId, setLeadReviewingId] = useState<string | null>(null);
   const [showActivityLog, setShowActivityLog] = useState(false);
   const [queuePerformance, setQueuePerformance] = useState<{ status: string; marked_by: string | null }[]>([]);
 
@@ -1535,10 +1575,13 @@ export default function Admin() {
       void supabase.from("task_queue_items").select("*").eq("task_id", selectedAdminTask.id).order("sort_order").then(({ data }) => setQueueItems((data as TaskQueueItem[]) ?? []));
       void supabase.from("task_sessions").select("*").eq("task_id", selectedAdminTask.id).order("started_at", { ascending: false }).then(({ data }) => setTaskSessions((data as TaskSession[]) ?? []));
       void supabase.from("task_activity_log").select("*").eq("task_id", selectedAdminTask.id).order("created_at", { ascending: false }).limit(200).then(({ data }) => setTaskActivity((data as TaskActivityLogEntry[]) ?? []));
+      void supabase.from("task_lead_submissions").select("*").eq("task_id", selectedAdminTask.id).order("created_at", { ascending: false }).then(({ data }) => setLeadSubmissions((data as TaskLeadSubmission[]) ?? []));
+      setLeadReviewFeedback("");
     } else {
       setQueueItems([]);
       setTaskSessions([]);
       setTaskActivity([]);
+      setLeadSubmissions([]);
     }
     setShowActivityLog(false);
   }, [selectedAdminTaskId]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -3199,6 +3242,60 @@ export default function Admin() {
                             </div>
                           </div>
                         )}
+                      </div>
+                    </div>
+                  )}
+                  {selectedAdminTask.task_type === "queue" && (
+                    <div className="rounded-2xl border-2 border-emerald-200 bg-emerald-50 p-5">
+                      <p className="text-xs font-bold uppercase tracking-wide text-emerald-700 mb-3">📄 Lead document submissions ({leadSubmissions.length})</p>
+                      {leadSubmissions.length === 0 && <p className="text-xs text-emerald-500">No lead documents submitted yet. The intern uploads their prepared lead list (PDF / DOC / Excel) here for your verification.</p>}
+                      <div className="space-y-2">
+                        {leadSubmissions.map((s) => {
+                          const member = team.find((m) => m.id === s.staff_id);
+                          return (
+                            <div key={s.id} className="rounded-xl bg-white border border-emerald-100 p-3">
+                              <div className="flex items-center justify-between gap-2 flex-wrap">
+                                <div className="min-w-0">
+                                  <a href={s.file_url} target="_blank" rel="noreferrer" className="text-sm font-bold text-emerald-700 underline break-all">📎 {s.file_name}</a>
+                                  <p className="text-[11px] text-slate-400 mt-0.5">{member?.name || member?.email || "Staff"} · {new Date(s.created_at).toLocaleString()}</p>
+                                </div>
+                                <span className={`rounded-full px-2.5 py-1 text-[11px] font-black shrink-0 ${s.status === "verified" ? "bg-emerald-100 text-emerald-700" : s.status === "rejected" ? "bg-red-100 text-red-700" : "bg-amber-100 text-amber-700"}`}>
+                                  {s.status === "verified" ? "✅ Verified" : s.status === "rejected" ? "❌ Rejected" : "⏳ Pending"}
+                                </span>
+                              </div>
+                              {s.notes && <p className="text-xs text-slate-600 mt-1.5 bg-slate-50 rounded-lg px-2 py-1.5">Note: {s.notes}</p>}
+                              {s.feedback && (
+                                <p className={`text-xs font-semibold mt-1.5 rounded-lg px-2 py-1.5 ${s.status === "rejected" ? "bg-red-50 text-red-700" : "bg-emerald-50 text-emerald-700"}`}>Your feedback: {s.feedback}</p>
+                              )}
+                              {s.status === "pending" && (
+                                <div className="mt-2 pt-2 border-t border-emerald-100">
+                                  <input
+                                    className="input text-xs py-1.5 mb-1.5"
+                                    placeholder="Feedback (optional for verify, shown to intern on reject)"
+                                    value={leadReviewFeedback}
+                                    onChange={(e) => setLeadReviewFeedback(e.target.value)}
+                                  />
+                                  <div className="grid grid-cols-2 gap-2">
+                                    <button
+                                      onClick={() => void reviewLeadSubmission(s, "verified")}
+                                      disabled={leadReviewingId === s.id}
+                                      className="rounded-xl bg-emerald-600 text-white py-2 text-xs font-black hover:bg-emerald-700 disabled:opacity-40"
+                                    >
+                                      ✅ Verify → task complete
+                                    </button>
+                                    <button
+                                      onClick={() => void reviewLeadSubmission(s, "rejected")}
+                                      disabled={leadReviewingId === s.id || !leadReviewFeedback.trim()}
+                                      className="rounded-xl bg-red-600 text-white py-2 text-xs font-black hover:bg-red-700 disabled:opacity-40"
+                                    >
+                                      ❌ Reject with feedback
+                                    </button>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
                       </div>
                     </div>
                   )}
