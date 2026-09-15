@@ -90,6 +90,7 @@ type AdminTask = {
   submitted_at?: string | null;
   task_type?: "simple" | "queue";
   queue_field_schema?: { key: string; label: string }[] | null;
+  queue_target_count?: number | null;
   created_at: string;
 };
 
@@ -407,6 +408,7 @@ export default function Admin() {
     queueNewFieldLabel: "",
     queueItemDraft: {} as Record<string, string>,
     queueItems: [] as Record<string, string>[],
+    queueTargetCount: "",
   });
   const [queueImport, setQueueImport] = useState<{ headers: string[]; rows: Record<string, string>[]; mapping: Record<string, string>; parsing: boolean }>({ headers: [], rows: [], mapping: {}, parsing: false });
   const [editQueueImport, setEditQueueImport] = useState<{ headers: string[]; rows: Record<string, string>[]; mapping: Record<string, string>; parsing: boolean; importing: boolean }>({ headers: [], rows: [], mapping: {}, parsing: false, importing: false });
@@ -1212,8 +1214,9 @@ export default function Admin() {
 
   async function handleAddTask(e: React.FormEvent) {
     e.preventDefault();
-    if (taskForm.taskType === "queue" && taskForm.queueItems.length === 0) {
-      return setError("Add at least one item to the queue before creating the task.");
+    const targetCount = taskForm.taskType === "queue" && taskForm.queueTargetCount.trim() ? Math.max(0, parseInt(taskForm.queueTargetCount, 10) || 0) : null;
+    if (taskForm.taskType === "queue" && taskForm.queueItems.length === 0 && !targetCount) {
+      return setError("Add at least one item to the queue, or set a target count so the assignee can research and add their own.");
     }
     const { data: newTask, error: insertError } = await supabase.from("admin_tasks").insert({
       title: taskForm.title,
@@ -1229,6 +1232,7 @@ export default function Admin() {
       requires_verification: taskForm.requiresVerification,
       task_type: taskForm.taskType,
       queue_field_schema: taskForm.taskType === "queue" ? taskForm.queueFields : [],
+      queue_target_count: targetCount,
     }).select("id").single();
     if (insertError) return setError(insertError.message);
 
@@ -1241,8 +1245,10 @@ export default function Admin() {
 
     await logAction("create_task", "admin_tasks", taskForm.title);
     const assignee = team.find((m) => m.id === taskForm.assigned_to);
-    setTaskForm({ title: "", description: "", assigned_to: "", department: "general", priority: "medium", due_date: "", requiresVerification: false, resourceLabel: "", resourceUrl: "", resources: [], taskType: "simple", queueFields: DEFAULT_QUEUE_FIELDS, queueNewFieldLabel: "", queueItemDraft: {}, queueItems: [] });
-    setNotice(taskForm.taskType === "queue" ? `Task created with ${taskForm.queueItems.length} items.` : "Task created.");
+    const createdItems = taskForm.queueItems.length;
+    const targetNote = targetCount ? ` (target: ${targetCount})` : "";
+    setTaskForm({ title: "", description: "", assigned_to: "", department: "general", priority: "medium", due_date: "", requiresVerification: false, resourceLabel: "", resourceUrl: "", resources: [], taskType: "simple", queueFields: DEFAULT_QUEUE_FIELDS, queueNewFieldLabel: "", queueItemDraft: {}, queueItems: [], queueTargetCount: "" });
+    setNotice(taskForm.taskType === "queue" ? `Task created with ${createdItems} item${createdItems === 1 ? "" : "s"}${targetNote}.` : "Task created.");
     showAssignToast(assignee ? `Assigned to ${assignee.name || assignee.email} ✓` : "Task created ✓");
     await load();
   }
@@ -2290,6 +2296,19 @@ export default function Admin() {
                       </div>
 
                       <div className="pt-2 border-t border-purple-100">
+                        <p className="text-xs font-semibold text-purple-700 uppercase mb-1.5">Target (optional)</p>
+                        <input
+                          type="number"
+                          min="1"
+                          className="input text-xs py-1.5"
+                          placeholder="e.g. 50 — assignee researches & adds this many leads"
+                          value={taskForm.queueTargetCount}
+                          onChange={(e) => setTaskForm({ ...taskForm, queueTargetCount: e.target.value })}
+                        />
+                        <p className="text-[11px] text-slate-500 mt-1">Set this to let the intern research and add their own leads up to this count — then you can skip pre-filling items.</p>
+                      </div>
+
+                      <div className="pt-2 border-t border-purple-100">
                         <p className="text-xs font-semibold text-purple-700 uppercase mb-1.5">Add items to the queue</p>
                         <div className="grid grid-cols-2 gap-1.5">
                           {taskForm.queueFields.map((f) => (
@@ -3121,7 +3140,9 @@ export default function Admin() {
                   {selectedAdminTask.task_type === "queue" && (
                     <div className="rounded-2xl border border-indigo-200 bg-indigo-50 p-5">
                       <div className="flex items-center justify-between mb-3">
-                        <p className="text-xs font-bold uppercase tracking-wide text-indigo-700">Queue items ({queueItems.length})</p>
+                        <p className="text-xs font-bold uppercase tracking-wide text-indigo-700">
+                          Queue items ({queueItems.length}){selectedAdminTask.queue_target_count ? ` / target ${selectedAdminTask.queue_target_count}` : ""}
+                        </p>
                         <div className="flex gap-2 text-xs font-semibold">
                           <span className="text-slate-500">⚪ {queueItems.filter((i) => i.status === "pending").length}</span>
                           <span className="text-red-600">🔴 {queueItems.filter((i) => i.status === "red").length}</span>
