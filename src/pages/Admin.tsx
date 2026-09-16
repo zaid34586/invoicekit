@@ -866,6 +866,35 @@ export default function Admin() {
     URL.revokeObjectURL(url);
   }
 
+  // Downloads a stored file (public URL) as a blob so it always saves with
+  // its real filename, even for xlsx/docx/pdf that the browser would
+  // otherwise just open in a new tab.
+  async function downloadStoredFile(fileUrl: string, fileName: string) {
+    if (!fileUrl) return;
+    try {
+      const res = await fetch(fileUrl);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = fileName || "download";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    } catch {
+      // Fallback: let the browser handle the URL natively (opens/downloads).
+      const link = document.createElement("a");
+      link.href = fileUrl;
+      link.target = "_blank";
+      link.rel = "noreferrer";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+    }
+  }
+
   function exportUsersCsv() {
     const headers = ["Business", "Email", "Country", "Phone", "GSTIN", "Plan", "Invoice Balance", "Banned", "Invoices", "Joined"];
     const rows = paginatedProfiles.map((p) => {
@@ -3568,9 +3597,18 @@ select verify_admin_api_key('aiag_live_...');`}</pre>
                                   <a href={s.file_url} target="_blank" rel="noreferrer" className="text-sm font-bold text-emerald-700 underline break-all">📎 {s.file_name}</a>
                                   <p className="text-[11px] text-slate-400 mt-0.5">{member?.name || member?.email || "Staff"} · {new Date(s.created_at).toLocaleString()}</p>
                                 </div>
-                                <span className={`rounded-full px-2.5 py-1 text-[11px] font-black shrink-0 ${s.status === "verified" ? "bg-emerald-100 text-emerald-700" : s.status === "rejected" ? "bg-red-100 text-red-700" : "bg-amber-100 text-amber-700"}`}>
-                                  {s.status === "verified" ? "✅ Verified" : s.status === "rejected" ? "❌ Rejected" : "⏳ Pending"}
-                                </span>
+                                <div className="flex items-center gap-2 shrink-0">
+                                  <button
+                                    type="button"
+                                    onClick={() => void downloadStoredFile(s.file_url, s.file_name)}
+                                    className="rounded-lg border border-emerald-300 bg-white px-3 py-1.5 text-xs font-black text-emerald-700 hover:bg-emerald-50"
+                                  >
+                                    ⬇ Download
+                                  </button>
+                                  <span className={`rounded-full px-2.5 py-1 text-[11px] font-black ${s.status === "verified" ? "bg-emerald-100 text-emerald-700" : s.status === "rejected" ? "bg-red-100 text-red-700" : "bg-amber-100 text-amber-700"}`}>
+                                    {s.status === "verified" ? "✅ Verified" : s.status === "rejected" ? "❌ Rejected" : "⏳ Pending"}
+                                  </span>
+                                </div>
                               </div>
                               {s.notes && <p className="text-xs text-slate-600 mt-1.5 bg-slate-50 rounded-lg px-2 py-1.5">Note: {s.notes}</p>}
                               {s.feedback && (

@@ -375,9 +375,9 @@ export function formatCurrency(
     }).format(rounded)
   );
 }
-export function formatDate(date: string | Date): string {
+export function formatDate(date: string | Date, locale?: string): string {
   const d = typeof date === "string" ? new Date(date) : date;
-  return d.toLocaleDateString("en-IN", {
+  return d.toLocaleDateString(locale ?? (navigator.language || "en-IN"), {
     day: "2-digit",
     month: "short",
     year: "numeric",
