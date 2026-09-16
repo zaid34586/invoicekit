@@ -66,6 +66,16 @@ function PricingCard({
           Most Popular
         </div>
       )}
+      {plan.id === "business" && (
+        <div className="absolute -top-4 right-4 rounded-full border border-slate-200 bg-white px-3 py-1 text-[11px] font-bold uppercase tracking-wide text-slate-600 shadow-sm">
+          Best for international teams
+        </div>
+      )}
+      {plan.id === "free" && (
+        <div className="absolute -top-4 left-4 rounded-full bg-amber-100 px-3 py-1 text-[11px] font-bold uppercase tracking-wide text-amber-700 shadow-sm">
+          25 invoices — no card
+        </div>
+      )}
 
       <div>
         <p className="text-sm font-semibold text-primary-600">{plan.tagline}</p>
@@ -252,7 +262,7 @@ export default function Pricing() {
         <div className="mx-auto max-w-3xl text-center">
           <span className="inline-flex rounded-full bg-primary-100 px-4 py-1 text-xs font-bold uppercase tracking-wide text-primary-700">Pricing built for growth</span>
           <h2 className="section-title mt-4 font-black text-slate-950 sm:mt-5">Choose a plan that matches your business stage.</h2>
-          <p className="mt-5 text-lg leading-8 text-slate-600">Start free, upgrade when you need payment links, higher invoice limits, team access, API, and advanced analytics.</p>
+          <p className="mt-5 text-lg leading-8 text-slate-600">Start free with 25 invoices, upgrade when you need payment links, unlimited invoices, team access, API, and advanced analytics.</p>
           <div className="mt-8"><BillingToggle cycle={cycle} setCycle={setCycle} /></div>
         </div>
 

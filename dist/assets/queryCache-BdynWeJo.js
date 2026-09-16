@@ -1,0 +1,1 @@
+const e=new Map;function c(t){for(const a of e.keys())a.startsWith(t)&&e.delete(a)}async function i(t,a,o){const n=e.get(t);if(n&&Date.now()-n.ts<a)return n.data;const s=await o();return e.set(t,{ts:Date.now(),data:s}),s}export{i as c,c as i};

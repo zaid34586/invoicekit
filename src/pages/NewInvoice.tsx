@@ -20,6 +20,7 @@ import {
   formatMoney,
 } from "../lib/currency";
 import { decideTax, hasConfiguredCountryTax } from "../lib/tax";
+import { invalidate } from "../lib/queryCache";
 import CountrySelect from "../components/CountrySelect";
 
 function makeId() {
@@ -498,6 +499,9 @@ export default function NewInvoice() {
 
     if (data) {
       deliverPendingWebhooks();
+      // The invoice/client data changed — drop cached dashboard/list copies
+      // so the next visit reflects the new row instead of a stale snapshot.
+      invalidate(`dash:${workspaceOwnerId || user.id}`);
       navigate(`/invoice/${data.id}`);
     }
   }

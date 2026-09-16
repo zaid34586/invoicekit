@@ -6,6 +6,7 @@ import type { Invoice, Client } from "../lib/types";
 import { formatDate, FREE_PLAN_LIMIT } from "../lib/constants";
 import { formatMoney } from "../lib/currency";
 import { invoiceBaseAmount, invoicePaidBaseAmount, invoiceDate, startOfDay, endOfDay, isWithin } from "../lib/invoiceAnalytics";
+import { cachedQuery } from "../lib/queryCache";
 
 // Skeleton loader component
 function Skeleton({ className }: { className?: string }) {
@@ -329,22 +330,33 @@ export default function Dashboard() {
   async function load() {
     if (!user) return;
 
-    const [invoiceRes, clientRes] = await Promise.all([
-      supabase
-        .from("invoices")
-        .select("*")
-        .eq("user_id", workspaceOwnerId || user.id)
-        .order("created_at", { ascending: false }),
-
-      supabase
-        .from("clients")
-        .select("*")
-        .eq("user_id", workspaceOwnerId || user.id)
-        .order("created_at", { ascending: false }),
+    // Analytics need the full invoice rows (line items are used to repair
+    // stale stored totals for legacy rows), so invoices stay complete here.
+    // Clients are only used for their count — fetching a single column
+    // keeps the dashboard lean. Results are cached briefly so navigating
+    // back to the dashboard is instant instead of re-downloading
+    // everything; a create/delete on other pages invalidates the cache.
+    const cacheKey = `dash:${workspaceOwnerId || user.id}`;
+    const [invoiceRows, clientRows] = await Promise.all([
+      cachedQuery<Invoice[] | null>(cacheKey + ":invoices", 30_000, () =>
+        supabase
+          .from("invoices")
+          .select("*")
+          .eq("user_id", workspaceOwnerId || user.id)
+          .order("created_at", { ascending: false })
+          .then((r) => r.data as Invoice[] | null)
+      ),
+      cachedQuery<Client[] | null>(cacheKey + ":clients", 30_000, () =>
+        supabase
+          .from("clients")
+          .select("id")
+          .eq("user_id", workspaceOwnerId || user.id)
+          .then((r) => r.data as Client[] | null)
+      ),
     ]);
 
-    if (invoiceRes.data) setInvoices(invoiceRes.data as Invoice[]);
-    if (clientRes.data) setClients(clientRes.data as Client[]);
+    if (invoiceRows) setInvoices(invoiceRows);
+    if (clientRows) setClients(clientRows);
 
     setLoading(false);
   }

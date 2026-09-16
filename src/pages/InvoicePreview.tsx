@@ -6,10 +6,11 @@ import { useAuth } from "../context/AuthContext";
 import type { Invoice, InvoiceStatus } from "../lib/types";
 import { formatDate, getCountryFlag } from "../lib/constants";
 import { lineAmount } from "../lib/gst";
-import { generateInvoicePDF, type InvoicePDFExtras } from "../lib/pdf";
+import type { InvoicePDFExtras } from "../lib/pdf";
 import { buildWhatsAppLink } from "../lib/whatsapp";
 import StatusBadge from "../components/StatusBadge";
 import { decideTax, type TaxDecision } from "../lib/tax";
+import { invalidate } from "../lib/queryCache";
 import { formatMoney, convertCurrency } from "../lib/currency";
 import { getTaxLabel } from "../lib/international";
 import { DEFAULT_BRANDING, brandingFont, type WorkspaceBranding } from "../lib/branding";
@@ -143,6 +144,9 @@ export default function InvoicePreview() {
       .eq("id", invoice.id);
     if (!error) {
       deliverPendingWebhooks();
+      // Drop cached dashboard/list copies so the deleted invoice doesn't
+      // reappear on the next visit.
+      invalidate(`dash:${workspaceOwnerId || user.id}`);
       navigate("/invoices");
     }
   }
@@ -173,6 +177,9 @@ export default function InvoicePreview() {
       clientTaxLabel,
       isIndiaLineItemLabels,
     };
+    // jsPDF is ~560KB — load it only when the user actually downloads,
+    // so viewing an invoice (the common case) doesn't pay the cost.
+    const { generateInvoicePDF } = await import("../lib/pdf");
     await generateInvoicePDF(invoice, profile, extras, branding);
   }
 

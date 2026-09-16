@@ -26,9 +26,9 @@
   .section-shell { @apply py-14 sm:py-20 lg:py-24; }
   .display-title { font-size: clamp(2.15rem, 5vw, 3.75rem); line-height: 1.08; letter-spacing: -0.045em; }
   .section-title { font-size: clamp(1.85rem, 5vw, 3rem); line-height: 1.08; letter-spacing: -0.035em; }
-  .auth-page { @apply flex min-h-screen items-center justify-center overflow-x-hidden bg-gradient-to-br from-slate-950 via-slate-900 to-violet-950 px-3 py-5 sm:px-6 sm:py-8 lg:py-10; }
-  .auth-shell { @apply grid w-full max-w-5xl min-w-0 overflow-hidden rounded-2xl border border-white/10 bg-white shadow-2xl shadow-violet-950/30 sm:rounded-3xl lg:grid-cols-[1.05fr_.95fr]; }
-  .auth-aside { @apply hidden flex-col justify-between bg-[radial-gradient(circle_at_top_left,_rgba(139,92,246,.42),_transparent_42%),linear-gradient(145deg,#0f172a,#111827)] p-8 text-white lg:flex xl:p-10; }
+  .auth-page { @apply flex min-h-screen items-center justify-center overflow-x-hidden bg-gradient-to-br from-slate-950 via-slate-900 to-primary-900 px-3 py-5 sm:px-6 sm:py-8 lg:py-10; }
+  .auth-shell { @apply grid w-full max-w-5xl min-w-0 overflow-hidden rounded-2xl border border-white/10 bg-white shadow-2xl shadow-primary-900/30 sm:rounded-3xl lg:grid-cols-[1.05fr_.95fr]; }
+  .auth-aside { @apply hidden flex-col justify-between bg-[radial-gradient(circle_at_top_left,_rgba(39,167,143,.42),_transparent_42%),linear-gradient(145deg,#0f172a,#111827)] p-8 text-white lg:flex xl:p-10; }
   .auth-content { @apply min-w-0 p-5 sm:p-8 lg:p-10 xl:p-12; }
   .auth-heading { font-size: clamp(1.75rem, 7vw, 2.25rem); line-height: 1.12; letter-spacing: -0.03em; }
   .responsive-grid-3 { @apply grid grid-cols-1 gap-3 sm:grid-cols-3; }

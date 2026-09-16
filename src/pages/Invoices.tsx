@@ -6,8 +6,20 @@ import type { Invoice, InvoiceStatus } from "../lib/types";
 import { formatDate } from "../lib/constants";
 import { formatMoney } from "../lib/currency";
 import StatusBadge from "../components/StatusBadge";
+import Skeleton from "../components/Skeleton";
 
 type Filter = "all" | InvoiceStatus;
+
+// List rows only need these scalar columns — the heavy `items` JSON (line
+// items, tax snapshot) is only fetched when a single invoice is opened, so
+// a business with thousands of invoices doesn't download every line item
+// just to render a table. Keeps the list fast as data grows.
+const LIST_COLUMNS =
+  "id, invoice_number, client_name, status, created_at, invoice_total, total, invoice_currency, business_currency";
+
+// Render window — rows are fetched trimmed, then paginated client-side so
+// the DOM never renders thousands of <tr> at once.
+const PAGE_SIZE = 25;
 
 export default function Invoices() {
   const { user, workspaceOwnerId, workspaceRole } = useAuth();
@@ -15,13 +27,14 @@ export default function Invoices() {
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<Filter>("all");
   const [search, setSearch] = useState("");
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
 
   useEffect(() => {
     async function load() {
       if (!user) return;
       const { data, error } = await supabase
         .from("invoices")
-        .select("*")
+        .select(LIST_COLUMNS)
         .eq("user_id", workspaceOwnerId || user.id)
         .order("created_at", { ascending: false });
       if (!error && data) {
@@ -43,6 +56,14 @@ export default function Invoices() {
     }
     return true;
   });
+
+  // Reset the render window whenever the filter/search changes so a new
+  // search isn't stuck on an old "load more" offset.
+  useEffect(() => {
+    setVisibleCount(PAGE_SIZE);
+  }, [filter, search]);
+
+  const visible = filtered.slice(0, visibleCount);
 
   const counts = {
     all: invoices.length,
@@ -117,7 +138,12 @@ export default function Invoices() {
 
       <div className="card">
         {loading ? (
-          <div className="p-8 text-center text-sm text-slate-500">Loading...</div>
+          <div className="space-y-3 p-6">
+            <Skeleton className="h-10 w-full" />
+            <Skeleton className="h-10 w-full" />
+            <Skeleton className="h-10 w-full" />
+            <Skeleton className="h-10 w-full" />
+          </div>
         ) : filtered.length === 0 ? (
           <div className="p-12 text-center">
             <div className="w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center mx-auto mb-4">
@@ -165,7 +191,7 @@ export default function Invoices() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {filtered.map((inv) => (
+                {visible.map((inv) => (
                   <tr key={inv.id} className="hover:bg-slate-50/50 transition">
                     <td className="px-5 py-3.5">
                       <Link
@@ -216,6 +242,16 @@ export default function Invoices() {
                 ))}
               </tbody>
             </table>
+            {filtered.length > visibleCount && (
+              <div className="border-t border-slate-100 p-4 text-center">
+                <button
+                  onClick={() => setVisibleCount((n) => n + PAGE_SIZE)}
+                  className="rounded-xl border border-slate-300 bg-white px-5 py-2.5 text-sm font-bold text-slate-700 transition hover:bg-slate-50"
+                >
+                  Load more ({filtered.length - visibleCount} remaining)
+                </button>
+              </div>
+            )}
           </div>
         )}
       </div>

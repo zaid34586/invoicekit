@@ -28,21 +28,30 @@
     <title>Rivox — Business, Billing & Payments</title>
 
     <!--
-      Google Analytics (GA4). Replace G-XXXXXXXXXX below with your real
-      Measurement ID from analytics.google.com (Admin → Data Streams →
-      your web stream). Traffic won't be tracked until you do.
+      Google Analytics (GA4). Loaded only when a real Measurement ID is set
+      via the VITE_GA_MEASUREMENT_ID env var (see .env / .env.example).
+      Without it nothing is loaded, so no placeholder/bogus script is ever
+      fetched and the site keeps working silently untracked.
     -->
-    <script async src="https://www.googletagmanager.com/gtag/js?id=G-XXXXXXXXXX"></script>
     <script>
-      window.dataLayer = window.dataLayer || [];
-      function gtag(){dataLayer.push(arguments);}
-      gtag('js', new Date());
-      gtag('config', 'G-XXXXXXXXXX');
+      (function () {
+        var id = "";
+        if (!id || id.indexOf("G-XXXX") === 0 || id.indexOf("%VITE_") === 0) return;
+        window.dataLayer = window.dataLayer || [];
+        function gtag(){ dataLayer.push(arguments); }
+        window.gtag = gtag;
+        gtag('js', new Date());
+        gtag('config', id);
+        var s = document.createElement("script");
+        s.async = true;
+        s.src = "https://www.googletagmanager.com/gtag/js?id=" + id;
+        document.head.appendChild(s);
+      })();
     </script>
-    <script type="module" crossorigin src="/assets/index-0dSr2qqN.js"></script>
+    <script type="module" crossorigin src="/assets/index-BWOSRYlc.js"></script>
     <link rel="modulepreload" crossorigin href="/assets/vendor-mqjzc8YJ.js">
     <link rel="modulepreload" crossorigin href="/assets/supabase-BHBGFv7n.js">
-    <link rel="stylesheet" crossorigin href="/assets/index-DA1Z2V2w.css">
+    <link rel="stylesheet" crossorigin href="/assets/index-DedugIA_.css">
   </head>
   <body>
     <div id="root"></div>

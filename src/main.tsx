@@ -7,8 +7,11 @@ import { AuthProvider } from "./context/AuthContext";
 import { UpgradeProvider } from "./context/UpgradeContext";
 import { RegionProvider } from "./context/RegionContext";
 import ErrorBoundary from "./components/ErrorBoundary";
+import { initErrorCapture } from "./lib/errorCapture";
 
 import "./index.css";
+
+initErrorCapture();
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <ErrorBoundary>

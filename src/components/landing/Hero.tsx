@@ -46,7 +46,7 @@ export default function Hero() {
           </div>
 
           <div className="mt-6 grid grid-cols-2 gap-x-3 gap-y-2 text-left text-xs sm:mt-8 sm:flex sm:justify-center sm:gap-x-7 sm:gap-y-3 sm:text-sm font-semibold text-slate-500">
-            <span>✓ 3 free invoices</span>
+            <span>✓ 25 free invoices</span>
             <span>✓ Global currencies</span>
             <span>✓ Secure cloud access</span>
             <span>✓ Cancel anytime</span>
