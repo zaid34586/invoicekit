@@ -17,6 +17,7 @@ import {
   getPlanPrice,
   getPlanLimitLabel,
 } from "../../lib/pricing";
+import { FREE_PLAN_LIMIT } from "../../lib/constants";
 
 function BillingToggle({ cycle, setCycle }: { cycle: BillingCycle; setCycle: (cycle: BillingCycle) => void }) {
   return (
@@ -211,7 +212,7 @@ export default function Pricing() {
         // This prevents an older database row (for example invoice_limit=3)
         // from undoing the current 25-invoice launch offer.
         invoiceLimit: key === "free"
-          ? merged[key].invoiceLimit
+          ? FREE_PLAN_LIMIT
           : override.invoice_limit === null ? "unlimited" : override.invoice_limit,
         clientLimit: key === "free"
           ? merged[key].clientLimit
