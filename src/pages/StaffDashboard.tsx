@@ -44,7 +44,7 @@ interface CannedResponse { id: string; title: string; body: string }
 interface FinanceRow { id: string; type: string; source: string; amount: number; currency: string; status: string; title: string; }
 interface NotificationRow { id: string; title: string; body: string | null; type: string; read_at: string | null; created_at: string; metadata?: { task_id?: string; ticket_id?: string; channel_id?: string } | null; }
 
-const taskStatuses = ["pending", "in_progress", "blocked", "done"];
+const taskStatuses = ["pending", "in_progress", "blocked", "submitted", "done"];
 
 function ticketSla(ticket: TicketRow) {
   if (ticket.first_admin_reply_at) return "First response sent";
@@ -513,15 +513,17 @@ export default function StaffDashboard() {
   }
 
   async function uploadQueueProofFile(file: File, kind: "screenshot" | "recording") {
-    if (!user) return;
+    if (!user) { setMessage("Please sign in again and retry the upload."); return; }
     setQueueFileUploading(kind);
     try {
       const ext = file.name.split(".").pop() || "bin";
       const path = `${user.id}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
       const { error: uploadError } = await supabase.storage.from("task-attachments").upload(path, file, { contentType: file.type, upsert: false });
-      if (uploadError) { setMessage(uploadError.message); return; }
+      if (uploadError) { setMessage(`Upload failed: ${uploadError.message}`); return; }
       const { data } = supabase.storage.from("task-attachments").getPublicUrl(path);
       setQueueDraft((cur) => ({ ...cur, [kind === "screenshot" ? "screenshotUrl" : "recordingUrl"]: data.publicUrl }));
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : "Upload failed.");
     } finally {
       setQueueFileUploading(null);
     }
@@ -599,7 +601,8 @@ export default function StaffDashboard() {
     if (error || !inserted) { setMessage(error?.message || "Could not submit the documents."); return; }
     if (queueSession) {
       await supabase.from("task_activity_log").insert({ task_id: task.id, session_id: queueSession.id, staff_id: staff?.id, action: "lead_docs_submitted", details: { files: queueLeadDocs.map((d) => d.name) } });
-      await endQueueSession(task, false);
+      const pendingCount = queueItemsState.filter((i) => i.status === "pending").length;
+      await endQueueSession(task, pendingCount === 0);
     }
     await supabase.rpc("notify_admin", { p_type: "task_update", p_title: "Lead documents submitted", p_body: `${user?.email ?? "Staff"} submitted ${queueLeadDocs.length} lead document${queueLeadDocs.length === 1 ? "" : "s"} for "${task.title}" — ready for verification.`, p_metadata: { task_id: task.id } });
     setQueueSubmissions((cur) => [...(inserted as LeadSubmissionRow[]), ...cur]);
@@ -869,7 +872,7 @@ export default function StaffDashboard() {
                 <div>
                   <div className="flex flex-wrap gap-2 mb-3">
                     <Badge tone={selectedTask.priority === "urgent" || selectedTask.priority === "high" ? "red" : selectedTask.priority === "medium" ? "amber" : "slate"}>{selectedTask.priority}</Badge>
-                    <Badge tone={selectedTask.status === "done" ? "green" : selectedTask.status === "blocked" ? "red" : selectedTask.status === "in_progress" ? "blue" : "purple"}>{taskStatusLabel(selectedTask.status)}</Badge>
+                    <Badge tone={selectedTask.status === "done" ? "green" : selectedTask.status === "submitted" ? "amber" : selectedTask.status === "blocked" ? "red" : selectedTask.status === "in_progress" ? "blue" : "purple"}>{taskStatusLabel(selectedTask.status)}</Badge>
                   </div>
                   <h2 className="text-2xl font-black text-slate-950">{selectedTask.title}</h2>
                   <p className="text-sm text-slate-500 mt-1">{selectedTask.due_date ? `Due ${selectedTask.due_date}` : "No due date"} · Progress {selectedTask.progress ?? 0}%</p>
@@ -1112,7 +1115,7 @@ export default function StaffDashboard() {
 
   function NotificationsPage() {
     return <Section title="Notifications" subtitle="Unread role and task updates." actions={notifications.length > 0 && <button onClick={markAllNotificationsRead} className="rounded-2xl bg-slate-950 text-white px-4 py-2 text-sm font-bold">Mark all read</button>}>
-      <div className="divide-y divide-slate-100">{notifications.length === 0 ? <div className="p-10 text-center text-slate-500">No unread notifications.</div> : notifications.map(n => <div key={n.id} className="p-5 flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4 hover:bg-slate-50 cursor-pointer" onClick={() => { markNotificationRead(n.id); if (n.metadata?.ticket_id || n.type.includes("ticket")) { setSelectedTicketId(n.metadata!.ticket_id as string); window.location.hash = "tasks"; } else if (n.metadata?.task_id || n.type.includes("task")) { setSelectedTaskId(n.metadata!.task_id as string); window.location.hash = "tasks"; } else if (n.metadata?.channel_id || n.type === "team_message") { window.location.hash = "communication"; } }}><div><div className="font-black text-slate-950">{n.title}</div>{n.body && <div className="text-sm text-slate-500 mt-1">{n.body}</div>}<div className="text-xs text-slate-400 mt-2">{new Date(n.created_at).toLocaleString()} • {n.type.replace("_", " ")}</div></div><button onClick={(e) => { e.stopPropagation(); markNotificationRead(n.id); }} className="rounded-2xl border border-slate-200 px-4 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50">Mark read</button></div>)}</div>
+      <div className="divide-y divide-slate-100">{notifications.length === 0 ? <div className="p-10 text-center text-slate-500">No unread notifications.</div> : notifications.map(n => <div key={n.id} className="p-5 flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4 hover:bg-slate-50 cursor-pointer" onClick={() => { markNotificationRead(n.id); const ticketId = n.metadata?.ticket_id; const taskId = n.metadata?.task_id; if (ticketId || n.type.includes("ticket")) { if (ticketId) setSelectedTicketId(ticketId); window.location.hash = "tasks"; } else if (taskId || n.type.includes("task")) { if (taskId) setSelectedTaskId(taskId); window.location.hash = "tasks"; } else if (n.metadata?.channel_id || n.type === "team_message") { window.location.hash = "communication"; } }}><div><div className="font-black text-slate-950">{n.title}</div>{n.body && <div className="text-sm text-slate-500 mt-1">{n.body}</div>}<div className="text-xs text-slate-400 mt-2">{new Date(n.created_at).toLocaleString()} • {n.type.replace("_", " ")}</div></div><button onClick={(e) => { e.stopPropagation(); markNotificationRead(n.id); }} className="rounded-2xl border border-slate-200 px-4 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50">Mark read</button></div>)}</div>
     </Section>;
   }
 

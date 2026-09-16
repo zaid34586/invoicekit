@@ -173,8 +173,9 @@ export default function Support() {
     }
     const rows = (data ?? []) as TicketAttachment[];
     const signed = await Promise.all(rows.map(async (item) => {
-      const { data: urlData } = await supabase.storage.from("support-attachments").createSignedUrl(item.storage_path, 3600);
-      return { ...item, signed_url: urlData?.signedUrl };
+      const { data: urlData, error: signedError } = await supabase.storage.from("support-attachments").createSignedUrl(item.storage_path, 3600);
+      if (signedError || !urlData?.signedUrl) return { ...item, signed_url: undefined };
+      return { ...item, signed_url: urlData.signedUrl };
     }));
     setAttachments(signed);
   }

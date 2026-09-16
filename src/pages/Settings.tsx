@@ -45,7 +45,7 @@ function getConfig(country: string): CountryConfig {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export default function Settings() {
-  const { user, profile, refreshProfile } = useAuth();
+  const { user, profile, refreshProfile, workspaceOwnerId } = useAuth();
   const fileRef = useRef<HTMLInputElement>(null);
 
   const [businessName, setBusinessName] = useState("");
@@ -94,8 +94,8 @@ export default function Settings() {
     async function loadBusinessStats() {
       if (!user) return;
       const [invoiceRes, clientRes] = await Promise.all([
-        supabase.from("invoices").select("status,total,invoice_total,refunded_amount").eq("user_id", user.id),
-        supabase.from("clients").select("id").eq("user_id", user.id),
+        supabase.from("invoices").select("status,total,invoice_total,refunded_amount").eq("user_id", workspaceOwnerId || user.id),
+        supabase.from("clients").select("id").eq("user_id", workspaceOwnerId || user.id),
       ]);
       const rows = invoiceRes.data ?? [];
       const paidRows = rows.filter((row) => row.status === "paid");

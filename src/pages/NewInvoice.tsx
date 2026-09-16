@@ -75,7 +75,7 @@ export default function NewInvoice() {
   const businessState = profile?.state ?? null;
 
   // Base currency comes from the business profile (defaults to INR)
-  const baseCurrency = profile?.currency ?? "USD";
+  const baseCurrency = profile?.currency ?? "INR";
 
   const [invoiceNumber, setInvoiceNumber] = useState("");
   const [invoiceDate, setInvoiceDate] = useState(todayISO());

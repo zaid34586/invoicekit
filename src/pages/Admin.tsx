@@ -44,6 +44,7 @@ type AdminSection =
   | "audit"
   | "system"
   | "qa"
+  | "apiKeys"
   | "settings";
 
 type AdminTeamMember = {
@@ -142,6 +143,18 @@ type TaskLeadSubmission = {
   feedback: string | null;
   reviewed_by: string | null;
   reviewed_at: string | null;
+  created_at: string;
+};
+
+type AdminApiKey = {
+  id: string;
+  name: string;
+  agent: string;
+  key_prefix: string;
+  scopes: string[];
+  expires_at: string | null;
+  last_used_at: string | null;
+  revoked_at: string | null;
   created_at: string;
 };
 
@@ -260,6 +273,7 @@ const sections: { id: AdminSection; label: string; icon: string; group: string }
   { id: "audit", label: "Audit Logs", icon: "📝", group: "Security" },
   { id: "system", label: "System Center", icon: "🛡️", group: "Security" },
   { id: "qa", label: "Production QA", icon: "✅", group: "Security" },
+  { id: "apiKeys", label: "API Keys (AI Agents)", icon: "🔑", group: "Security" },
   { id: "settings", label: "Admin Settings", icon: "⚙️", group: "Security" },
 ];
 
@@ -302,6 +316,7 @@ function statusClass(status: string) {
     disabled: "bg-red-50 text-red-700 border-red-200",
     pending: "bg-amber-50 text-amber-700 border-amber-200",
     in_progress: "bg-blue-50 text-blue-700 border-blue-200",
+    submitted: "bg-amber-50 text-amber-700 border-amber-200",
     done: "bg-green-50 text-green-700 border-green-200",
     blocked: "bg-red-50 text-red-700 border-red-200",
     received: "bg-green-50 text-green-700 border-green-200",
@@ -337,6 +352,7 @@ function SectionHeader({ title, subtitle }: { title: string; subtitle: string })
 function adminTaskStatusLabel(status: string) {
   if (status === "pending") return "Assigned";
   if (status === "in_progress") return "In Progress";
+  if (status === "submitted") return "Under Review";
   if (status === "blocked") return "Need Help";
   if (status === "done") return "Completed";
   return status.replace("_", " ");
@@ -455,6 +471,7 @@ export default function Admin() {
   const [balanceModal, setBalanceModal] = useState<InvoiceBalanceModalState>(null);
   const [freeProModal, setFreeProModal] = useState<FreeProModalState>(null);
   const [adminActionBusy, setAdminActionBusy] = useState(false);
+  const [taskCreating, setTaskCreating] = useState(false);
   const [assignToast, setAssignToast] = useState<string | null>(null);
   const [taskSuggestion, setTaskSuggestion] = useState<{ id: string; name: string; open_count: number } | null>(null);
 
@@ -546,7 +563,7 @@ export default function Admin() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id, isAdmin]);
 
-  const selectedUser = profiles.find((p) => p.id === selectedUserId) ?? profiles[0] ?? null;
+  const selectedUser = selectedUserId ? profiles.find((p) => p.id === selectedUserId) ?? null : profiles[0] ?? null;
   const selectedUserAuthId = selectedUser ? selectedUser.user_id || selectedUser.id : null;
   const selectedUserInvoices = selectedUserAuthId ? invoices.filter((i) => i.user_id === selectedUserAuthId) : [];
   const selectedUserClients = selectedUserAuthId ? clients.filter((c) => c.user_id === selectedUserAuthId) : [];
@@ -1212,13 +1229,17 @@ export default function Admin() {
 
   async function confirmEditQueueImport(task: AdminTask) {
     const fields = task.queue_field_schema || [];
+    // Use the actual max sort_order from the DB (queueItems state may be stale
+    // if the detail panel hasn't finished loading) so imports never collide.
+    const { data: maxRow } = await supabase.from("task_queue_items").select("sort_order").eq("task_id", task.id).order("sort_order", { ascending: false }).limit(1);
+    const base = (maxRow?.[0]?.sort_order ?? -1) + 1;
     const mapped = editQueueImport.rows.map((row, idx) => {
       const item: Record<string, string> = {};
       for (const f of fields) {
         const col = editQueueImport.mapping[f.key];
         item[f.key] = col ? row[col] || "" : "";
       }
-      return { task_id: task.id, data: item, sort_order: queueItems.length + idx };
+      return { task_id: task.id, data: item, sort_order: base + idx };
     }).filter((r) => Object.values(r.data).some((v) => v.trim()));
     if (mapped.length === 0) { setEditQueueImport({ headers: [], rows: [], mapping: {}, parsing: false, importing: false }); return; }
     setEditQueueImport((cur) => ({ ...cur, importing: true }));
@@ -1233,45 +1254,54 @@ export default function Admin() {
 
   async function handleAddTask(e: React.FormEvent) {
     e.preventDefault();
-    const targetCount = taskForm.taskType === "queue" && taskForm.queueTargetCount.trim() ? Math.max(0, parseInt(taskForm.queueTargetCount, 10) || 0) : null;
-    if (taskForm.taskType === "queue" && taskForm.queueItems.length === 0 && !targetCount) {
-      return setError("Add at least one item to the queue, or set a target count so the assignee can research and add their own.");
-    }
-    const { data: newTask, error: insertError } = await supabase.from("admin_tasks").insert({
-      title: taskForm.title,
-      description: taskForm.description || null,
-      assigned_to: taskForm.assigned_to || null,
-      priority: taskForm.priority,
-      department: taskForm.department,
-      status: "pending",
-      progress: 0,
-      due_date: taskForm.due_date || null,
-      created_by: user?.id ?? null,
-      resources: taskForm.resources,
-      requires_verification: taskForm.requiresVerification,
-      task_type: taskForm.taskType,
-      queue_field_schema: taskForm.taskType === "queue" ? taskForm.queueFields : [],
-      queue_target_count: targetCount,
-      sample_files: taskForm.taskType === "queue" ? taskForm.queueSampleFiles : [],
-    }).select("id").single();
-    if (insertError) return setError(insertError.message);
+    if (taskCreating) return;
+    setTaskCreating(true);
+    try {
+      const targetCount = taskForm.taskType === "queue" && taskForm.queueTargetCount.trim() ? Math.max(0, parseInt(taskForm.queueTargetCount, 10) || 0) : null;
+      if (taskForm.taskType === "queue" && taskForm.queueItems.length === 0 && !targetCount) {
+        setTaskCreating(false);
+        return setError("Add at least one item to the queue, or set a target count so the assignee can research and add their own.");
+      }
+      const { data: newTask, error: insertError } = await supabase.from("admin_tasks").insert({
+        title: taskForm.title,
+        description: taskForm.description || null,
+        assigned_to: taskForm.assigned_to || null,
+        priority: taskForm.priority,
+        department: taskForm.department,
+        status: "pending",
+        progress: 0,
+        due_date: taskForm.due_date || null,
+        created_by: user?.id ?? null,
+        resources: taskForm.resources,
+        requires_verification: taskForm.requiresVerification,
+        task_type: taskForm.taskType,
+        queue_field_schema: taskForm.taskType === "queue" ? taskForm.queueFields : [],
+        queue_target_count: targetCount,
+        sample_files: taskForm.taskType === "queue" ? taskForm.queueSampleFiles : [],
+      }).select("id").single();
+      if (insertError) { setTaskCreating(false); return setError(insertError.message); }
 
-    if (taskForm.taskType === "queue" && newTask) {
-      const { error: itemsError } = await supabase.from("task_queue_items").insert(
-        taskForm.queueItems.map((item, idx) => ({ task_id: newTask.id, data: item, sort_order: idx }))
-      );
-      if (itemsError) return setError(`Task created but items failed: ${itemsError.message}`);
-    }
+      if (taskForm.taskType === "queue" && newTask) {
+        const { error: itemsError } = await supabase.from("task_queue_items").insert(
+          taskForm.queueItems.map((item, idx) => ({ task_id: newTask.id, data: item, sort_order: idx }))
+        );
+        if (itemsError) { setTaskCreating(false); return setError(`Task created but items failed: ${itemsError.message}`); }
+      }
 
-    await logAction("create_task", "admin_tasks", taskForm.title);
-    const assignee = team.find((m) => m.id === taskForm.assigned_to);
-    const createdItems = taskForm.queueItems.length;
-    const targetNote = targetCount ? ` (target: ${targetCount})` : "";
-    const sampleNote = taskForm.queueSampleFiles.length ? `, ${taskForm.queueSampleFiles.length} sample${taskForm.queueSampleFiles.length === 1 ? "" : "s"} attached` : "";
-    setTaskForm({ title: "", description: "", assigned_to: "", department: "general", priority: "medium", due_date: "", requiresVerification: false, resourceLabel: "", resourceUrl: "", resources: [], taskType: "simple", queueFields: DEFAULT_QUEUE_FIELDS, queueNewFieldLabel: "", queueItemDraft: {}, queueItems: [], queueTargetCount: "", queueSampleFiles: [] });
-    setNotice(taskForm.taskType === "queue" ? `Task created with ${createdItems} item${createdItems === 1 ? "" : "s"}${targetNote}${sampleNote}.` : "Task created.");
-    showAssignToast(assignee ? `Assigned to ${assignee.name || assignee.email} ✓` : "Task created ✓");
-    await load();
+      await logAction("create_task", "admin_tasks", taskForm.title);
+      const assignee = team.find((m) => m.id === taskForm.assigned_to);
+      const createdItems = taskForm.queueItems.length;
+      const targetNote = targetCount ? ` (target: ${targetCount})` : "";
+      const sampleNote = taskForm.queueSampleFiles.length ? `, ${taskForm.queueSampleFiles.length} sample${taskForm.queueSampleFiles.length === 1 ? "" : "s"} attached` : "";
+      setTaskForm({ title: "", description: "", assigned_to: "", department: "general", priority: "medium", due_date: "", requiresVerification: false, resourceLabel: "", resourceUrl: "", resources: [], taskType: "simple", queueFields: DEFAULT_QUEUE_FIELDS, queueNewFieldLabel: "", queueItemDraft: {}, queueItems: [], queueTargetCount: "", queueSampleFiles: [] });
+      setNotice(taskForm.taskType === "queue" ? `Task created with ${createdItems} item${createdItems === 1 ? "" : "s"}${targetNote}${sampleNote}.` : "Task created.");
+      showAssignToast(assignee ? `Assigned to ${assignee.name || assignee.email} ✓` : "Task created ✓");
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Task create failed.");
+    } finally {
+      setTaskCreating(false);
+    }
   }
 
   // Uploads a sample/example file to the task-attachments bucket (used both in
@@ -1300,25 +1330,29 @@ export default function Admin() {
   }
 
   async function reviewLeadSubmission(sub: TaskLeadSubmission, status: "verified" | "rejected") {
+    const feedback = (leadReviewFeedbackBy[sub.id] ?? "").trim();
+    if (status === "rejected" && !feedback) { setError("Reject karne ke liye feedback likhna zaroori hai."); return; }
     setLeadReviewingId(sub.id);
     const { error } = await supabase.from("task_lead_submissions").update({
       status,
-      feedback: leadReviewFeedback.trim() || null,
+      feedback: feedback || null,
       reviewed_by: user?.email ?? null,
       reviewed_at: new Date().toISOString(),
     }).eq("id", sub.id);
     setLeadReviewingId(null);
     if (error) return setError(error.message);
-    await logAction("review_lead_submission", "task_lead_submissions", sub.id, { status, feedback: leadReviewFeedback.trim() || null });
-    setLeadReviewFeedback("");
+    await logAction("review_lead_submission", "task_lead_submissions", sub.id, { status, feedback: feedback || null });
+    setLeadReviewFeedbackBy((cur) => { const next = { ...cur }; delete next[sub.id]; return next; });
     if (status === "verified") {
       const { error: taskError } = await supabase.from("admin_tasks").update({ status: "done", progress: 100 }).eq("id", sub.task_id);
       if (taskError) return setError(taskError.message);
     } else {
       // Rejected -> reopen the task for the intern (feedback is shown on their
-      // side) so they can fix the document and resubmit.
-      const { error: taskError } = await supabase.from("admin_tasks").update({ status: "in_progress" }).eq("id", sub.task_id).eq("status", "submitted");
+      // side) so they can fix the document and resubmit. Surface it if the
+      // task had already left 'submitted' (guard found no row to update).
+      const { data: reopened, error: taskError } = await supabase.from("admin_tasks").update({ status: "in_progress" }).eq("id", sub.task_id).eq("status", "submitted").select("id");
       if (taskError) return setError(taskError.message);
+      if (!reopened || reopened.length === 0) setNotice("Submission rejected — task pehle hi 'submitted' se hat chuki thi, isliye reopen nahi hua.");
     }
     const { data } = await supabase.from("task_lead_submissions").select("*").eq("task_id", sub.task_id).order("created_at", { ascending: false });
     setLeadSubmissions((data as TaskLeadSubmission[]) ?? []);
@@ -1336,11 +1370,48 @@ export default function Admin() {
 
   async function updateTaskProgress(task: AdminTask, progress: number) {
     const cleanProgress = Math.max(0, Math.min(100, progress));
-    const nextStatus: AdminTask["status"] = cleanProgress >= 100 ? "done" : cleanProgress > 0 ? "in_progress" : task.status;
+    // Never clobber a 'submitted' (Under Review) task back to in_progress or
+    // auto-complete it from a progress edit — only admin verify completes it.
+    let nextStatus: AdminTask["status"] = task.status;
+    if (task.status !== "submitted") {
+      nextStatus = cleanProgress >= 100 ? "done" : cleanProgress > 0 ? "in_progress" : task.status;
+    }
     const { error: updateError } = await supabase.from("admin_tasks").update({ progress: cleanProgress, status: nextStatus }).eq("id", task.id);
     if (updateError) return setError(updateError.message);
     await logAction("update_task_progress", "admin_tasks", task.id, { progress: cleanProgress });
     await load();
+  }
+
+  // ---- API Keys (AI agents) -------------------------------------------------
+  async function loadApiKeys() {
+    const { data, error } = await supabase.from("admin_api_keys").select("id, name, agent, key_prefix, scopes, expires_at, last_used_at, revoked_at, created_at").order("created_at", { ascending: false });
+    if (error) { setError(error.message); return; }
+    setApiKeys((data as AdminApiKey[]) ?? []);
+  }
+
+  async function createApiKey() {
+    if (!apiKeyName.trim()) { setError("Key name is required."); return; }
+    setApiKeyCreating(true);
+    const expiry = apiKeyExpiry ? new Date(`${apiKeyExpiry}T23:59:59Z`).toISOString() : null;
+    const { data, error } = await supabase.rpc("create_admin_api_key", { p_name: apiKeyName.trim(), p_agent: apiKeyAgent, p_expires_at: expiry });
+    setApiKeyCreating(false);
+    if (error) { setError(error.message); return; }
+    const res = data as { id: string; api_key: string; prefix: string } | null;
+    if (!res) { setError("Could not create key."); return; }
+    setApiKeyRevealed({ prefix: res.prefix, raw: res.api_key });
+    setApiKeyModal(false);
+    setApiKeyName("");
+    setApiKeyExpiry("");
+    await logAction("create_api_key", "admin_api_keys", res.id, { agent: apiKeyAgent });
+    await loadApiKeys();
+  }
+
+  async function revokeApiKey(key: AdminApiKey) {
+    if (!confirm(`Revoke API key "${key.name}"? Any agent using it will lose access instantly.`)) return;
+    const { error } = await supabase.rpc("revoke_admin_api_key", { p_id: key.id });
+    if (error) { setError(error.message); return; }
+    await logAction("revoke_api_key", "admin_api_keys", key.id, {});
+    await loadApiKeys();
   }
 
   async function addAdminTaskNote(task: AdminTask) {
@@ -1585,14 +1656,26 @@ export default function Admin() {
   const [taskSessions, setTaskSessions] = useState<TaskSession[]>([]);
   const [taskActivity, setTaskActivity] = useState<TaskActivityLogEntry[]>([]);
   const [leadSubmissions, setLeadSubmissions] = useState<TaskLeadSubmission[]>([]);
-  const [leadReviewFeedback, setLeadReviewFeedback] = useState("");
+  const [leadReviewFeedbackBy, setLeadReviewFeedbackBy] = useState<Record<string, string>>({});
   const [leadReviewingId, setLeadReviewingId] = useState<string | null>(null);
+  const [apiKeys, setApiKeys] = useState<AdminApiKey[]>([]);
+  const [apiKeyModal, setApiKeyModal] = useState(false);
+  const [apiKeyName, setApiKeyName] = useState("");
+  const [apiKeyAgent, setApiKeyAgent] = useState("LeadGen Agent");
+  const [apiKeyExpiry, setApiKeyExpiry] = useState("");
+  const [apiKeyCreating, setApiKeyCreating] = useState(false);
+  const [apiKeyRevealed, setApiKeyRevealed] = useState<{ prefix: string; raw: string } | null>(null);
   const [showActivityLog, setShowActivityLog] = useState(false);
   const [queuePerformance, setQueuePerformance] = useState<{ status: string; marked_by: string | null }[]>([]);
 
   useEffect(() => {
     if (active !== "tasks") return;
     void supabase.from("task_queue_items").select("status, marked_by").neq("status", "pending").then(({ data }) => setQueuePerformance(data ?? []));
+  }, [active]);
+
+  useEffect(() => {
+    if (active !== "apiKeys") return;
+    void loadApiKeys();
   }, [active]);
 
   useEffect(() => {
@@ -1612,7 +1695,7 @@ export default function Admin() {
       void supabase.from("task_sessions").select("*").eq("task_id", selectedAdminTask.id).order("started_at", { ascending: false }).then(({ data }) => setTaskSessions((data as TaskSession[]) ?? []));
       void supabase.from("task_activity_log").select("*").eq("task_id", selectedAdminTask.id).order("created_at", { ascending: false }).limit(200).then(({ data }) => setTaskActivity((data as TaskActivityLogEntry[]) ?? []));
       void supabase.from("task_lead_submissions").select("*").eq("task_id", selectedAdminTask.id).order("created_at", { ascending: false }).then(({ data }) => setLeadSubmissions((data as TaskLeadSubmission[]) ?? []));
-      setLeadReviewFeedback("");
+      setLeadReviewFeedbackBy({});
     } else {
       setQueueItems([]);
       setTaskSessions([]);
@@ -2579,7 +2662,7 @@ export default function Admin() {
                     <input type="checkbox" checked={taskForm.requiresVerification} onChange={(e) => setTaskForm({ ...taskForm, requiresVerification: e.target.checked })} />
                     <span className="text-sm text-slate-700">Requires AI content verification before it can be marked done</span>
                   </label>
-                  <button className="btn-primary w-full" type="submit">Create Task</button>
+                  <button className="btn-primary w-full" type="submit" disabled={taskCreating}>{taskCreating ? "Creating..." : "Create Task"}</button>
                 </form>
               </Card>
               <Card>
@@ -3125,6 +3208,107 @@ export default function Admin() {
           </section>
         )}
 
+        {active === "apiKeys" && (
+          <div className="space-y-5">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h2 className="text-2xl font-black text-slate-950">API Keys — AI Agents & Integrations</h2>
+                <p className="text-sm text-slate-500 mt-1">Kisi bhi AI agent / external service ko scoped key do. Raw key sirf create karte waqt ek baar dikhti hai — SHA-256 hash ke saath store hoti hai. Revoke karte hi access turant band.</p>
+              </div>
+              <button onClick={() => { setApiKeyModal(true); setApiKeyName(""); setApiKeyAgent("LeadGen Agent"); setApiKeyExpiry(""); }} className="rounded-2xl bg-slate-950 text-white px-4 py-2.5 text-sm font-black hover:bg-slate-800 shrink-0">＋ Generate key</button>
+            </div>
+
+            <div className="rounded-2xl border border-slate-200 overflow-hidden">
+              <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
+                <p className="text-sm font-black text-slate-950">Registered keys ({apiKeys.length})</p>
+                <p className="text-xs text-slate-400">Agent keys — verified automatically on each request</p>
+              </div>
+              {apiKeys.length === 0 ? (
+                <div className="p-10 text-center">
+                  <div className="text-3xl mb-2">🔑</div>
+                  <p className="text-sm font-bold text-slate-600">Koi API key nahi hai</p>
+                  <p className="text-xs text-slate-400 mt-1">"Generate key" dabao aur kisi agent ko dedo — wo Bearer token se verify hota rahega.</p>
+                </div>
+              ) : (
+                <div className="divide-y divide-slate-100">
+                  {apiKeys.map((k) => {
+                    const active = !k.revoked_at && (!k.expires_at || new Date(k.expires_at) > new Date());
+                    return (
+                      <div key={k.id} className="px-5 py-4 flex items-center justify-between gap-4 flex-wrap">
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-black text-slate-950">{k.name}</span>
+                            <span className="rounded-full bg-slate-100 text-slate-600 text-[11px] font-bold px-2 py-0.5">{k.agent}</span>
+                            <span className={`rounded-full text-[11px] font-black px-2 py-0.5 ${active ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-700"}`}>{active ? (k.revoked_at ? "Revoked" : "Active") : "Expired"}</span>
+                          </div>
+                          <p className="font-mono text-xs text-slate-500 mt-1">{k.key_prefix}••••••••</p>
+                          <p className="text-[11px] text-slate-400 mt-0.5">Created {new Date(k.created_at).toLocaleString()}{k.last_used_at ? ` · Last used ${new Date(k.last_used_at).toLocaleString()}` : " · Never used"}{k.expires_at ? ` · Expires ${new Date(k.expires_at).toLocaleDateString()}` : ""}</p>
+                        </div>
+                        <button disabled={!!k.revoked_at} onClick={() => void revokeApiKey(k)} className="rounded-xl border border-red-200 text-red-600 px-3 py-1.5 text-xs font-black hover:bg-red-50 disabled:opacity-40 disabled:cursor-not-allowed">{k.revoked_at ? "Revoked" : "Revoke"}</button>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            <div className="rounded-2xl border border-slate-200 p-5">
+              <h3 className="text-sm font-black text-slate-950 mb-3">Agents ko key kaise use karna hai</h3>
+              <pre className="rounded-xl bg-slate-950 p-4 text-xs text-slate-200 overflow-x-auto">{`# Agent / AI service request — key khud verify hoti hai
+Authorization: Bearer aiag_live_...
+
+POST /functions/v1/verify-agent
+{ "api_key": "aiag_live_..." }   →   { "valid": true, "agent": "LeadGen Agent", "scopes": ["read"] }
+
+# Ya seedha SQL RPC (kisi bhi client se):
+select verify_admin_api_key('aiag_live_...');`}</pre>
+            </div>
+
+            {apiKeyModal && (
+              <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4" onClick={() => setApiKeyModal(false)}>
+                <div className="w-full max-w-md rounded-2xl bg-white shadow-2xl border border-slate-200" onClick={(e) => e.stopPropagation()}>
+                  <div className="p-5 border-b border-slate-100">
+                    <h3 className="text-lg font-black text-slate-900">Generate API key</h3>
+                    <p className="text-sm text-slate-500 mt-0.5">Key sirf abhi dikhegi — copy karke agent ko do.</p>
+                  </div>
+                  <div className="p-5 space-y-4">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-600 mb-1">Key name</label>
+                      <input value={apiKeyName} onChange={(e) => setApiKeyName(e.target.value)} placeholder="e.g. LeadGen Agent — Production" className="input" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-600 mb-1">Agent / purpose</label>
+                      <select value={apiKeyAgent} onChange={(e) => setApiKeyAgent(e.target.value)} className="input">
+                        {["LeadGen Agent", "Support Agent", "Finance Agent", "Invoice Agent", "Analytics Agent", "Custom Integration", "generic"].map((a) => <option key={a} value={a}>{a}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-600 mb-1">Expiry (optional)</label>
+                      <input type="date" value={apiKeyExpiry} onChange={(e) => setApiKeyExpiry(e.target.value)} className="input" />
+                    </div>
+                    <button onClick={() => void createApiKey()} disabled={apiKeyCreating || !apiKeyName.trim()} className="w-full rounded-2xl bg-slate-950 text-white py-3 text-sm font-black hover:bg-slate-800 disabled:opacity-40">{apiKeyCreating ? "Generating..." : "Generate key"}</button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {apiKeyRevealed && (
+              <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4" onClick={() => setApiKeyRevealed(null)}>
+                <div className="w-full max-w-lg rounded-2xl bg-white shadow-2xl border border-emerald-200" onClick={(e) => e.stopPropagation()}>
+                  <div className="p-5 border-b border-emerald-100 bg-emerald-50 rounded-t-2xl">
+                    <h3 className="text-lg font-black text-emerald-900">Key created — copy it now!</h3>
+                    <p className="text-sm text-emerald-700 mt-0.5">Ye key dobara kabhi nahi dikhegi. Agent ko yahi dedo.</p>
+                  </div>
+                  <div className="p-5">
+                    <div className="rounded-xl bg-slate-950 p-4 font-mono text-sm text-emerald-300 break-all">{apiKeyRevealed.raw}</div>
+                    <button onClick={() => { void navigator.clipboard.writeText(apiKeyRevealed.raw); setNotice("API key copied to clipboard."); }} className="mt-3 w-full rounded-2xl bg-slate-950 text-white py-3 text-sm font-black hover:bg-slate-800">📋 Copy key</button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
         {active === "settings" && (
           <Placeholder title="Admin Settings" subtitle="Owner email, permissions aur platform controls" items={[`Owner admin: ${ADMIN_EMAIL}`, "System Center added for maintenance, flags and security", "Team roles: Full Access, Limited, Support, Finance, Viewer", "Next: production audit and bug fixing"]} />
         )}
@@ -3396,9 +3580,9 @@ export default function Admin() {
                                 <div className="mt-2 pt-2 border-t border-emerald-100">
                                   <input
                                     className="input text-xs py-1.5 mb-1.5"
-                                    placeholder="Feedback (optional for verify, shown to intern on reject)"
-                                    value={leadReviewFeedback}
-                                    onChange={(e) => setLeadReviewFeedback(e.target.value)}
+                                    placeholder="Feedback (optional for verify, required for reject)"
+                                    value={leadReviewFeedbackBy[s.id] ?? ""}
+                                    onChange={(e) => setLeadReviewFeedbackBy({ ...leadReviewFeedbackBy, [s.id]: e.target.value })}
                                   />
                                   <div className="grid grid-cols-2 gap-2">
                                     <button
@@ -3410,7 +3594,7 @@ export default function Admin() {
                                     </button>
                                     <button
                                       onClick={() => void reviewLeadSubmission(s, "rejected")}
-                                      disabled={leadReviewingId === s.id || !leadReviewFeedback.trim()}
+                                      disabled={leadReviewingId === s.id || !(leadReviewFeedbackBy[s.id] ?? "").trim()}
                                       className="rounded-xl bg-red-600 text-white py-2 text-xs font-black hover:bg-red-700 disabled:opacity-40"
                                     >
                                       ❌ Reject with feedback

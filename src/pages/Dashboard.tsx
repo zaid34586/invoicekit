@@ -993,7 +993,7 @@ export default function Dashboard() {
                 </span>
               </div>
               <h3 className="text-xl sm:text-2xl font-bold mb-2">
-                {remaining} invoice{remaining !== 1 ? "s" : ""} remaining
+                {isPro ? "Unlimited" : remaining} invoice{!isPro && remaining !== 1 ? "s" : ""} remaining
               </h3>
               <p className="text-primary-100 text-sm sm:text-base">
                 Includes your monthly free invoices and any extra invoice balance added by admin.
