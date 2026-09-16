@@ -207,8 +207,15 @@ export default function Pricing() {
         // See Billing.tsx for why this divides by 12 -- yearly_price is the
         // literal annual total, this slot holds the monthly-equivalent rate.
         yearlyMonthlyPrice: Number(override.yearly_price) / 12,
-        invoiceLimit: override.invoice_limit === null ? "unlimited" : override.invoice_limit,
-        clientLimit: override.client_limit === null ? "unlimited" : override.client_limit,
+        // Free-plan limits are product defaults, not admin price overrides.
+        // This prevents an older database row (for example invoice_limit=3)
+        // from undoing the current 25-invoice launch offer.
+        invoiceLimit: key === "free"
+          ? merged[key].invoiceLimit
+          : override.invoice_limit === null ? "unlimited" : override.invoice_limit,
+        clientLimit: key === "free"
+          ? merged[key].clientLimit
+          : override.client_limit === null ? "unlimited" : override.client_limit,
         teamMembers: override.team_limit === null ? "unlimited" : override.team_limit,
       };
     });
