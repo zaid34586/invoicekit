@@ -289,11 +289,14 @@ export default function StaffDashboard() {
 
   const role = staff?.role as StaffRole | undefined;
   const todayIso = new Date().toISOString().slice(0, 10);
-  const openTaskCount = tasks.filter((t) => t.status !== "done").length;
+  // Open = still needs work. Submitted/Under Review and Completed live in their
+  // own sections, so they never count as "open".
+  const openTaskCount = tasks.filter((t) => t.status === "pending" || t.status === "in_progress" || t.status === "blocked").length;
+  const reviewTaskCount = tasks.filter((t) => t.status === "submitted").length;
   const completedTaskCount = tasks.filter((t) => t.status === "done").length;
   const completedTicketCount = tickets.filter((t) => t.status === "resolved" || t.status === "closed").length;
   const completedCount = completedTaskCount + completedTicketCount;
-  const dueTodayTasks = tasks.filter((t) => t.due_date === todayIso && t.status !== "done").length;
+  const dueTodayTasks = tasks.filter((t) => t.due_date === todayIso && t.status !== "done" && t.status !== "submitted").length;
   const openTicketCount = tickets.filter((t) => t.status !== "resolved" && t.status !== "closed").length;
   const urgentTickets = tickets.filter((t) => t.priority === "urgent" && t.status !== "closed" && t.status !== "resolved").length;
   const incomeTotal = useMemo(() => finance.filter((f) => f.type === "income").reduce((sum, row) => sum + Number(row.amount || 0), 0), [finance]);
@@ -303,8 +306,9 @@ export default function StaffDashboard() {
     const matchesSearch = !search || `${task.title} ${task.description ?? ""} ${task.priority} ${task.status}`.toLowerCase().includes(search);
     if (!matchesSearch) return false;
     if (taskFilter === "all") return true;
-    if (taskFilter === "open") return task.status !== "done";
-    if (taskFilter === "due_today") return task.due_date === todayIso && task.status !== "done";
+    if (taskFilter === "open") return task.status === "pending" || task.status === "in_progress" || task.status === "blocked";
+    if (taskFilter === "submitted") return task.status === "submitted";
+    if (taskFilter === "due_today") return task.due_date === todayIso && task.status !== "done" && task.status !== "submitted";
     return task.status === taskFilter;
   });
 
@@ -735,8 +739,9 @@ export default function StaffDashboard() {
           </div>
         </div>
         {message && <div className="rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">{message}</div>}
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-4">
           <StatCard label="Open Tasks" value={openTaskCount} icon="✅" note={`${dueTodayTasks} due today`} />
+          <StatCard label="Under Review" value={reviewTaskCount} icon="📤" note="Submitted for verification" />
           <StatCard label="Open Tickets" value={openTicketCount} icon="🎧" note={`${urgentTickets} urgent`} />
           <StatCard label="Completed" value={completedCount} icon="🏁" note="Tasks + tickets" />
           <StatCard label="Role" value={role ? STAFF_ROLE_LABELS[role] : "Staff"} icon="🔐" />
@@ -745,7 +750,7 @@ export default function StaffDashboard() {
           <Section title="Priority Work" subtitle="Tasks due today and urgent tickets.">
             <div className="p-5 space-y-3">
               {dueTodayTasks === 0 && urgentTickets === 0 ? <div className="text-slate-500">No urgent work right now.</div> : null}
-              {tasks.filter(t => t.due_date === todayIso && t.status !== "done").slice(0, 4).map(t => <a key={t.id} href="#tasks" className="block rounded-2xl border border-slate-200 p-4 hover:bg-slate-50"><div className="font-bold text-slate-900">{t.title}</div><div className="text-xs text-slate-500 mt-1">Due today • {t.priority}</div></a>)}
+              {tasks.filter(t => t.due_date === todayIso && t.status !== "done" && t.status !== "submitted").slice(0, 4).map(t => <a key={t.id} href="#tasks" className="block rounded-2xl border border-slate-200 p-4 hover:bg-slate-50"><div className="font-bold text-slate-900">{t.title}</div><div className="text-xs text-slate-500 mt-1">Due today • {t.priority}</div></a>)}
               {tickets.filter(t => t.priority === "urgent" && t.status !== "resolved" && t.status !== "closed").slice(0, 4).map(t => <a key={t.id} href="#tickets" className="block rounded-2xl border border-red-200 bg-red-50 p-4"><div className="font-bold text-red-950">{t.subject}</div><div className="text-xs text-red-700 mt-1">Urgent ticket</div></a>)}
             </div>
           </Section>
@@ -761,6 +766,11 @@ export default function StaffDashboard() {
 
   function TasksPage() {
     if (!hasStaffPermission(role, "tasks")) return <Blocked />;
+    const tabs = [
+      { key: "open", label: "Open", count: openTaskCount, hint: "pending / in progress / need help" },
+      { key: "submitted", label: "Under Review", count: reviewTaskCount, hint: "submitted for admin verification" },
+      { key: "done", label: "Completed", count: completedTaskCount, hint: "verified by admin" },
+    ] as const;
     return (
       <div className="space-y-6">
         <Section
@@ -769,22 +779,35 @@ export default function StaffDashboard() {
           actions={
             <div className="flex flex-col sm:flex-row gap-2">
               <input value={taskSearch} onChange={(e) => setTaskSearch(e.target.value)} placeholder="Search tasks..." className="rounded-2xl border border-slate-200 px-4 py-2 text-sm" />
-              <select value={taskFilter} onChange={(e) => setTaskFilter(e.target.value)} className="rounded-2xl border border-slate-200 px-4 py-2 text-sm">
-                <option value="open">Open</option><option value="due_today">Due today</option><option value="pending">Assigned</option><option value="in_progress">In progress</option><option value="blocked">Need help</option><option value="done">Completed</option><option value="all">All</option>
-              </select>
             </div>
           }
         >
+          <div className="p-4 flex flex-wrap gap-2 border-b border-slate-100">
+            {tabs.map((tab) => (
+              <button
+                key={tab.key}
+                onClick={() => setTaskFilter(tab.key)}
+                className={`rounded-2xl px-4 py-2 text-sm font-black transition ${taskFilter === tab.key ? (tab.key === "submitted" ? "bg-amber-500 text-white shadow" : tab.key === "done" ? "bg-emerald-600 text-white shadow" : "bg-slate-950 text-white shadow") : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}
+              >
+                {tab.label} ({tab.count})
+              </button>
+            ))}
+          </div>
+          <div className="px-5 pt-3 text-xs text-slate-400 font-semibold">{tabs.find((t) => t.key === taskFilter)?.hint}</div>
           <div className="divide-y divide-slate-100">
             {filteredTasks.length === 0 ? (
-              <div className="p-10 text-center text-slate-500">No tasks found.</div>
+              <div className="p-10 text-center text-slate-500">
+                {taskFilter === "open" && "No open tasks — sab kuch clear hai."}
+                {taskFilter === "submitted" && "Koi task under review nahi hai — submit karne par yahan dikhega."}
+                {taskFilter === "done" && "Abhi koi completed task nahi hai."}
+              </div>
             ) : filteredTasks.map(task => (
               <button key={task.id} onClick={() => { if (task.task_type === "queue") { void openQueueWorkspace(task); } else { setSelectedTaskId(task.id); setTaskComment(""); } }} className="w-full text-left p-5 hover:bg-slate-50 transition">
                 <div className="flex flex-col xl:flex-row xl:items-start xl:justify-between gap-4">
                   <div>
                     <div className="flex flex-wrap gap-2 mb-2">
                       <Badge tone={task.priority === "urgent" || task.priority === "high" ? "red" : task.priority === "medium" ? "amber" : "slate"}>{task.priority}</Badge>
-                      <Badge tone={task.status === "done" ? "green" : task.status === "blocked" ? "red" : task.status === "in_progress" ? "blue" : "purple"}>{taskStatusLabel(task.status)}</Badge>
+                      <Badge tone={task.status === "done" ? "green" : task.status === "submitted" ? "amber" : task.status === "blocked" ? "red" : task.status === "in_progress" ? "blue" : "purple"}>{taskStatusLabel(task.status)}</Badge>
                       {task.task_type === "queue" && <Badge tone="purple">📋 Queue</Badge>}
                       {task.department && <Badge tone="slate">{task.department}</Badge>}
                     </div>
@@ -795,7 +818,9 @@ export default function StaffDashboard() {
                   <div className="min-w-[180px]">
                     <div className="text-xs font-bold text-slate-500 mb-1">Progress {task.progress ?? 0}%</div>
                     <div className="h-2 rounded-full bg-slate-100 overflow-hidden"><div className="h-full bg-slate-950" style={{ width: `${task.progress ?? 0}%` }} /></div>
-                    <div className="text-xs text-primary-700 font-bold mt-2">Open task →</div>
+                    <div className="text-xs font-bold mt-2">
+                      {task.status === "submitted" ? <span className="text-amber-600">📤 Under review — admin verify kar raha hai</span> : task.status === "done" ? <span className="text-emerald-600">✅ Completed</span> : <span className="text-primary-700">Open task →</span>}
+                    </div>
                   </div>
                 </div>
               </button>
@@ -1117,13 +1142,15 @@ export default function StaffDashboard() {
 
     // Task already submitted for verification — read-only screen. It reopens
     // automatically (status back to in_progress) only if admin rejects it.
-    if (task.status === "submitted") {
+    // Completed tasks are also read-only here (session UI is not shown).
+    if (task.status === "submitted" || task.status === "done") {
+      const isDone = task.status === "done";
       return (
         <div className="fixed inset-0 z-50 bg-white flex flex-col">
           <div className="flex items-start justify-between gap-4 border-b border-slate-100 px-6 py-4">
             <div>
               <div className="flex flex-wrap gap-2 mb-2">
-                <Badge tone="amber">⏳ Under Review</Badge>
+                <Badge tone={isDone ? "green" : "amber"}>{isDone ? "✅ Completed" : "⏳ Under Review"}</Badge>
                 {task.department && <Badge tone="slate">{task.department}</Badge>}
               </div>
               <h2 className="text-xl font-black text-slate-950">{task.title}</h2>
@@ -1132,11 +1159,15 @@ export default function StaffDashboard() {
           </div>
           <div className="flex-1 overflow-y-auto">
             <div className="max-w-2xl mx-auto p-6 space-y-4">
-              <div className="rounded-2xl bg-amber-50 border-2 border-amber-300 p-6 text-center">
-                <div className="text-4xl mb-2">📤</div>
-                <h3 className="text-xl font-black text-amber-900">Task submitted — under review</h3>
-                <p className="text-sm text-amber-800 mt-2">Tumne apna lead document submit kar diya hai. Admin abhi verify kar raha hai — verify hone par task complete ho jayega aur tumhe popup aayega.</p>
-                <p className="text-xs text-amber-700 mt-2">Agar rejected hua to feedback yahan dikhega, aur task wapas open ho jayega — fix karke dobara submit kar sakte ho.</p>
+              <div className={`rounded-2xl border-2 p-6 text-center ${isDone ? "bg-emerald-50 border-emerald-300" : "bg-amber-50 border-amber-300"}`}>
+                <div className="text-4xl mb-2">{isDone ? "🎉" : "📤"}</div>
+                <h3 className={`text-xl font-black ${isDone ? "text-emerald-900" : "text-amber-900"}`}>{isDone ? "Task completed!" : "Task submitted — under review"}</h3>
+                <p className={`text-sm mt-2 ${isDone ? "text-emerald-800" : "text-amber-800"}`}>
+                  {isDone
+                    ? "Admin ne tumhara lead document verify kar liya — ye task complete ho gaya hai. Shaandar kaam!"
+                    : "Tumne apna lead document submit kar diya hai. Admin abhi verify kar raha hai — verify hone par task complete ho jayega aur tumhe popup aayega."}
+                </p>
+                {!isDone && <p className="text-xs text-amber-700 mt-2">Agar rejected hua to feedback yahan dikhega, aur task wapas open ho jayega — fix karke dobara submit kar sakte ho.</p>}
               </div>
               <div className="rounded-2xl border border-slate-200 p-5">
                 <p className="text-xs font-bold uppercase tracking-wide text-slate-500 mb-3">Tumhari submissions ({queueSubmissions.length})</p>
