@@ -1,4 +1,4 @@
-import { Helmet } from "react-helmet-async";
+import { useEffect } from "react";
 
 interface SEOProps {
   title: string;
@@ -12,6 +12,26 @@ const SITE_NAME = "Rivox";
 const DEFAULT_IMAGE = "https://rivoxcloud.com/og-image.png";
 const SITE_URL = "https://rivoxcloud.com";
 
+function setMeta(attr: string, key: string, content: string) {
+  let el = document.querySelector(`meta[${attr}="${key}"]`) as HTMLMetaElement | null;
+  if (!el) {
+    el = document.createElement("meta");
+    el.setAttribute(attr, key);
+    document.head.appendChild(el);
+  }
+  el.setAttribute("content", content);
+}
+
+function setLink(rel: string, href: string) {
+  let el = document.querySelector(`link[rel="${rel}"]`) as HTMLLinkElement | null;
+  if (!el) {
+    el = document.createElement("link");
+    el.setAttribute("rel", rel);
+    document.head.appendChild(el);
+  }
+  el.setAttribute("href", href);
+}
+
 export default function SEO({
   title,
   description,
@@ -22,25 +42,23 @@ export default function SEO({
   const fullTitle = title === SITE_NAME ? title : `${title} | ${SITE_NAME}`;
   const fullUrl = url ? `${SITE_URL}${url}` : SITE_URL;
 
-  return (
-    <Helmet>
-      <title>{fullTitle}</title>
-      <meta name="description" content={description} />
-      <link rel="canonical" href={fullUrl} />
+  useEffect(() => {
+    document.title = fullTitle;
+    setMeta("name", "description", description);
+    setLink("canonical", fullUrl);
 
-      {/* Open Graph */}
-      <meta property="og:type" content={type} />
-      <meta property="og:title" content={fullTitle} />
-      <meta property="og:description" content={description} />
-      <meta property="og:image" content={image} />
-      <meta property="og:url" content={fullUrl} />
-      <meta property="og:site_name" content={SITE_NAME} />
+    setMeta("property", "og:type", type);
+    setMeta("property", "og:title", fullTitle);
+    setMeta("property", "og:description", description);
+    setMeta("property", "og:image", image);
+    setMeta("property", "og:url", fullUrl);
+    setMeta("property", "og:site_name", SITE_NAME);
 
-      {/* Twitter/X */}
-      <meta name="twitter:card" content="summary_large_image" />
-      <meta name="twitter:title" content={fullTitle} />
-      <meta name="twitter:description" content={description} />
-      <meta name="twitter:image" content={image} />
-    </Helmet>
-  );
+    setMeta("name", "twitter:card", "summary_large_image");
+    setMeta("name", "twitter:title", fullTitle);
+    setMeta("name", "twitter:description", description);
+    setMeta("name", "twitter:image", image);
+  }, [fullTitle, description, fullUrl, image, type]);
+
+  return null;
 }
