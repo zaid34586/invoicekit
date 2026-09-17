@@ -3603,7 +3603,7 @@ select verify_admin_api_key('aiag_live_...');`}</pre>
                                     onClick={() => void downloadStoredFile(s.file_url, s.file_name)}
                                     className="rounded-lg border border-emerald-300 bg-white px-3 py-1.5 text-xs font-black text-emerald-700 hover:bg-emerald-50"
                                   >
-                                    ⬇ Download
+                                    Download file
                                   </button>
                                   <span className={`rounded-full px-2.5 py-1 text-[11px] font-black ${s.status === "verified" ? "bg-emerald-100 text-emerald-700" : s.status === "rejected" ? "bg-red-100 text-red-700" : "bg-amber-100 text-amber-700"}`}>
                                     {s.status === "verified" ? "✅ Verified" : s.status === "rejected" ? "❌ Rejected" : "⏳ Pending"}
