@@ -9,6 +9,7 @@ import DynamicGrowthBanner from "../components/DynamicGrowthBanner";
 import SEO from "../components/SEO";
 import WhatsAppButton from "../components/WhatsAppButton";
 import SocialProof from "../components/SocialProof";
+import LiveChatWidget from "../components/LiveChatWidget";
 
 export default function Landing() {
   return (
@@ -28,6 +29,7 @@ export default function Landing() {
   <FAQ />
   <Footer />
   <WhatsAppButton />
+  <LiveChatWidget />
 </>
   );
 }

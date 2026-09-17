@@ -12,6 +12,10 @@ const styles: Record<GrowthBanner["style"], string> = {
 
 const DISMISS_KEY_PREFIX = "rivox_banner_dismissed_";
 
+function getDismissKey(bannerId: string, placement: string) {
+  return `${DISMISS_KEY_PREFIX}${bannerId}_${placement}`;
+}
+
 export default function DynamicGrowthBanner({ placement }: Props) {
   const [banner, setBanner] = useState<GrowthBanner | null>(null);
   const [dismissed, setDismissed] = useState(false);
@@ -20,7 +24,7 @@ export default function DynamicGrowthBanner({ placement }: Props) {
     loadActiveBanners(placement).then((items) => {
       const first = items[0] ?? null;
       if (first) {
-        const dismissKey = DISMISS_KEY_PREFIX + first.id;
+        const dismissKey = getDismissKey(first.id, placement);
         const dismissedAt = localStorage.getItem(dismissKey);
         if (dismissedAt) {
           const hoursSinceDismiss = (Date.now() - Number(dismissedAt)) / (1000 * 60 * 60);
@@ -37,7 +41,8 @@ export default function DynamicGrowthBanner({ placement }: Props) {
 
   function handleDismiss() {
     if (banner) {
-      localStorage.setItem(DISMISS_KEY_PREFIX + banner.id, String(Date.now()));
+      const dismissKey = getDismissKey(banner.id, placement);
+      localStorage.setItem(dismissKey, String(Date.now()));
     }
     setDismissed(true);
   }
