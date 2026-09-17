@@ -47,6 +47,7 @@ const AdminLayout = lazy(() => import("./components/AdminLayout"));
 const StaffLayout = lazy(() => import("./components/StaffLayout"));
 import StaffRoute from "./components/StaffRoute";
 const ShareInvoice = lazy(() => import("./pages/ShareInvoice"));
+const ClientPortal = lazy(() => import("./pages/ClientPortal"));
 import { ADMIN_EMAIL, REQUIRE_PHONE_VERIFICATION } from "./lib/constants";
 const Terms = lazy(() => import("./pages/Terms"));
 const Privacy = lazy(() => import("./pages/Privacy"));
@@ -410,6 +411,7 @@ export default function App() {
       />
 
       <Route path="/share/:token" element={<ShareInvoice />} />
+      <Route path="/portal/:clientToken" element={<ClientPortal />} />
       <Route path="*" element={<NotFound />} />
       </Routes>
       </Suspense>
