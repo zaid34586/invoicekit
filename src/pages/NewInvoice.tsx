@@ -128,6 +128,13 @@ export default function NewInvoice() {
   const [rateManualOverride, setRateManualOverride] = useState(false);
   const [rateUpdatedAt, setRateUpdatedAt] = useState<string | null>(null);
 
+  // Recurring invoice state (Pro/Business only)
+  const isProOrBusiness = profile?.plan === "pro" || profile?.plan === "business" || profile?.is_pro;
+  const [isRecurring, setIsRecurring] = useState(false);
+  const [recurringFrequency, setRecurringFrequency] = useState<"weekly" | "monthly" | "quarterly" | "yearly">("monthly");
+  const [recurringStartDate, setRecurringStartDate] = useState(todayISO());
+  const [recurringEndDate, setRecurringEndDate] = useState("");
+
   // Auto-fetch whenever currency changes, unless the user chose to override manually
   useEffect(() => {
   async function loadRate() {
@@ -502,6 +509,14 @@ export default function NewInvoice() {
       base_subtotal: baseSubtotal,
       invoice_subtotal: calc.subtotal,
       invoice_total: calc.total,
+      // Recurring invoice fields (only if recurring is enabled and user is Pro+)
+      is_recurring: isProOrBusiness && isRecurring,
+      recurring_frequency: isProOrBusiness && isRecurring ? recurringFrequency : null,
+      recurring_start_date: isProOrBusiness && isRecurring ? recurringStartDate : null,
+      recurring_end_date: isProOrBusiness && isRecurring && recurringEndDate ? recurringEndDate : null,
+      recurring_next_date: isProOrBusiness && isRecurring ? recurringStartDate : null,
+      recurring_count: 0,
+      recurring_parent_id: null,
     };
 
     setSaving(true);
@@ -756,6 +771,90 @@ export default function NewInvoice() {
                 </select>
               </div>
             </div>
+
+            {/* Recurring Invoice (Pro/Business only) */}
+            {!isEditMode && !isDuplicateMode && (
+              <div className="mt-4 pt-4 border-t border-slate-100">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                      isRecurring ? "bg-gradient-to-r from-indigo-500 to-purple-500" : "bg-slate-200"
+                    } ${!isProOrBusiness ? "opacity-50" : ""}`}>
+                      <button
+                        type="button"
+                        onClick={() => isProOrBusiness && setIsRecurring(!isRecurring)}
+                        disabled={!isProOrBusiness}
+                        className={`inline-block h-4 w-4 transform rounded-full bg-white shadow-lg transition-transform ${
+                          isRecurring ? "translate-x-6" : "translate-x-1"
+                        }`}
+                      />
+                    </div>
+                    <div>
+                      <span className="text-sm font-semibold text-slate-700">Recurring Invoice</span>
+                      {!isProOrBusiness && (
+                        <span className="ml-2 inline-flex items-center rounded-full bg-gradient-to-r from-indigo-500 to-purple-500 px-2 py-0.5 text-[10px] font-bold text-white">
+                          PRO
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  {isRecurring && (
+                    <span className="text-xs text-slate-500">
+                      Auto-generates new invoices
+                    </span>
+                  )}
+                </div>
+
+                {isRecurring && isProOrBusiness && (
+                  <div className="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div>
+                      <label className="label">Frequency</label>
+                      <select
+                        value={recurringFrequency}
+                        onChange={(e) => setRecurringFrequency(e.target.value as typeof recurringFrequency)}
+                        className="input text-sm"
+                      >
+                        <option value="weekly">Weekly</option>
+                        <option value="monthly">Monthly</option>
+                        <option value="quarterly">Quarterly</option>
+                        <option value="yearly">Yearly</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="label">Start Date</label>
+                      <input
+                        type="date"
+                        value={recurringStartDate}
+                        onChange={(e) => setRecurringStartDate(e.target.value)}
+                        className="input text-sm"
+                      />
+                    </div>
+                    <div>
+                      <label className="label">End Date (optional)</label>
+                      <input
+                        type="date"
+                        value={recurringEndDate}
+                        onChange={(e) => setRecurringEndDate(e.target.value)}
+                        className="input text-sm"
+                        min={recurringStartDate}
+                      />
+                      <p className="text-[10px] text-slate-400 mt-1">Leave empty for unlimited</p>
+                    </div>
+                  </div>
+                )}
+
+                {isRecurring && !isProOrBusiness && (
+                  <div className="mt-3 rounded-lg bg-indigo-50 border border-indigo-100 p-3">
+                    <p className="text-sm text-indigo-700">
+                      <button onClick={() => navigate("/billing")} className="font-bold underline">
+                        Upgrade to Pro
+                      </button>{" "}
+                      to unlock recurring invoices. Automatically generate and send invoices on a schedule.
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           {/* Client Details */}

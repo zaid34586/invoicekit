@@ -142,5 +142,15 @@ export interface Invoice {
 
   share_token: string | null;
 
+  // ── Recurring invoice fields ─────────────────────────────────────────────
+  is_recurring?: boolean | null;
+  recurring_frequency?: "weekly" | "monthly" | "quarterly" | "yearly" | null;
+  recurring_start_date?: string | null;
+  recurring_end_date?: string | null;
+  recurring_next_date?: string | null;
+  recurring_count?: number | null;
+  recurring_parent_id?: string | null;
+  // ────────────────────────────────────────────────────────────────────────
+
   created_at: string;
 }
