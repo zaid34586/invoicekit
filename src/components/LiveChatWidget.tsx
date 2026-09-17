@@ -24,12 +24,15 @@ export default function LiveChatWidget() {
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const [loaded, setLoaded] = useState(false);
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [started, setStarted] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!open || !user || loaded) return;
     void loadOrPrepareSession();
-  }, [open, user]);
+  }, [open, user, loaded]);
 
   useEffect(() => {
     if (!ticketId) return;
@@ -74,21 +77,28 @@ export default function LiveChatWidget() {
     }
   }
 
+  async function startGuestChat() {
+    if (!name.trim() || !email.trim()) return;
+    setStarted(true);
+    setLoaded(true);
+  }
+
   async function sendMessage(event: React.FormEvent) {
     event.preventDefault();
     const text = draft.trim();
-    if (!text || !user || sending) return;
+    if (!text || sending) return;
     setSending(true);
     setDraft("");
 
     let currentTicketId = ticketId;
+
     if (!currentTicketId) {
-      const ownerId = workspaceOwnerId || user.id;
+      const ownerId = workspaceOwnerId || user?.id;
       const { data: ticket, error: ticketError } = await supabase
         .from("admin_support_tickets")
         .insert({
-          user_id: ownerId,
-          created_by: user.id,
+          user_id: ownerId || "00000000-0000-0000-0000-000000000000",
+          created_by: user?.id || "00000000-0000-0000-0000-000000000000",
           subject: "Live chat",
           message: text,
           category: "general",
@@ -96,6 +106,8 @@ export default function LiveChatWidget() {
           status: "open",
           origin: "chat",
           last_reply_at: new Date().toISOString(),
+          guest_name: !user ? name : undefined,
+          guest_email: !user ? email : undefined,
         })
         .select("id")
         .single();
@@ -106,18 +118,13 @@ export default function LiveChatWidget() {
 
     const { data: inserted } = await supabase
       .from("support_ticket_messages")
-      .insert({ ticket_id: currentTicketId, author_user_id: user.id, author_type: "customer", message: text, is_internal: false })
+      .insert({ ticket_id: currentTicketId, author_user_id: user?.id || "00000000-0000-0000-0000-000000000000", author_type: "customer", message: text, is_internal: false })
       .select("id, ticket_id, author_type, message, created_at")
       .single();
 
     if (inserted) setMessages((current) => [...current, inserted as ChatMessage]);
     setSending(false);
 
-    // Safety net: the bot's FAQ/escalation reply is inserted by a DB trigger
-    // as part of the same transaction as the customer's message, so it's
-    // already committed by now — refetch shortly after in case the realtime
-    // push was missed (e.g. a brief reconnect), so the bot's answer never
-    // silently fails to appear.
     const ticketIdForRefetch = currentTicketId;
     window.setTimeout(() => {
       void supabase
@@ -129,8 +136,6 @@ export default function LiveChatWidget() {
         .then(({ data }) => { if (data) setMessages(data as ChatMessage[]); });
     }, 1200);
   }
-
-  if (!user) return null;
 
   return (
     <div className="fixed bottom-5 right-5 z-50">
@@ -144,40 +149,68 @@ export default function LiveChatWidget() {
             <button onClick={() => setOpen(false)} aria-label="Close chat" className="rounded-full p-1 hover:bg-white/10">✕</button>
           </div>
 
-          <div ref={scrollRef} className="flex-1 space-y-2 overflow-y-auto bg-slate-50 p-3">
-            {messages.length === 0 && (
-              <p className="mt-6 text-center text-xs text-slate-400">Send a message to start the conversation.</p>
-            )}
-            {messages.map((message) => (
-              <div
-                key={message.id}
-                className={`max-w-[85%] rounded-2xl px-3 py-2 text-sm ${
-                  message.author_type === "customer"
-                    ? "ml-auto bg-indigo-600 text-white"
-                    : message.author_type === "bot"
-                    ? "bg-slate-200 text-slate-600 italic"
-                    : "bg-white border border-slate-200 text-slate-800"
-                }`}
+          {!user && !started ? (
+            <div className="flex-1 flex flex-col justify-center p-4 bg-slate-50">
+              <p className="text-sm text-slate-600 mb-4 text-center">Start a conversation — no account needed.</p>
+              <input
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="Your name"
+                className="mb-2 rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-200"
+              />
+              <input
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="Your email"
+                type="email"
+                className="mb-3 rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-200"
+              />
+              <button
+                onClick={startGuestChat}
+                disabled={!name.trim() || !email.trim()}
+                className="w-full rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-bold text-white disabled:opacity-50"
               >
-                {message.message}
+                Start Chat
+              </button>
+            </div>
+          ) : (
+            <>
+              <div ref={scrollRef} className="flex-1 space-y-2 overflow-y-auto bg-slate-50 p-3">
+                {messages.length === 0 && (
+                  <p className="mt-6 text-center text-xs text-slate-400">Send a message to start the conversation.</p>
+                )}
+                {messages.map((message) => (
+                  <div
+                    key={message.id}
+                    className={`max-w-[85%] rounded-2xl px-3 py-2 text-sm ${
+                      message.author_type === "customer"
+                        ? "ml-auto bg-indigo-600 text-white"
+                        : message.author_type === "bot"
+                        ? "bg-slate-200 text-slate-600 italic"
+                        : "bg-white border border-slate-200 text-slate-800"
+                    }`}
+                  >
+                    {message.message}
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
 
-          <form onSubmit={sendMessage} className="flex items-center gap-2 border-t border-slate-200 p-3">
-            <input
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-              placeholder="Type a message..."
-              className="flex-1 rounded-full border border-slate-200 px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-200"
-            />
-            <button
-              disabled={sending || !draft.trim()}
-              className="rounded-full bg-indigo-600 px-4 py-2 text-sm font-bold text-white disabled:opacity-50"
-            >
-              Send
-            </button>
-          </form>
+              <form onSubmit={sendMessage} className="flex items-center gap-2 border-t border-slate-200 p-3">
+                <input
+                  value={draft}
+                  onChange={(e) => setDraft(e.target.value)}
+                  placeholder="Type a message..."
+                  className="flex-1 rounded-full border border-slate-200 px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-200"
+                />
+                <button
+                  disabled={sending || !draft.trim()}
+                  className="rounded-full bg-indigo-600 px-4 py-2 text-sm font-bold text-white disabled:opacity-50"
+                >
+                  Send
+                </button>
+              </form>
+            </>
+          )}
         </div>
       )}
 

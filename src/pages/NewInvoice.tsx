@@ -24,7 +24,7 @@ import { invalidate } from "../lib/queryCache";
 import CountrySelect from "../components/CountrySelect";
 
 function makeId() {
-  return Math.random().toString(36).slice(2, 10);
+  return crypto.randomUUID();
 }
 
 function emptyItem(): LineItem {

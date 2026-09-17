@@ -8,7 +8,7 @@
 
 const SITE_URLS = {
   development: "http://localhost:5173",
-  production: "https://getrivox.vercel.app",
+  production: "https://rivoxcloud.com",
 };
 
 export const SITE_URL = import.meta.env.DEV

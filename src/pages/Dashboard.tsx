@@ -344,6 +344,7 @@ export default function Dashboard() {
           .select("*")
           .eq("user_id", workspaceOwnerId || user.id)
           .order("created_at", { ascending: false })
+          .limit(500)
           .then((r) => r.data as Invoice[] | null)
       ),
       cachedQuery<Client[] | null>(cacheKey + ":clients", 30_000, () =>

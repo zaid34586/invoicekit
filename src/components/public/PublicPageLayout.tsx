@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import Navbar from "../landing/Navbar";
 import Footer from "../landing/Footer";
+import SEO from "../SEO";
 
 interface PublicPageLayoutProps {
   eyebrow: string;
@@ -11,8 +12,10 @@ interface PublicPageLayoutProps {
 }
 
 export default function PublicPageLayout({ eyebrow, title, description, updated, children }: PublicPageLayoutProps) {
+  const path = typeof window !== "undefined" ? window.location.pathname : "";
   return (
     <div className="min-h-screen bg-slate-50 text-slate-950">
+      <SEO title={title} description={description} url={path} />
       <Navbar />
       <main>
         <section className="border-b border-slate-200 bg-[radial-gradient(circle_at_top_left,rgba(99,102,241,0.14),transparent_38%),linear-gradient(180deg,#ffffff_0%,#f8fafc_100%)]">

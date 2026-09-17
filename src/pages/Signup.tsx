@@ -3,6 +3,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { ADMIN_EMAIL } from "../lib/constants";
 import PasswordField from "../components/PasswordField";
+import SEO from "../components/SEO";
 
 type Stage = "form" | "loading" | "success";
 
@@ -103,6 +104,11 @@ export default function Signup() {
 
   return (
     <div className="auth-page">
+      <SEO
+        title="Sign Up"
+        description="Create your free Rivox account. Start creating professional invoices, managing clients, and tracking payments in minutes."
+        url="/signup"
+      />
       <div className="auth-shell">
         <section className="auth-aside">
           <div>

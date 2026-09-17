@@ -10,6 +10,8 @@ const styles: Record<GrowthBanner["style"], string> = {
   premium: "border-violet-300 bg-gradient-to-r from-violet-950 via-slate-950 to-indigo-950 text-white shadow-xl",
 };
 
+const DISMISS_KEY_PREFIX = "rivox_banner_dismissed_";
+
 export default function DynamicGrowthBanner({ placement }: Props) {
   const [banner, setBanner] = useState<GrowthBanner | null>(null);
   const [dismissed, setDismissed] = useState(false);
@@ -17,10 +19,28 @@ export default function DynamicGrowthBanner({ placement }: Props) {
   useEffect(() => {
     loadActiveBanners(placement).then((items) => {
       const first = items[0] ?? null;
-      setBanner(first);
-      if (first) void trackGrowthEvent({ event: "banner_view", bannerId: first.id });
+      if (first) {
+        const dismissKey = DISMISS_KEY_PREFIX + first.id;
+        const dismissedAt = localStorage.getItem(dismissKey);
+        if (dismissedAt) {
+          const hoursSinceDismiss = (Date.now() - Number(dismissedAt)) / (1000 * 60 * 60);
+          if (hoursSinceDismiss < 24) {
+            setDismissed(true);
+            return;
+          }
+        }
+        setBanner(first);
+        void trackGrowthEvent({ event: "banner_view", bannerId: first.id });
+      }
     });
   }, [placement]);
+
+  function handleDismiss() {
+    if (banner) {
+      localStorage.setItem(DISMISS_KEY_PREFIX + banner.id, String(Date.now()));
+    }
+    setDismissed(true);
+  }
 
   if (!banner || dismissed) return null;
 
@@ -32,7 +52,7 @@ export default function DynamicGrowthBanner({ placement }: Props) {
       </div>
       <div className="flex items-center gap-2">
         {banner.cta_text && banner.cta_url && <a href={banner.cta_url} onClick={() => void trackGrowthEvent({ event: "banner_click", bannerId: banner.id })} className="rounded-xl bg-white px-4 py-2 text-sm font-black text-slate-950 shadow-sm">{banner.cta_text}</a>}
-        <button onClick={() => setDismissed(true)} className="rounded-lg px-2 py-1 text-lg opacity-60 hover:opacity-100" aria-label="Dismiss banner">×</button>
+        <button onClick={handleDismiss} className="rounded-lg px-2 py-1 text-lg opacity-60 hover:opacity-100" aria-label="Dismiss banner">×</button>
       </div>
     </div>
   );

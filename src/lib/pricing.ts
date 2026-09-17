@@ -50,7 +50,7 @@ export const INDIA_PLANS: Record<Plan, PricingPlan> = {
     tagline: "For growing businesses",
     description: "Powerful billing, reports, and payment-ready invoicing for small teams.",
     monthlyPrice: 12499,
-    yearlyMonthlyPrice: 12499,
+    yearlyMonthlyPrice: 9999,
     currency: "INR",
     symbol: "₹",
     invoiceLimit: 500,
@@ -77,7 +77,7 @@ export const INDIA_PLANS: Record<Plan, PricingPlan> = {
     tagline: "For serious operations",
     description: "Advanced controls, team workflows, API-ready billing, and brand control.",
     monthlyPrice: 20999,
-    yearlyMonthlyPrice: 20999,
+    yearlyMonthlyPrice: 16999,
     currency: "INR",
     symbol: "₹",
     invoiceLimit: "unlimited",
@@ -111,14 +111,14 @@ export const GLOBAL_PLANS: Record<Plan, PricingPlan> = {
     currency: "USD",
     symbol: "$",
     monthlyPrice: 150,
-    yearlyMonthlyPrice: 150,
+    yearlyMonthlyPrice: 120,
   },
   business: {
     ...INDIA_PLANS.business,
     currency: "USD",
     symbol: "$",
     monthlyPrice: 250,
-    yearlyMonthlyPrice: 250,
+    yearlyMonthlyPrice: 200,
   },
 };
 
@@ -133,7 +133,8 @@ export function getAnnualTotal(plan: PricingPlan) {
 export function formatPlanPrice(plan: PricingPlan, cycle: BillingCycle) {
   const price = getPlanPrice(plan, cycle);
   if (price === 0) return "Free";
-  return `${plan.symbol}${price.toLocaleString("en-US")}`;
+  const locale = plan.currency === "INR" ? "en-IN" : "en-US";
+  return `${plan.symbol}${price.toLocaleString(locale)}`;
 }
 
 export function getPlanLimitLabel(limit: number | "unlimited", noun: string) {

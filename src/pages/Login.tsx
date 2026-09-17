@@ -4,6 +4,7 @@ import { useAuth } from "../context/AuthContext";
 import { supabase } from "../lib/supabase";
 import { REQUIRE_PHONE_VERIFICATION } from "../lib/constants";
 import PasswordField from "../components/PasswordField";
+import SEO from "../components/SEO";
 
 type Stage = "form" | "loading";
 
@@ -68,6 +69,11 @@ export default function Login() {
 
   return (
     <div className="auth-page">
+      <SEO
+        title="Login"
+        description="Sign in to your Rivox account. Manage invoices, clients, and payments from your business dashboard."
+        url="/login"
+      />
       {emailConfirmed && (
         <div className="fixed top-6 left-1/2 -translate-x-1/2 z-50 w-full max-w-md px-4 animate-fade-in">
           <div className="flex items-center gap-3 rounded-2xl border border-emerald-300 bg-emerald-50 px-5 py-4 shadow-2xl shadow-emerald-900/20">

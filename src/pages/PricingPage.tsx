@@ -3,6 +3,7 @@ import Navbar from "../components/landing/Navbar";
 import Pricing from "../components/landing/Pricing";
 import FAQ from "../components/landing/FAQ";
 import Footer from "../components/landing/Footer";
+import SEO from "../components/SEO";
 
 export default function PricingPage() {
   useEffect(() => {
@@ -11,6 +12,11 @@ export default function PricingPage() {
 
   return (
     <div className="min-h-screen bg-slate-50">
+      <SEO
+        title="Pricing"
+        description="Start free, then upgrade when you need more invoices, advanced reporting, automation, and team features. Simple pricing for businesses."
+        url="/pricing"
+      />
       <Navbar />
       <main>
         <section className="border-b border-slate-200 bg-[radial-gradient(circle_at_top_left,rgba(99,102,241,0.16),transparent_42%),linear-gradient(180deg,#ffffff_0%,#f8fafc_100%)]">

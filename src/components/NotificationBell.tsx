@@ -76,10 +76,15 @@ export default function NotificationBell() {
 
   useEffect(() => {
     void load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id]);
+
+  useEffect(() => {
+    if (!open || !user) return;
     const interval = window.setInterval(() => void load(), 30_000);
     return () => window.clearInterval(interval);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.id]);
+  }, [open, user?.id]);
 
   const unreadCount = items.filter((n) => !n.read_at).length;
 

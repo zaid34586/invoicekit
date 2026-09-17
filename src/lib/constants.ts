@@ -337,7 +337,8 @@ export const COUNTRIES: CountryData[] = COUNTRY_CATALOG.map((country) => ({
 }));
 
 export const FREE_PLAN_LIMIT = 25;
-export const PRO_PLAN_PRICE = 399;
+export const PRO_PLAN_PRICE = 12499;
+export const BUSINESS_PLAN_PRICE = 20999;
 export const ADMIN_EMAIL = "mz7123272@gmail.com";
 // Temporarily off for launch: Twilio is on a trial account, which can only
 // send OTPs to numbers manually verified in the Twilio console -- real

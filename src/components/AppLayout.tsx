@@ -199,7 +199,6 @@ export default function AppLayout({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     setSidebarOpen(false);
-    void refreshWorkspace();
   }, [location.pathname]);
 
   useEffect(() => {

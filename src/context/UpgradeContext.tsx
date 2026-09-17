@@ -22,7 +22,7 @@ export function UpgradeProvider({ children }: { children: ReactNode }) {
   const [isOpen, setIsOpen] = useState(false);
   const { profile } = useAuth();
 
-const isFree = profile?.plan === "free";
+const isFree = !profile || profile.plan === "free" || profile.plan === undefined;
 const isPro = profile?.plan === "pro";
 const isBusiness = profile?.plan === "business";
   return (

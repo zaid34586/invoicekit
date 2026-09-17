@@ -6,15 +6,16 @@ interface Props {
 
 interface State {
   hasError: boolean;
+  error: Error | null;
 }
 
 // Catches any uncaught error thrown while rendering, so a bug in one part of
 // the app shows a friendly recoverable screen instead of a blank white page.
 export default class ErrorBoundary extends Component<Props, State> {
-  state: State = { hasError: false };
+  state: State = { hasError: false, error: null };
 
-  static getDerivedStateFromError(): State {
-    return { hasError: true };
+  static getDerivedStateFromError(error: Error): State {
+    return { hasError: true, error };
   }
 
   componentDidCatch(error: Error, info: ErrorInfo) {
@@ -31,12 +32,25 @@ export default class ErrorBoundary extends Component<Props, State> {
             <p className="text-sm text-slate-500 mt-2">
               This page hit an unexpected error. Reloading usually fixes it — your data is safe.
             </p>
-            <button
-              onClick={() => window.location.reload()}
-              className="mt-6 w-full rounded-2xl bg-slate-950 text-white px-4 py-3 text-sm font-bold"
-            >
-              Reload page
-            </button>
+            {this.state.error && (
+              <p className="mt-3 text-xs text-slate-400 bg-slate-50 rounded-lg p-2 break-all">
+                {this.state.error.message}
+              </p>
+            )}
+            <div className="mt-6 flex flex-col gap-2">
+              <button
+                onClick={() => window.location.reload()}
+                className="w-full rounded-2xl bg-slate-950 text-white px-4 py-3 text-sm font-bold"
+              >
+                Reload page
+              </button>
+              <button
+                onClick={() => { window.location.href = "/dashboard"; }}
+                className="w-full rounded-2xl bg-slate-100 text-slate-700 px-4 py-3 text-sm font-bold"
+              >
+                Go to Dashboard
+              </button>
+            </div>
           </div>
         </div>
       );

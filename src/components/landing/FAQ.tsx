@@ -4,7 +4,7 @@ const faqs = [
   {
     question: "Is Rivox free to use?",
     answer:
-      "Yes. You can create up to 3 invoices every month on the Free plan."
+      "Yes. You can create up to 25 invoices every month on the Free plan."
   },
   {
     question: "Can I download invoices as PDF?",

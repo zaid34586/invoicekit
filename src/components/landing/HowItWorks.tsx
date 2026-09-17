@@ -13,7 +13,7 @@ export default function HowItWorks() {
     {
       number: "03",
       title: "Generate Invoice",
-      description: "Create professional invoices with GST, PDF and sharing."
+      description: "Create professional invoices with tax compliance, PDF and sharing."
     }
   ];
 
