@@ -500,6 +500,73 @@ export default function Dashboard() {
       </div>
       </section>
 
+      {/* Free Plan Usage Bar */}
+      {!isPro && (
+        <section className="rounded-2xl border border-amber-200/60 bg-gradient-to-r from-amber-50/80 to-orange-50/60 p-4 sm:p-5">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-3">
+            <div className="flex items-center gap-2">
+              <span className="text-lg">📊</span>
+              <h3 className="text-sm font-bold text-slate-800">Monthly Usage</h3>
+            </div>
+            <Link
+              to="/billing"
+              className="inline-flex items-center gap-1.5 rounded-full bg-gradient-to-r from-indigo-600 to-purple-600 px-4 py-1.5 text-xs font-bold text-white shadow-md transition hover:scale-105 hover:shadow-lg"
+            >
+              Upgrade for More →
+            </Link>
+          </div>
+          <div className="space-y-3">
+            {/* Invoices Progress */}
+            <div>
+              <div className="flex justify-between text-xs mb-1.5">
+                <span className="text-slate-600 font-medium">Invoices</span>
+                <span className={`font-bold ${invoicesThisMonth >= FREE_PLAN_LIMIT * 0.8 ? 'text-amber-600' : 'text-slate-700'}`}>
+                  {invoicesThisMonth} / {FREE_PLAN_LIMIT} used
+                  {invoiceBalance > 0 && <span className="text-slate-500 font-normal"> +{invoiceBalance} credits</span>}
+                </span>
+              </div>
+              <div className="h-2.5 overflow-hidden rounded-full bg-white/80 shadow-inner">
+                <div
+                  className={`h-full rounded-full transition-all duration-500 ${
+                    invoicesThisMonth >= FREE_PLAN_LIMIT
+                      ? 'bg-gradient-to-r from-red-500 to-red-600'
+                      : invoicesThisMonth >= FREE_PLAN_LIMIT * 0.8
+                      ? 'bg-gradient-to-r from-amber-400 to-orange-500'
+                      : 'bg-gradient-to-r from-indigo-500 to-purple-500'
+                  }`}
+                  style={{ width: `${Math.min(100, (invoicesThisMonth / FREE_PLAN_LIMIT) * 100)}%` }}
+                />
+              </div>
+              {invoicesThisMonth >= FREE_PLAN_LIMIT && (
+                <p className="text-xs text-red-600 mt-1.5 font-medium">
+                  ⚠️ You've reached your limit. Upgrade to continue creating invoices.
+                </p>
+              )}
+              {invoicesThisMonth >= FREE_PLAN_LIMIT * 0.8 && invoicesThisMonth < FREE_PLAN_LIMIT && (
+                <p className="text-xs text-amber-600 mt-1.5 font-medium">
+                  💡 Running low? Upgrade for 500 invoices/month on Pro.
+                </p>
+              )}
+            </div>
+            {/* Clients Progress */}
+            <div>
+              <div className="flex justify-between text-xs mb-1.5">
+                <span className="text-slate-600 font-medium">Clients</span>
+                <span className="font-bold text-slate-700">
+                  {clients.length} / 25 used
+                </span>
+              </div>
+              <div className="h-2 overflow-hidden rounded-full bg-white/80 shadow-inner">
+                <div
+                  className="h-full rounded-full bg-gradient-to-r from-emerald-400 to-teal-500 transition-all duration-500"
+                  style={{ width: `${Math.min(100, (clients.length / 25) * 100)}%` }}
+                />
+              </div>
+            </div>
+          </div>
+        </section>
+      )}
+
       {/* Analytics Cards */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-5">
         <StatCard

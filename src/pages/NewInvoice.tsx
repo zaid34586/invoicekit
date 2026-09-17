@@ -6,6 +6,7 @@ import { deliverPendingWebhooks } from "../lib/webhooks";
 import { useAuth } from "../context/AuthContext";
 import { useUpgrade } from "../context/UpgradeContext";
 import type { LineItem, Client, InvoiceStatus } from "../lib/types";
+import { generateInvoiceDraft } from "../lib/aiEngine";
 import {
   COUNTRIES,
   todayISO,
@@ -102,6 +103,13 @@ export default function NewInvoice() {
   const [error, setError] = useState<string | null>(null);
   const [clients, setClients] = useState<Client[]>([]);
   const [sourceLoading, setSourceLoading] = useState(Boolean(sourceInvoiceId));
+
+  // AI Invoice Draft
+  const [aiDraftOpen, setAiDraftOpen] = useState(false);
+  const [aiDraftDescription, setAiDraftDescription] = useState("");
+  const [aiDraftLoading, setAiDraftLoading] = useState(false);
+  const [aiDraftsUsed, setAiDraftsUsed] = useState(0);
+  const aiDraftLimit = profile?.plan === "pro" || profile?.plan === "business" || profile?.is_pro ? 999 : 3;
 
   // ── Currency state ────────────────────────────────────────────────────────
   // invoiceCurrency is derived from the selected client country. The user can
@@ -265,6 +273,13 @@ export default function NewInvoice() {
     loadClients();
   }, [user]);
 
+  // Load AI draft usage from localStorage
+  useEffect(() => {
+    const monthKey = new Date().toISOString().slice(0, 7); // e.g., "2026-09"
+    const stored = localStorage.getItem(`ai_drafts_${monthKey}`);
+    setAiDraftsUsed(stored ? parseInt(stored, 10) : 0);
+  }, []);
+
   // Calculate using the actual business/client countries. The previous call
   // omitted both countries, which made calculateInvoice fall back to India and
   // could apply CGST/SGST logic to international businesses.
@@ -382,6 +397,42 @@ export default function NewInvoice() {
     setClientAddress(client.address ?? "");
     setClientState(client.state ?? "");
     setClientGstin(client.gstin ?? "");
+  }
+
+  function handleAiDraft() {
+    if (!aiDraftDescription.trim()) return;
+    if (aiDraftsUsed >= aiDraftLimit) {
+      setError(`You've used all ${aiDraftLimit} AI drafts this month. ${aiDraftLimit < 999 ? "Upgrade to Pro for unlimited AI drafts." : ""}`);
+      return;
+    }
+
+    setAiDraftLoading(true);
+
+    // Simulate AI processing delay
+    setTimeout(() => {
+      const draft = generateInvoiceDraft(aiDraftDescription);
+      const newItems: LineItem[] = draft.items.map((item) => ({
+        id: makeId(),
+        description: item.description,
+        qty: item.quantity,
+        rate: item.rate,
+        gstRate: 18,
+        hsnSac: "",
+      }));
+
+      setItems(newItems);
+      if (draft.notes) setNotes(draft.notes);
+
+      // Update usage in localStorage
+      const monthKey = new Date().toISOString().slice(0, 7);
+      const newUsed = aiDraftsUsed + 1;
+      localStorage.setItem(`ai_drafts_${monthKey}`, String(newUsed));
+      setAiDraftsUsed(newUsed);
+
+      setAiDraftLoading(false);
+      setAiDraftOpen(false);
+      setAiDraftDescription("");
+    }, 1200);
   }
 
   async function handleSave() {
@@ -525,7 +576,129 @@ export default function NewInvoice() {
                 : "Fill in the details below to create a professional invoice"}
           </p>
         </div>
+        {!isEditMode && !isDuplicateMode && (
+          <button
+            onClick={() => setAiDraftOpen(true)}
+            className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-violet-600 to-purple-600 px-4 py-2.5 text-sm font-bold text-white shadow-lg shadow-purple-500/25 transition hover:scale-105 hover:shadow-xl"
+          >
+            <span className="text-lg">✨</span>
+            AI Draft
+            {aiDraftLimit < 999 && (
+              <span className="ml-1 rounded-full bg-white/20 px-2 py-0.5 text-xs">
+                {aiDraftLimit - aiDraftsUsed} left
+              </span>
+            )}
+          </button>
+        )}
       </div>
+
+      {/* AI Draft Modal */}
+      {aiDraftOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+          <div className="w-full max-w-lg rounded-3xl bg-white p-6 shadow-2xl animate-fade-in">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-3">
+                <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-violet-500 to-purple-600 flex items-center justify-center text-white text-xl">
+                  ✨
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-slate-900">AI Invoice Draft</h3>
+                  <p className="text-xs text-slate-500">
+                    Describe your work and AI will create the invoice
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setAiDraftOpen(false)}
+                className="rounded-full p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+              >
+                <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-slate-700 mb-2">
+                What did you do? (Be descriptive for best results)
+              </label>
+              <textarea
+                value={aiDraftDescription}
+                onChange={(e) => setAiDraftDescription(e.target.value)}
+                className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-violet-200 focus:border-violet-400 resize-none"
+                rows={4}
+                placeholder="e.g., Designed and developed a responsive e-commerce website with 5 product pages, shopping cart, and payment integration for ACME Corp..."
+                autoFocus
+              />
+            </div>
+
+            {/* Example prompts */}
+            <div className="mb-4">
+              <p className="text-xs font-medium text-slate-500 mb-2">Try these:</p>
+              <div className="flex flex-wrap gap-2">
+                {[
+                  "Logo design for a tech startup",
+                  "Monthly social media management",
+                  "Website development - 10 pages",
+                  "Photography session - 2 hours",
+                  "Consulting services - 8 hours",
+                ].map((prompt) => (
+                  <button
+                    key={prompt}
+                    onClick={() => setAiDraftDescription(prompt)}
+                    className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs text-slate-600 transition hover:bg-violet-50 hover:border-violet-200 hover:text-violet-700"
+                  >
+                    {prompt}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {aiDraftsUsed >= aiDraftLimit && (
+              <div className="mb-4 rounded-lg bg-amber-50 border border-amber-200 p-3">
+                <p className="text-sm text-amber-700">
+                  You've used all {aiDraftLimit} AI drafts this month.{" "}
+                  {aiDraftLimit < 999 && (
+                    <button
+                      onClick={() => { setAiDraftOpen(false); navigate("/billing"); }}
+                      className="font-bold underline"
+                    >
+                      Upgrade to Pro
+                    </button>
+                  )}{" "}
+                  for unlimited drafts.
+                </p>
+              </div>
+            )}
+
+            <div className="flex gap-3">
+              <button
+                onClick={() => setAiDraftOpen(false)}
+                className="flex-1 rounded-xl border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleAiDraft}
+                disabled={!aiDraftDescription.trim() || aiDraftLoading || aiDraftsUsed >= aiDraftLimit}
+                className="flex-1 rounded-xl bg-gradient-to-r from-violet-600 to-purple-600 px-4 py-3 text-sm font-bold text-white disabled:opacity-50 transition hover:shadow-lg"
+              >
+                {aiDraftLoading ? (
+                  <span className="flex items-center justify-center gap-2">
+                    <svg className="h-4 w-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                    </svg>
+                    Generating...
+                  </span>
+                ) : (
+                  "✨ Generate Invoice"
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {error && (
         <div className="rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">
