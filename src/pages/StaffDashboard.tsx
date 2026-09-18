@@ -178,6 +178,7 @@ export default function StaffDashboard() {
   const recordedChunksRef = useRef<Blob[]>([]);
   const recordingUploadTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const recordingSessionIdRef = useRef<string | null>(null);
+  const activityHeartbeatTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [selectedTicketId, setSelectedTicketId] = useState<string | null>(null);
   const [ticketMessages, setTicketMessages] = useState<TicketMessage[]>([]);
   const [ticketReply, setTicketReply] = useState("");
@@ -256,6 +257,7 @@ export default function StaffDashboard() {
   useEffect(() => {
     return () => {
       if (recordingUploadTimerRef.current) clearInterval(recordingUploadTimerRef.current);
+      if (activityHeartbeatTimerRef.current) clearInterval(activityHeartbeatTimerRef.current);
       if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") mediaRecorderRef.current.stop();
       if (mediaStreamRef.current) mediaStreamRef.current.getTracks().forEach((t) => t.stop());
     };
@@ -437,7 +439,7 @@ export default function StaffDashboard() {
     mediaRecorderRef.current = null;
   }
 
-  async function startScreenRecording(task: TaskRow, sessionId: string) {
+  async function startScreenRecording(_task: TaskRow, sessionId: string) {
     recordingSessionIdRef.current = sessionId;
     recordedChunksRef.current = [];
 
@@ -458,12 +460,15 @@ export default function StaffDashboard() {
     }
 
     mediaStreamRef.current = stream;
-    // If the person uses the browser's own "Stop sharing" control, end the
-    // session gracefully instead of leaving it in a broken half-recording state.
+    // If sharing stops (browser "Stop sharing" button, or staff switched
+    // away from a shared single tab so the track ended), only the recording
+    // stops — the session and its activity tracking stay alive. Ending the
+    // whole session here previously made every tab switch look like the
+    // intern stopped working ("Paused/Interrupted · 0 items" on admin side).
     stream.getVideoTracks()[0]?.addEventListener("ended", () => {
       stopScreenRecording();
       setRecordingState("idle");
-      void endQueueSession(task, false);
+      setMessage("Screen share ended — session is still active and your activity is still being tracked.");
     });
 
     const mimeType = MediaRecorder.isTypeSupported("video/webm;codecs=vp9,opus") ? "video/webm;codecs=vp9,opus" : "video/webm";
@@ -476,19 +481,42 @@ export default function StaffDashboard() {
     recordingUploadTimerRef.current = setInterval(() => { void uploadRecordingSnapshot(sessionId); }, 30000);
   }
 
+  // Single path for every activity write, so a blocked/failed insert is
+  // visible (console + staff message) instead of silently lost — previously
+  // RLS/policy failures vanished and the admin saw "No activity logged yet".
+  async function logActivity(taskId: string, sessionId: string, action: string, details: Record<string, unknown> = {}) {
+    if (!staff?.id) {
+      console.warn("[activity] staff profile not loaded — event skipped:", action);
+      setMessage("Activity tracking could not start — staff profile not loaded. Please refresh the page.");
+      return;
+    }
+    const { error } = await supabase.from("task_activity_log").insert({ task_id: taskId, session_id: sessionId, staff_id: staff.id, action, details });
+    if (error) {
+      console.warn("[activity] insert failed:", action, error.message);
+      setMessage(`Activity log failed (${action}): ${error.message}`);
+    }
+  }
+
   async function startQueueSession(task: TaskRow) {
     if (!staff?.id) return;
     const { data, error } = await supabase.from("task_sessions").insert({ task_id: task.id, staff_id: staff.id }).select("id, started_at").single();
     if (error) { setMessage(error.message); return; }
     setQueueSession(data);
-    await supabase.from("task_activity_log").insert({ task_id: task.id, session_id: data.id, staff_id: staff.id, action: "session_start", details: {} });
+    await logActivity(task.id, data.id, "session_start");
     if (task.status === "pending") await updateTask(task.id, { status: "in_progress" } as Partial<TaskRow>);
     await startScreenRecording(task, data.id);
+    // Periodic heartbeat so the admin can see the session is genuinely
+    // active between item events (tab switches, research work, calls etc.).
+    if (activityHeartbeatTimerRef.current) clearInterval(activityHeartbeatTimerRef.current);
+    activityHeartbeatTimerRef.current = setInterval(() => {
+      void logActivity(task.id, data.id, "heartbeat");
+    }, 10 * 60 * 1000);
   }
 
   async function endQueueSession(task: TaskRow, completed: boolean) {
     if (!queueSession) return;
     const sessionId = queueSession.id;
+    if (activityHeartbeatTimerRef.current) { clearInterval(activityHeartbeatTimerRef.current); activityHeartbeatTimerRef.current = null; }
     if (recordingState === "recording") {
       stopScreenRecording();
       await new Promise((r) => setTimeout(r, 400)); // let the final ondataavailable flush land
@@ -500,7 +528,7 @@ export default function StaffDashboard() {
       ended_at: new Date().toISOString(),
       items_worked: queueItemsState.filter((i) => i.status !== "pending").length,
     }).eq("id", sessionId);
-    await supabase.from("task_activity_log").insert({ task_id: task.id, session_id: sessionId, staff_id: staff?.id, action: "session_end", details: { completed } });
+    await logActivity(task.id, sessionId, "session_end", { completed });
     setQueueSession(null);
     await load();
   }
@@ -509,7 +537,7 @@ export default function StaffDashboard() {
   function openQueueItem(task: TaskRow, item: QueueItemRow) {
     setSelectedQueueItemId(item.id);
     setQueueDraft({ notes: item.proof_notes || "", screenshotUrl: item.proof_screenshot_url || "", recordingUrl: item.proof_recording_url || "" });
-    if (queueSession) void supabase.from("task_activity_log").insert({ task_id: task.id, queue_item_id: item.id, session_id: queueSession.id, staff_id: staff?.id, action: "item_opened", details: {} });
+    if (queueSession) void logActivity(task.id, queueSession.id, "item_opened");
   }
 
   async function uploadQueueProofFile(file: File, kind: "screenshot" | "recording") {
@@ -547,7 +575,7 @@ export default function StaffDashboard() {
     if (error) { setMessage(error.message); return; }
 
     if (queueSession) {
-      await supabase.from("task_activity_log").insert({ task_id: task.id, queue_item_id: item.id, session_id: queueSession.id, staff_id: staff?.id, action: "item_marked", details: { status } });
+      await logActivity(task.id, queueSession.id, "item_marked", { status, queue_item_id: item.id });
     }
 
     setQueueItemsState((cur) => cur.map((i) => i.id === item.id ? { ...i, status, proof_notes: queueDraft.notes.trim() || null, proof_screenshot_url: queueDraft.screenshotUrl.trim() || null, proof_recording_url: queueDraft.recordingUrl.trim() || null, marked_at: new Date().toISOString() } : i));
@@ -600,7 +628,7 @@ export default function StaffDashboard() {
     setQueueSubmitting(false);
     if (error || !inserted) { setMessage(error?.message || "Could not submit the documents."); return; }
     if (queueSession) {
-      await supabase.from("task_activity_log").insert({ task_id: task.id, session_id: queueSession.id, staff_id: staff?.id, action: "lead_docs_submitted", details: { files: queueLeadDocs.map((d) => d.name) } });
+      await logActivity(task.id, queueSession.id, "lead_docs_submitted", { files: queueLeadDocs.map((d) => d.name) });
       const pendingCount = queueItemsState.filter((i) => i.status === "pending").length;
       await endQueueSession(task, pendingCount === 0);
     }
