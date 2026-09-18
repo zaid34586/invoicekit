@@ -1343,7 +1343,8 @@ export default function StaffDashboard() {
                     <div className="h-full bg-purple-600 transition-all" style={{ width: `${Math.min(100, Math.round((queueItemsState.length / target) * 100))}%` }} />
                   </div>
                 )}
-                <p className="text-xs text-purple-600 mt-1 mb-4">Starting will ask your browser to share your screen and record this session (desktop browser required — Chrome/Edge).</p>
+                <p className="text-xs text-purple-600 mt-1 mb-2">Starting will ask your browser to share your screen and record this session (desktop browser required — Chrome/Edge).</p>
+                <p className="text-xs font-bold text-purple-800 mb-4">⚠️ Important: in the share popup choose <span className="underline">“Entire Screen”</span> — not a single Chrome tab. If you share one tab and open a new tab, recording stops. Entire Screen keeps recording while you switch tabs.</p>
                 <button onClick={() => startQueueSession(task)} className="rounded-2xl bg-purple-600 text-white px-6 py-3 text-sm font-black">▶ Start</button>
               </div>
             ) : (
