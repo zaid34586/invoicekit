@@ -7,6 +7,7 @@ import { formatDate, FREE_PLAN_LIMIT } from "../lib/constants";
 import { formatMoney } from "../lib/currency";
 import { invoiceBaseAmount, invoicePaidBaseAmount, invoiceDate, startOfDay, endOfDay, isWithin } from "../lib/invoiceAnalytics";
 import { cachedQuery } from "../lib/queryCache";
+import AdBanner from "../components/AdBanner";
 
 // Skeleton loader component
 function Skeleton({ className }: { className?: string }) {
@@ -889,6 +890,9 @@ export default function Dashboard() {
           </div>
         </div>
       )}
+
+      {/* Ad Banner for Free Users */}
+      {!isPro && <AdBanner />}
 
       {/* Overdue Alert */}
       {overdueInvoices.length > 0 && (

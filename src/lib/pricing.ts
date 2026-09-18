@@ -15,6 +15,7 @@ export interface PricingPlan {
   clientLimit: number | "unlimited";
   teamMembers: number | "unlimited";
   featured?: boolean;
+  hasAds?: boolean;
   cta: string;
   features: string[];
   limitations?: string[];
@@ -33,6 +34,7 @@ export const INDIA_PLANS: Record<Plan, PricingPlan> = {
     invoiceLimit: 25,
     clientLimit: 25,
     teamMembers: 0,
+    hasAds: true,
     cta: "Start Free — 25 invoices",
     features: [
       "25 invoices/month",
@@ -43,8 +45,9 @@ export const INDIA_PLANS: Record<Plan, PricingPlan> = {
       "AI Invoice Draft (3/month)",
       "AI Chat Support",
       "Rivox watermark",
+      "Includes ads",
     ],
-    limitations: ["No payment links", "No team access", "No recurring invoices", "No client portal", "No custom branding"],
+    limitations: ["No payment links", "No team access", "No recurring invoices", "No client portal", "No custom branding", "Rivox watermark on PDFs"],
   },
   pro: {
     id: "pro",
@@ -59,10 +62,12 @@ export const INDIA_PLANS: Record<Plan, PricingPlan> = {
     clientLimit: 500,
     teamMembers: 3,
     featured: true,
+    hasAds: false,
     cta: "Upgrade to Pro",
     features: [
       "500 invoices/month",
       "Remove Rivox watermark",
+      "Ad-free experience",
       "Payment-ready invoice links",
       "Email & WhatsApp sharing",
       "Multi-currency invoicing with live FX",
@@ -88,12 +93,14 @@ export const INDIA_PLANS: Record<Plan, PricingPlan> = {
     invoiceLimit: "unlimited",
     clientLimit: "unlimited",
     teamMembers: "unlimited",
+    hasAds: false,
     cta: "Choose Business",
     features: [
       "Unlimited invoices",
       "Unlimited clients",
       "Team members and roles",
       "Full custom branding (logo, colors, templates)",
+      "Ad-free experience",
       "Advanced analytics & Excel/CSV exports",
       "Recurring invoices (weekly/monthly/quarterly/yearly)",
       "Client portal — clients view invoices & pay online",

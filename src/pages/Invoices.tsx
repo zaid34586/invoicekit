@@ -7,6 +7,7 @@ import { formatDate } from "../lib/constants";
 import { formatMoney } from "../lib/currency";
 import StatusBadge from "../components/StatusBadge";
 import Skeleton from "../components/Skeleton";
+import AdBanner from "../components/AdBanner";
 
 type Filter = "all" | InvoiceStatus;
 
@@ -22,7 +23,7 @@ const LIST_COLUMNS =
 const PAGE_SIZE = 25;
 
 export default function Invoices() {
-  const { user, workspaceOwnerId, workspaceRole } = useAuth();
+  const { user, profile, workspaceOwnerId, workspaceRole } = useAuth();
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<Filter>("all");
@@ -109,6 +110,7 @@ export default function Invoices() {
 
   return (
     <div className="max-w-7xl mx-auto space-y-6 animate-fade-in">
+      {!profile?.is_pro && profile?.plan !== "pro" && profile?.plan !== "business" && <AdBanner />}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-slate-900">All Invoices</h1>

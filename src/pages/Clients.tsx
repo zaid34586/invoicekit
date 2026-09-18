@@ -8,6 +8,7 @@ import CountrySelect from "../components/CountrySelect";
 import { formatMoney } from "../lib/currency";
 import StatusBadge from "../components/StatusBadge";
 import Skeleton from "../components/Skeleton";
+import AdBanner from "../components/AdBanner";
 
 // Previously a hand-maintained duplicate of constants.ts's COUNTRIES list —
 // kept its own copy of every name/dial-code pair, so any future edit to the
@@ -444,6 +445,7 @@ export default function Clients() {
 
   return (
     <div className="max-w-7xl mx-auto space-y-6 animate-fade-in">
+      {!profile?.is_pro && profile?.plan !== "pro" && profile?.plan !== "business" && <AdBanner />}
       <div className="overflow-hidden rounded-3xl border border-slate-200 bg-gradient-to-br from-slate-950 via-slate-900 to-violet-950 p-6 text-white shadow-xl sm:p-8">
         <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
           <div>

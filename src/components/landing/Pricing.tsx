@@ -82,6 +82,16 @@ function PricingCard({
         <p className="text-sm font-semibold text-primary-600">{plan.tagline}</p>
         <div className="mt-2 flex flex-wrap items-center gap-2">
           <h3 className="text-2xl font-bold text-slate-950">{plan.name}</h3>
+          {plan.hasAds === true && (
+            <span className="rounded-full bg-red-100 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-red-600">
+              With Ads
+            </span>
+          )}
+          {plan.hasAds === false && !isFree && (
+            <span className="rounded-full bg-emerald-100 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-emerald-700">
+              Ad-Free
+            </span>
+          )}
           {offer && !isFree && (
             <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-black text-emerald-700">
               {formatOfferDiscount(offer)}
