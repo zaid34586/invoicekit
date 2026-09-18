@@ -182,6 +182,7 @@ export default function Clients() {
   const [deleteTarget, setDeleteTarget] = useState<Client | null>(null);
   const [deleteInvoicesToo, setDeleteInvoicesToo] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [portalCopiedId, setPortalCopiedId] = useState<string | null>(null);
 
   useEffect(() => {
     async function load() {
@@ -190,7 +191,7 @@ export default function Clients() {
       // not fetched here. Invoice history loads on demand below.
       const { data, error } = await supabase
         .from("clients")
-        .select("id, name, company_name, email, phone, country, country_code, state, address, gstin, created_at")
+        .select("id, name, company_name, email, phone, country, country_code, state, address, gstin, portal_token, created_at")
         .order("created_at", { ascending: false });
       if (!error && data) setClients(data as Client[]);
       setLoading(false);
@@ -322,7 +323,7 @@ export default function Clients() {
         .from("clients")
         .update(payload)
         .eq("id", editingId)
-        .select("*")
+        .select("id, name, company_name, email, phone, country, country_code, state, address, gstin, portal_token, created_at")
         .single();
       setSaving(false);
       if (error) {
@@ -341,7 +342,7 @@ export default function Clients() {
       const { data, error } = await supabase
         .from("clients")
         .insert(payload)
-        .select("*")
+        .select("id, name, company_name, email, phone, country, country_code, state, address, gstin, portal_token, created_at")
         .single();
       setSaving(false);
       if (error) {
@@ -732,6 +733,20 @@ export default function Clients() {
                 >
                   Invoice history
                 </button>}
+                {client.portal_token && (
+                  <button
+                    onClick={() => {
+                      const url = `${window.location.origin}/portal/${client.portal_token}`;
+                      navigator.clipboard.writeText(url).then(() => {
+                        setPortalCopiedId(client.id);
+                        setTimeout(() => setPortalCopiedId(null), 2000);
+                      });
+                    }}
+                    className="text-sm text-indigo-600 font-medium hover:underline"
+                  >
+                    {portalCopiedId === client.id ? "Copied!" : "Copy Portal Link"}
+                  </button>
+                )}
                 <button
                   onClick={() => openEdit(client)}
                   className="text-sm text-slate-600 font-medium hover:underline ml-auto"

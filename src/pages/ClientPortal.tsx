@@ -7,6 +7,7 @@ import StatusBadge from "../components/StatusBadge";
 
 interface PortalClient {
   id: string;
+  user_id: string;
   name: string;
   email: string;
   phone: string | null;
@@ -50,7 +51,7 @@ export default function ClientPortal() {
       // Look up client by portal_token
       const { data: clientData, error: clientError } = await supabase
         .from("clients")
-        .select("id, name, email, phone, address, gstin, country")
+        .select("id, user_id, name, email, phone, address, gstin, country")
         .eq("portal_token", clientToken)
         .single();
 
@@ -62,11 +63,12 @@ export default function ClientPortal() {
 
       setClient(clientData as PortalClient);
 
-      // Load client's invoices
+      // Load client's invoices — query by the business owner's user_id + client name
       const { data: invoiceData } = await supabase
         .from("invoices")
         .select("id, invoice_number, invoice_date, due_date, status, invoice_total, total, invoice_currency, share_token, items, notes, created_at")
-        .eq("user_id", clientData.id)
+        .eq("user_id", clientData.user_id)
+        .eq("client_name", clientData.name)
         .order("created_at", { ascending: false });
 
       if (invoiceData) {
@@ -120,6 +122,8 @@ export default function ClientPortal() {
     .filter((inv) => inv.status === "paid")
     .reduce((sum, inv) => sum + Number(inv.invoice_total ?? inv.total), 0);
 
+  const primaryCurrency = invoices[0]?.invoice_currency ?? (client.country === "India" ? "INR" : "USD");
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-indigo-50/30 to-violet-50/20">
       {/* Header */}
@@ -151,13 +155,13 @@ export default function ClientPortal() {
           <div className="rounded-2xl bg-white p-5 shadow-sm border border-slate-100">
             <p className="text-sm text-slate-500">Pending</p>
             <p className="text-2xl font-bold text-amber-600 mt-1">
-              {formatMoney(totalPending, client.country === "India" ? "INR" : "USD")}
+              {formatMoney(totalPending, primaryCurrency)}
             </p>
           </div>
           <div className="rounded-2xl bg-white p-5 shadow-sm border border-slate-100">
             <p className="text-sm text-slate-500">Paid</p>
             <p className="text-2xl font-bold text-emerald-600 mt-1">
-              {formatMoney(totalPaid, client.country === "India" ? "INR" : "USD")}
+              {formatMoney(totalPaid, primaryCurrency)}
             </p>
           </div>
         </div>

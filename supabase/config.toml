@@ -23,7 +23,7 @@ entrypoint = "./functions/verify-otp/index.ts"
 
 [functions.check-email]
 enabled = true
-verify_jwt = false
+verify_jwt = true
 import_map = "./functions/check-email/deno.json"
 # Uncomment to specify a custom file path to the entrypoint.
 # Supported file extensions are: .ts, .js, .mjs, .jsx, .tsx
@@ -34,7 +34,7 @@ entrypoint = "./functions/check-email/index.ts"
 
 [functions.delete-account]
 enabled = true
-verify_jwt = false
+verify_jwt = true
 import_map = "./functions/delete-account/deno.json"
 # Uncomment to specify a custom file path to the entrypoint.
 # Supported file extensions are: .ts, .js, .mjs, .jsx, .tsx

@@ -64,6 +64,8 @@ export interface Client {
   state: string | null;
   gstin: string | null;
 
+  portal_token?: string | null;
+
   created_at: string;
 }
 

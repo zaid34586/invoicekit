@@ -15,7 +15,7 @@ type Filter = "all" | InvoiceStatus;
 // a business with thousands of invoices doesn't download every line item
 // just to render a table. Keeps the list fast as data grows.
 const LIST_COLUMNS =
-  "id, invoice_number, client_name, status, created_at, invoice_total, total, invoice_currency, business_currency, is_recurring, recurring_frequency";
+  "id, invoice_number, client_name, status, created_at, invoice_total, total, invoice_currency, business_currency, is_recurring, recurring_frequency, recurring_next_date, recurring_count";
 
 // Render window — rows are fetched trimmed, then paginated client-side so
 // the DOM never renders thousands of <tr> at once.
@@ -28,6 +28,7 @@ export default function Invoices() {
   const [filter, setFilter] = useState<Filter>("all");
   const [search, setSearch] = useState("");
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+  const [cancellingId, setCancellingId] = useState<string | null>(null);
 
   useEffect(() => {
     async function load() {
@@ -44,6 +45,31 @@ export default function Invoices() {
     }
     load();
   }, [user, workspaceOwnerId]);
+
+  async function cancelRecurring(invoiceId: string) {
+    setCancellingId(invoiceId);
+    const { error } = await supabase
+      .from("invoices")
+      .update({
+        is_recurring: false,
+        recurring_frequency: null,
+        recurring_next_date: null,
+        recurring_end_date: null,
+      })
+      .eq("id", invoiceId)
+      .eq("user_id", workspaceOwnerId || user?.id);
+
+    if (!error) {
+      setInvoices((prev) =>
+        prev.map((inv) =>
+          inv.id === invoiceId
+            ? { ...inv, is_recurring: false, recurring_frequency: null, recurring_next_date: null }
+            : inv
+        )
+      );
+    }
+    setCancellingId(null);
+  }
 
   const filtered = invoices.filter((inv) => {
     if (filter !== "all" && inv.status !== filter) return false;
@@ -238,6 +264,15 @@ export default function Invoices() {
                         >
                           Edit
                         </Link>
+                        {(inv as any).is_recurring && (
+                          <button
+                            onClick={() => cancelRecurring(inv.id)}
+                            disabled={cancellingId === inv.id}
+                            className="text-sm text-red-500 font-medium hover:underline disabled:opacity-50"
+                          >
+                            {cancellingId === inv.id ? "Stopping..." : "Stop"}
+                          </button>
+                        )}
                         <Link
                           to={`/new?duplicate=${inv.id}`}
                           className="text-sm text-violet-600 font-medium hover:underline"

@@ -127,10 +127,14 @@ function PricingCard({
         )}
       </div>
 
-      <div className="mt-6 grid grid-cols-2 gap-3 rounded-2xl bg-slate-50 p-4 text-sm">
+      <div className="mt-6 grid grid-cols-3 gap-3 rounded-2xl bg-slate-50 p-4 text-sm">
         <div>
           <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Invoices</p>
           <p className="mt-1 font-bold text-slate-900">{getPlanLimitLabel(plan.invoiceLimit, "")}</p>
+        </div>
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Clients</p>
+          <p className="mt-1 font-bold text-slate-900">{getPlanLimitLabel(plan.clientLimit, "")}</p>
         </div>
         <div>
           <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Team</p>
@@ -145,6 +149,12 @@ function PricingCard({
           <li key={feature} className="flex gap-3 text-sm text-slate-700">
             <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-emerald-700">✓</span>
             <span>{feature}</span>
+          </li>
+        ))}
+        {plan.limitations?.map((limitation) => (
+          <li key={limitation} className="flex gap-3 text-sm text-slate-400">
+            <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-slate-100 text-slate-400">✗</span>
+            <span>{limitation}</span>
           </li>
         ))}
       </ul>

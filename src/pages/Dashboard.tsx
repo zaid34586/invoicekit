@@ -129,73 +129,6 @@ function StatCard({
   );
 }
 
-// Quick action card
-function QuickActionCard({
-  title,
-  description,
-  icon,
-  to,
-  onClick,
-  disabled,
-  comingSoon,
-}: {
-  title: string;
-  description: string;
-  icon: React.ReactNode;
-  to?: string;
-  onClick?: () => void;
-  disabled?: boolean;
-  comingSoon?: boolean;
-}) {
-  const content = (
-    <div className="group relative cursor-pointer overflow-hidden rounded-2xl border border-slate-200/80 bg-gradient-to-br from-white to-violet-50/40 p-5 shadow-[0_14px_40px_-28px_rgba(79,70,229,.55)] transition-all duration-300 hover:-translate-y-1 hover:border-violet-200 hover:shadow-[0_22px_50px_-24px_rgba(79,70,229,.45)]">
-      {comingSoon && (
-        <span className="absolute top-3 right-3 text-xs bg-slate-100 text-slate-500 px-2 py-0.5 rounded-full font-medium">
-          Coming Soon
-        </span>
-      )}
-      <div className="flex items-start gap-4">
-        <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-slate-100 to-slate-200 flex items-center justify-center text-slate-600 group-hover:from-primary-100 group-hover:to-primary-200 group-hover:text-primary-600 transition-all duration-300">
-          {icon}
-        </div>
-        <div className="flex-1 min-w-0">
-          <h3 className="font-semibold text-slate-900 group-hover:text-primary-600 transition-colors">
-            {title}
-          </h3>
-          <p className="text-sm text-slate-500 mt-0.5">{description}</p>
-        </div>
-        <svg
-          className="w-5 h-5 text-slate-300 group-hover:text-primary-500 group-hover:translate-x-1 transition-all duration-300 flex-shrink-0"
-          fill="none"
-          viewBox="0 0 24 24"
-          stroke="currentColor"
-          strokeWidth={2}
-        >
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            d="M9 5l7 7-7 7"
-          />
-        </svg>
-      </div>
-    </div>
-  );
-
-  if (disabled || comingSoon) {
-    return <div className="opacity-60 pointer-events-none">{content}</div>;
-  }
-
-  if (to) {
-    return <Link to={to}>{content}</Link>;
-  }
-
-  return (
-    <button onClick={onClick} className="w-full text-left">
-      {content}
-    </button>
-  );
-}
-
 // Activity feed item
 function ActivityItem({
   type,
@@ -414,158 +347,78 @@ export default function Dashboard() {
     : "bg-slate-100 text-slate-600";
 
   return (
-    <div className="max-w-[1500px] mx-auto space-y-7 animate-fade-in pb-10">
-      {/* Premium hero */}
-      <section className="relative overflow-hidden rounded-[32px] bg-gradient-to-br from-slate-950 via-indigo-950 to-violet-900 px-6 py-7 text-white shadow-[0_28px_80px_-30px_rgba(79,70,229,.65)] sm:px-8">
-        <div className="pointer-events-none absolute -right-24 -top-24 h-72 w-72 rounded-full bg-violet-500/25 blur-3xl" />
-        <div className="pointer-events-none absolute bottom-0 left-1/3 h-32 w-72 rounded-full bg-cyan-400/10 blur-3xl" />
-      <div className="relative flex flex-col lg:flex-row lg:items-center lg:justify-between gap-5">
-        <div className="flex items-center gap-4">
-          <div>
-            <div className="flex items-center gap-3 mb-1">
-              <h1 className="text-3xl font-black tracking-tight text-white sm:text-4xl">
+    <div className="max-w-[1500px] mx-auto space-y-6 animate-fade-in pb-10">
+      {/* Hero Section */}
+      <section className="relative overflow-hidden rounded-[28px] bg-gradient-to-br from-slate-900 via-indigo-950 to-violet-900 px-6 py-6 sm:px-8 text-white shadow-[0_32px_80px_-30px_rgba(79,70,229,.7)]">
+        {/* Animated orbs */}
+        <div className="pointer-events-none absolute -right-20 -top-20 h-64 w-64 rounded-full bg-violet-500/30 blur-[80px] animate-pulse" />
+        <div className="pointer-events-none absolute -left-16 bottom-0 h-48 w-48 rounded-full bg-cyan-400/15 blur-[60px] animate-pulse" style={{ animationDelay: "1s" }} />
+        <div className="pointer-events-none absolute right-1/3 top-1/2 h-32 w-32 rounded-full bg-fuchsia-400/10 blur-[50px] animate-pulse" style={{ animationDelay: "2s" }} />
+
+        <div className="relative flex flex-col lg:flex-row lg:items-center lg:justify-between gap-5">
+          <div className="flex-1">
+            <div className="flex items-center gap-3 mb-2">
+              <h1 className="text-2xl sm:text-3xl font-black tracking-tight">
                 {workspaceRole === "owner" ? `Welcome back${profile?.business_name ? `, ${profile.business_name}` : ""}` : workspaceName || profile?.business_name || "Workspace"}
               </h1>
-              {workspaceRole === "owner" ? <Link
-  to="/billing"
-  className={`px-3 py-1 rounded-full text-xs font-semibold hover:scale-105 transition ${planBadgeColor}`}
->
-  {planName}
-</Link> : <span className={`px-3 py-1 rounded-full text-xs font-semibold ${planBadgeColor}`}>{planName}</span>}
+              {workspaceRole === "owner" ? (
+                <Link to="/billing" className={`px-3 py-1 rounded-full text-xs font-bold hover:scale-105 transition shadow-lg ${planBadgeColor}`}>
+                  {planName}
+                </Link>
+              ) : (
+                <span className={`px-3 py-1 rounded-full text-xs font-bold ${planBadgeColor}`}>{planName}</span>
+              )}
             </div>
-            <p className="mt-2 max-w-xl text-sm text-indigo-100 sm:text-base">
-              A live view of revenue, invoices, clients and the work that needs your attention.
+            <p className="max-w-lg text-sm text-indigo-200/80 sm:text-sm leading-relaxed">
+              Your command center — revenue, invoices, clients, and action items at a glance.
             </p>
-          </div>
-        </div>
 
-        {/* Quick Actions */}
-        <div className="flex items-center gap-3">
-          <Link
-            to="/new"
-            className="inline-flex items-center gap-2 rounded-xl bg-white px-5 py-3 font-bold text-violet-700 shadow-lg shadow-black/10 transition hover:-translate-y-0.5 hover:bg-violet-50"
-          >
-            <svg
-              className="w-5 h-5"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-              strokeWidth={2}
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M12 4v16m8-8H4"
-              />
-            </svg>
-            New Invoice
-          </Link>
-          <Link to="/clients" className="inline-flex items-center gap-2 rounded-xl border border-white/20 bg-white/10 px-5 py-3 font-semibold text-white backdrop-blur transition hover:bg-white/20">
-            <svg
-              className="w-5 h-5"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-              strokeWidth={2}
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z"
-              />
-            </svg>
-            Add Client
-          </Link>
-         {workspaceRole === "owner" && <Link
-  to="/billing"
-  className="inline-flex items-center gap-2 rounded-xl border border-white/20 bg-white/10 px-5 py-3 font-semibold text-white backdrop-blur transition hover:bg-white/20"
->
-  <svg
-    className="w-5 h-5"
-    fill="none"
-    viewBox="0 0 24 24"
-    stroke="currentColor"
-    strokeWidth={2}
-  >
-    <path
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"
-    />
-  </svg>
-
-  Billing
-</Link>}
-        </div>
-      </div>
-      </section>
-
-      {/* Free Plan Usage Bar */}
-      {!isPro && (
-        <section className="rounded-2xl border border-amber-200/60 bg-gradient-to-r from-amber-50/80 to-orange-50/60 p-4 sm:p-5">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-3">
-            <div className="flex items-center gap-2">
-              <span className="text-lg">📊</span>
-              <h3 className="text-sm font-bold text-slate-800">Monthly Usage</h3>
+            {/* Quick stats row */}
+            <div className="flex flex-wrap items-center gap-4 mt-4">
+              <div className="flex items-center gap-2 rounded-xl bg-white/10 backdrop-blur-sm px-4 py-2 border border-white/10">
+                <span className="text-lg">💰</span>
+                <div>
+                  <p className="text-[10px] text-indigo-200/60 uppercase font-medium">Revenue</p>
+                  <p className="text-sm font-bold">{formatMoney(totalRevenue, profile?.currency ?? "USD")}</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 rounded-xl bg-white/10 backdrop-blur-sm px-4 py-2 border border-white/10">
+                <span className="text-lg">📄</span>
+                <div>
+                  <p className="text-[10px] text-indigo-200/60 uppercase font-medium">Invoices</p>
+                  <p className="text-sm font-bold">{invoicesThisMonth} this month</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 rounded-xl bg-white/10 backdrop-blur-sm px-4 py-2 border border-white/10">
+                <span className="text-lg">👥</span>
+                <div>
+                  <p className="text-[10px] text-indigo-200/60 uppercase font-medium">Clients</p>
+                  <p className="text-sm font-bold">{clients.length}</p>
+                </div>
+              </div>
             </div>
+          </div>
+
+          {/* Hero Actions */}
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 lg:flex-shrink-0">
             <Link
-              to="/billing"
-              className="inline-flex items-center gap-1.5 rounded-full bg-gradient-to-r from-indigo-600 to-purple-600 px-4 py-1.5 text-xs font-bold text-white shadow-md transition hover:scale-105 hover:shadow-lg"
+              to="/new"
+              className="inline-flex items-center justify-center gap-2 rounded-xl bg-white px-6 py-3 font-bold text-indigo-700 shadow-xl shadow-black/10 transition hover:-translate-y-0.5 hover:bg-indigo-50"
             >
-              Upgrade for More →
+              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+              </svg>
+              New Invoice
+            </Link>
+            <Link to="/clients" className="inline-flex items-center justify-center gap-2 rounded-xl border border-white/20 bg-white/10 px-6 py-3 font-semibold text-white backdrop-blur transition hover:bg-white/20">
+              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
+              </svg>
+              Add Client
             </Link>
           </div>
-          <div className="space-y-3">
-            {/* Invoices Progress */}
-            <div>
-              <div className="flex justify-between text-xs mb-1.5">
-                <span className="text-slate-600 font-medium">Invoices</span>
-                <span className={`font-bold ${invoicesThisMonth >= FREE_PLAN_LIMIT * 0.8 ? 'text-amber-600' : 'text-slate-700'}`}>
-                  {invoicesThisMonth} / {FREE_PLAN_LIMIT} used
-                  {invoiceBalance > 0 && <span className="text-slate-500 font-normal"> +{invoiceBalance} credits</span>}
-                </span>
-              </div>
-              <div className="h-2.5 overflow-hidden rounded-full bg-white/80 shadow-inner">
-                <div
-                  className={`h-full rounded-full transition-all duration-500 ${
-                    invoicesThisMonth >= FREE_PLAN_LIMIT
-                      ? 'bg-gradient-to-r from-red-500 to-red-600'
-                      : invoicesThisMonth >= FREE_PLAN_LIMIT * 0.8
-                      ? 'bg-gradient-to-r from-amber-400 to-orange-500'
-                      : 'bg-gradient-to-r from-indigo-500 to-purple-500'
-                  }`}
-                  style={{ width: `${Math.min(100, (invoicesThisMonth / FREE_PLAN_LIMIT) * 100)}%` }}
-                />
-              </div>
-              {invoicesThisMonth >= FREE_PLAN_LIMIT && (
-                <p className="text-xs text-red-600 mt-1.5 font-medium">
-                  ⚠️ You've reached your limit. Upgrade to continue creating invoices.
-                </p>
-              )}
-              {invoicesThisMonth >= FREE_PLAN_LIMIT * 0.8 && invoicesThisMonth < FREE_PLAN_LIMIT && (
-                <p className="text-xs text-amber-600 mt-1.5 font-medium">
-                  💡 Running low? Upgrade for 500 invoices/month on Pro.
-                </p>
-              )}
-            </div>
-            {/* Clients Progress */}
-            <div>
-              <div className="flex justify-between text-xs mb-1.5">
-                <span className="text-slate-600 font-medium">Clients</span>
-                <span className="font-bold text-slate-700">
-                  {clients.length} / 25 used
-                </span>
-              </div>
-              <div className="h-2 overflow-hidden rounded-full bg-white/80 shadow-inner">
-                <div
-                  className="h-full rounded-full bg-gradient-to-r from-emerald-400 to-teal-500 transition-all duration-500"
-                  style={{ width: `${Math.min(100, (clients.length / 25) * 100)}%` }}
-                />
-              </div>
-            </div>
-          </div>
-        </section>
-      )}
+        </div>
+      </section>
 
       {/* Analytics Cards */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-5">
@@ -943,144 +796,95 @@ export default function Dashboard() {
       </div>
 
       {/* Quick Actions Panel */}
-      <section className="relative overflow-hidden rounded-[30px] border border-slate-200/80 bg-gradient-to-br from-white via-white to-violet-50/60 p-6 shadow-[0_24px_70px_-40px_rgba(79,70,229,.5)] backdrop-blur">
-        <div className="pointer-events-none absolute -right-24 -top-24 h-56 w-56 rounded-full bg-violet-200/35 blur-3xl" />
-        <div className="mb-5 flex items-end justify-between">
-          <div><p className="text-xs font-bold uppercase tracking-[0.18em] text-violet-500">Move faster</p><h2 className="mt-1 text-xl font-bold text-slate-950">Quick Actions</h2></div>
-          <span className="text-sm text-slate-400">Common workflows</span>
+      <section className="relative overflow-hidden rounded-[24px] border border-slate-200/80 bg-white p-6 shadow-[0_8px_30px_-12px_rgba(79,70,229,.25)]">
+        <div className="flex items-center justify-between mb-5">
+          <div>
+            <h2 className="text-lg font-bold text-slate-900">Quick Actions</h2>
+            <p className="text-sm text-slate-500 mt-0.5">Common workflows</p>
+          </div>
         </div>
-        <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          <QuickActionCard
-            title="Create Invoice"
-            description="Generate a new professional invoice"
-            icon={
-              <svg
-                className="w-6 h-6"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-                strokeWidth={2}
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M12 4v16m8-8H4"
-                />
+        <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
+          <Link to="/new" className="group flex items-center gap-4 rounded-2xl border border-slate-100 bg-gradient-to-br from-indigo-50/80 to-violet-50/50 p-4 transition-all hover:-translate-y-0.5 hover:border-indigo-200 hover:shadow-lg hover:shadow-indigo-100">
+            <div className="h-12 w-12 rounded-xl bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center text-white shadow-lg shadow-indigo-200 group-hover:scale-110 transition-transform">
+              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
               </svg>
-            }
-            to="/new"
-          />
-          <QuickActionCard
-            title="Manage Clients"
-            description="Add or edit client information"
-            icon={
-              <svg
-                className="w-6 h-6"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-                strokeWidth={2}
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M17 20h5v-2a4 4 0 00-3-3.87M9 20H4v-2a4 4 0 013-3.87m6-5.13a4 4 0 11-8 0 4 4 0 018 0zm6 0a4 4 0 11-8 0 4 4 0 018 0z"
-                />
+            </div>
+            <div>
+              <h3 className="font-bold text-slate-900 group-hover:text-indigo-700 transition-colors text-sm">New Invoice</h3>
+              <p className="text-xs text-slate-500">Create & send</p>
+            </div>
+          </Link>
+
+          <Link to="/clients" className="group flex items-center gap-4 rounded-2xl border border-slate-100 bg-gradient-to-br from-emerald-50/80 to-teal-50/50 p-4 transition-all hover:-translate-y-0.5 hover:border-emerald-200 hover:shadow-lg hover:shadow-emerald-100">
+            <div className="h-12 w-12 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center text-white shadow-lg shadow-emerald-200 group-hover:scale-110 transition-transform">
+              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M17 20h5v-2a4 4 0 00-3-3.87M9 20H4v-2a4 4 0 013-3.87m6-5.13a4 4 0 11-8 0 4 4 0 018 0zm6 0a4 4 0 11-8 0 4 4 0 018 0z" />
               </svg>
-            }
-            to="/clients"
-          />
-          <QuickActionCard
-            title="Business Settings"
-            description="Update your business details"
-            icon={
-              <svg
-                className="w-6 h-6"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-                strokeWidth={2}
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"
-                />
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
-                />
+            </div>
+            <div>
+              <h3 className="font-bold text-slate-900 group-hover:text-emerald-700 transition-colors text-sm">Clients</h3>
+              <p className="text-xs text-slate-500">Manage contacts</p>
+            </div>
+          </Link>
+
+          <Link to="/reports" className="group flex items-center gap-4 rounded-2xl border border-slate-100 bg-gradient-to-br from-amber-50/80 to-orange-50/50 p-4 transition-all hover:-translate-y-0.5 hover:border-amber-200 hover:shadow-lg hover:shadow-amber-100">
+            <div className="h-12 w-12 rounded-xl bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center text-white shadow-lg shadow-amber-200 group-hover:scale-110 transition-transform">
+              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
               </svg>
-            }
-            to="/settings"
-          />
-          <QuickActionCard
-            title="Billing"
-            description="Manage subscription & payments"
-            icon={
-              <svg
-                className="w-6 h-6"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-                strokeWidth={2}
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"
-                />
+            </div>
+            <div>
+              <h3 className="font-bold text-slate-900 group-hover:text-amber-700 transition-colors text-sm">Reports</h3>
+              <p className="text-xs text-slate-500">Analytics & trends</p>
+            </div>
+          </Link>
+
+          <Link to="/settings" className="group flex items-center gap-4 rounded-2xl border border-slate-100 bg-gradient-to-br from-slate-50 to-slate-100/50 p-4 transition-all hover:-translate-y-0.5 hover:border-slate-200 hover:shadow-lg hover:shadow-slate-100">
+            <div className="h-12 w-12 rounded-xl bg-gradient-to-br from-slate-600 to-slate-700 flex items-center justify-center text-white shadow-lg shadow-slate-200 group-hover:scale-110 transition-transform">
+              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
               </svg>
-            }
-            to="/billing"
-          />
-          <QuickActionCard
-            title="Download Reports"
-            description="Export invoice summaries"
-            icon={
-              <svg
-                className="w-6 h-6"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-                strokeWidth={2}
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
-                />
-              </svg>
-            }
-            comingSoon
-          />
+            </div>
+            <div>
+              <h3 className="font-bold text-slate-900 group-hover:text-slate-700 transition-colors text-sm">Settings</h3>
+              <p className="text-xs text-slate-500">Business setup</p>
+            </div>
+          </Link>
         </div>
       </section>
 
       {/* Free Plan Banner */}
       {!isPro && (
-        <div className="rounded-2xl bg-gradient-to-r from-primary-600 via-primary-700 to-primary-800 p-6 sm:p-8 text-white overflow-hidden relative">
-          <div className="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjAiIGhlaWdodD0iNjAiIHZpZXdCb3g9IjAgMCA2MCA2MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48ZyBmaWxsPSJub25lIiBmaWxsLXJ1bGU9ImV2ZW5vZGQiPjxnIGZpbGw9IiNmZmZmZmYiIGZpbGwtb3BhY2l0eT0iMC4xIj48cGF0aCBkPSJNMzYgMzRjMC0yIDIuMjAzLTMgNC0zczQgMSA0IDMtMiAyLTQgMi00LTIgLTQtNG0wLTMwYzAtMiAyLjIwMy0zIDQtM3M0IDEgNCAzLTIgMi00IDItNC0yLTQtNG0zMCAzMGMwLTIgMi4yMDMtMyA0LTNzNCAxIDQgMy0yIDItNCAyLTQtMi00LTRtLTMwIDMwYzAtMiAyLjIwMy0zIDQtM3M0IDEgNCAzLTIgMi00IDItNC0yLTQtNG0wLTYwYzAtMiAyLjIwMy0zIDQtM3M0IDEgNCAzLTIgMi00IDItNC0yLTQtNG0zMCAwYzAtMiAyLjIwMy0zIDQtM3M0IDEgNCAzLTIgMi00IDItNC0yLTQtNG0zMCA2MGMwLTIgMi4yMDMtMyA0LTNzNCAxIDQgMy0yIDItNCAyLTQtMi00LTRtLTMwIDMwYzAtMiAyLjIwMy0zIDQtM3M0IDEgNCAzLTIgMi00IDItNC0yLTQtNG0zMCAzMGMwLTIgMi4yMDMtMyA0LTNzNCAxIDQgMy0yIDItNCAyLTQtMi00LTRtMC02MGMwLTIgMi4yMDMtMyA0LTNzNCAxIDQgMy0yIDItNCAyLTQtMi00LTRtLTMwIDMwYzAtMiAyLjIwMy0zIDQtM3M0IDEgNCAzLTIgMi00IDItNC0yLTQtNG0zMCAwYzAtMiAyLjIwMy0zIDQtM3M0IDEgNCAzLTIgMi00IDItNC0yLTQtNG0wIDYwYzAtMiAyLjIwMy0zIDQtM3M0IDEgNCAzLTIgMi00IDItNC0yLTQtNG0zMCAzMGMwLTIgMi4yMDMtMyA0LTNzNCAxIDQgMy0yIDItNCAyLTQtMi00LTRtMC02MGMwLTIgMi4yMDMtMyA0LTNzNCAxIDQgMy0yIDItNCAyLTQtMi00LTRtLTMwIDMwYzAtMiAyLjIwMy0zIDQtM3M0IDEgNCAzLTIgMi00IDItNC0yLTQtNG0zMCAwYzAtMiAyLjIwMy0zIDQtM3M0IDEgNCAzLTIgMi00IDItNC0yLTQtNG0wIDYwYzAtMiAyLjIwMy0zIDQtM3M0IDEgNCAzLTIgMi00IDItNC0yLTQtNG0zMCAzMGMwLTIgMi4yMDMtMyA0LTNzNCAxIDQgMy0yIDItNCAyLTQtMi00LTRtMC02MGMwLTIgMi4yMDMtMyA0LTNzNCAxIDQgMy0yIDItNCAyLTQtMi00LTEiLz48L2c+PC9nPjwvc3ZnPg==')] opacity-20" />
-          <div className="relative flex flex-col sm:flex-row items-center justify-between gap-6">
-            <div>
-              <div className="flex items-center gap-2 mb-2">
-                <span className="text-xs uppercase tracking-wider font-medium text-primary-200">
-                  Free Plan
-                </span>
+        <div className="rounded-[24px] bg-gradient-to-r from-indigo-600 via-violet-600 to-purple-600 p-5 sm:p-6 text-white overflow-hidden relative shadow-xl shadow-indigo-200">
+          <div className="absolute inset-0 opacity-10">
+            <div className="absolute top-4 right-4 h-32 w-32 rounded-full bg-white blur-[60px]" />
+            <div className="absolute bottom-4 left-4 h-24 w-24 rounded-full bg-white blur-[40px]" />
+          </div>
+          <div className="relative flex flex-col sm:flex-row items-center justify-between gap-4">
+            <div className="flex items-center gap-4">
+              <div className="h-14 w-14 rounded-2xl bg-white/20 backdrop-blur-sm flex items-center justify-center text-3xl">
+                🚀
               </div>
-              <h3 className="text-xl sm:text-2xl font-bold mb-2">
-                {isPro ? "Unlimited" : remaining} invoice{!isPro && remaining !== 1 ? "s" : ""} remaining
-              </h3>
-              <p className="text-primary-100 text-sm sm:text-base">
-                Includes your monthly free invoices and any extra invoice balance added by admin.
-              </p>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h3 className="text-lg sm:text-xl font-bold">Free Plan</h3>
+                  <span className="rounded-full bg-white/20 px-2 py-0.5 text-[10px] font-bold uppercase">Active</span>
+                </div>
+                <p className="text-indigo-100 text-sm mt-0.5">
+                  {remaining} invoice{remaining !== 1 ? "s" : ""} remaining this month
+                </p>
+              </div>
             </div>
             <Link
               to="/billing"
-              className="bg-white text-primary-700 font-semibold rounded-xl px-6 py-3 hover:bg-primary-50 transition-all active:scale-[0.98] whitespace-nowrap shadow-lg hover:shadow-xl"
+              className="inline-flex items-center gap-2 bg-white text-indigo-700 font-bold rounded-xl px-6 py-3 hover:bg-indigo-50 transition-all active:scale-[0.98] whitespace-nowrap shadow-lg"
             >
               Upgrade to Pro
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M13 7l5 5m0 0l-5 5m5-5H6" />
+              </svg>
             </Link>
           </div>
         </div>
@@ -1088,39 +892,27 @@ export default function Dashboard() {
 
       {/* Overdue Alert */}
       {overdueInvoices.length > 0 && (
-        <div className="rounded-xl bg-red-50 border border-red-200 p-5">
-          <div className="flex items-start gap-4">
-            <div className="w-10 h-10 bg-red-100 rounded-lg flex items-center justify-center flex-shrink-0">
-              <svg
-                className="w-5 h-5 text-red-600"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-                strokeWidth={2}
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
-                />
-              </svg>
+        <div className="rounded-[20px] bg-gradient-to-r from-red-50 to-rose-50 border border-red-200/80 p-5 shadow-sm">
+          <div className="flex items-center gap-4">
+            <div className="h-12 w-12 rounded-xl bg-red-100 flex items-center justify-center flex-shrink-0">
+              <span className="text-2xl">⚠️</span>
             </div>
             <div className="flex-1">
-              <h3 className="font-semibold text-red-900">
+              <h3 className="font-bold text-red-900">
                 {overdueInvoices.length} overdue invoice{overdueInvoices.length > 1 ? "s" : ""}
               </h3>
-              <p className="text-sm text-red-700 mt-0.5">
-                Total overdue amount: {formatMoney(
-  overdueAmount,
-  profile?.currency ?? "USD"
-)}
+              <p className="text-sm text-red-600">
+                Total: {formatMoney(overdueAmount, profile?.currency ?? "USD")}
               </p>
             </div>
             <Link
               to="/invoices"
-              className="text-sm font-medium text-red-700 hover:text-red-800 underline whitespace-nowrap"
+              className="inline-flex items-center gap-1.5 rounded-xl bg-red-600 px-4 py-2 text-sm font-bold text-white hover:bg-red-700 transition shadow-sm"
             >
-              View all
+              View All
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+              </svg>
             </Link>
           </div>
         </div>
