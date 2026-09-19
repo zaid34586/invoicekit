@@ -43,7 +43,7 @@ SELECT
   r.sale_amount,
   r.bonus_amount,
   r.redeemed_at,
-  p.full_name as customer_name,
+  p.business_name as customer_name,
   p.email as customer_email
 FROM admin_offer_redemptions r
 LEFT JOIN profiles p ON p.user_id = r.user_id OR p.id = r.user_id
