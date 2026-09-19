@@ -255,11 +255,28 @@ Deno.serve(async (req) => {
         // Record the redemption (enforces one-time-per-user via the unique
         // constraint) and mark this user as having held a paid plan, so a
         // "new users only" offer won't be offered to them again.
+        // If the promo code has intern attribution, store that too for
+        // sales tracking and bonus calculation.
         if (custom.offer_id) {
+          const { data: promoRow } = await admin
+            .from("admin_promo_codes")
+            .select("intern_name, intern_id, intern_email")
+            .eq("id", custom.offer_id)
+            .maybeSingle();
+
+          const saleAmount = Number(data.details?.totals?.grand_total || 0) / 100;
+          const planType = plan === "pro" || plan === "business" ? plan : null;
+          const bonus = planType === "pro" ? 1000 : planType === "business" ? 1500 : 0;
+
           const { error: redemptionError } = await admin.from("admin_offer_redemptions").insert({
             offer_id: custom.offer_id,
             user_id: userId,
             transaction_id: data.id,
+            intern_name: promoRow?.intern_name || null,
+            intern_code: promoRow?.intern_id || null,
+            sale_amount: saleAmount,
+            plan_type: planType,
+            bonus_amount: promoRow?.intern_name ? bonus : 0,
           });
           if (redemptionError && redemptionError.code !== "23505") {
             logError("db update failed: admin_offer_redemptions insert", { eventType, userId, message: redemptionError.message });
