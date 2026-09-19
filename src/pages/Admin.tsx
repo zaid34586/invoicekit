@@ -368,8 +368,15 @@ function appendAdminTaskNote(existing: string | null | undefined, author: string
 async function parseSpreadsheetFile(file: File): Promise<{ headers: string[]; rows: Record<string, string>[] }> {
   const buffer = await file.arrayBuffer();
   const workbook = XLSX.read(buffer, { type: "array" });
-  const sheet = workbook.Sheets[workbook.SheetNames[0]];
-  const rows = XLSX.utils.sheet_to_json<Record<string, string>>(sheet, { defval: "", raw: false });
+  // Pick the sheet with the most data rows (skips summary/cover sheets)
+  let bestSheet = workbook.Sheets[workbook.SheetNames[0]];
+  let bestCount = 0;
+  for (const name of workbook.SheetNames) {
+    const ws = workbook.Sheets[name];
+    const data = XLSX.utils.sheet_to_json<Record<string, string>>(ws, { defval: "", raw: false });
+    if (data.length > bestCount) { bestCount = data.length; bestSheet = ws; }
+  }
+  const rows = XLSX.utils.sheet_to_json<Record<string, string>>(bestSheet, { defval: "", raw: false });
   const headers = rows.length > 0 ? Object.keys(rows[0]) : [];
   return { headers, rows: rows.map((r) => Object.fromEntries(Object.entries(r).map(([k, v]) => [k, String(v ?? "").trim()]))) };
 }
@@ -377,9 +384,21 @@ async function parseSpreadsheetFile(file: File): Promise<{ headers: string[]; ro
 function guessColumnMapping(fields: { key: string; label: string }[], headers: string[]): Record<string, string> {
   const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
   const mapping: Record<string, string> = {};
+  // Extra aliases for common column names
+  const aliases: Record<string, string[]> = {
+    name: ["fullname", "full_name", "contact_name", "lead_name"],
+    company: ["companyname", "company_name", "business_name", "organization"],
+    phone: ["publiccontactphone", "public_contact_phone", "contact_phone", "mobile", "telephone"],
+    email: ["publiccontactemail", "public_contact_email", "contact_email"],
+    country: ["location", "region"],
+  };
   for (const f of fields) {
     const target = norm(f.label) + "|" + norm(f.key);
-    const match = headers.find((h) => target.includes(norm(h)) || norm(h).includes(norm(f.key)) || norm(h).includes(norm(f.label)));
+    const extra = aliases[norm(f.key)] || [];
+    const match = headers.find((h) => {
+      const nh = norm(h);
+      return target.includes(nh) || nh.includes(norm(f.key)) || nh.includes(norm(f.label)) || extra.some((a) => nh.includes(a));
+    });
     mapping[f.key] = match || "";
   }
   return mapping;
