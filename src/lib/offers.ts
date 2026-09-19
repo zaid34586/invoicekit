@@ -43,8 +43,9 @@ function isCurrentlyActive(row: PromoRow, now = new Date()) {
 export async function loadActiveMarketingOffers(): Promise<MarketingOffer[]> {
   const { data, error } = await supabase
     .from("admin_promo_codes")
-    .select("id,code,label,discount_type,discount_value,applies_to,billing_scope,starts_at,expires_at,active,paddle_discount_id,paddle_synced,new_users_only")
+    .select("id,code,label,discount_type,discount_value,applies_to,billing_scope,starts_at,expires_at,active,paddle_discount_id,paddle_synced,new_users_only,is_intern")
     .eq("active", true)
+    .eq("is_intern", false)
     .order("created_at", { ascending: false });
 
   if (error) {

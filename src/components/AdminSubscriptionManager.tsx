@@ -35,6 +35,7 @@ type PromoRow = {
   intern_name: string | null;
   intern_id: string | null;
   intern_email: string | null;
+  is_intern: boolean;
 };
 
 type InternSale = {
@@ -154,6 +155,7 @@ export default function AdminSubscriptionManager() {
       intern_name: promoForm.intern_name.trim() || null,
       intern_id: promoForm.intern_id.trim() || null,
       intern_email: promoForm.intern_email.trim() || null,
+      is_intern: Boolean(promoForm.intern_name.trim()),
     }).select("id").single();
     if (error) { setNotice(error.message); return; }
     setPromoForm({ code: "", label: "", discount_value: "10", discount_type: "percentage", billing_scope: "all", applies_to: ["pro", "business"], usage_limit: "", expires_at: "", intern_name: "", intern_id: "", intern_email: "" });
@@ -276,7 +278,10 @@ export default function AdminSubscriptionManager() {
           <p className="mt-1 text-xs text-slate-400">Assign to an intern to track their sales</p>
           <div className="mt-5 space-y-3">
             <div className="rounded-xl bg-violet-50 border border-violet-200 p-3 space-y-2">
-              <p className="text-[10px] font-black uppercase tracking-wide text-violet-600">Intern Attribution</p>
+              <div className="flex items-center gap-2">
+                <p className="text-[10px] font-black uppercase tracking-wide text-violet-600">Intern Attribution</p>
+                <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[9px] font-bold text-amber-700">Hidden from public pages</span>
+              </div>
               <input value={promoForm.intern_name} onChange={(e) => setPromoForm({ ...promoForm, intern_name: e.target.value })} placeholder="Intern name (e.g. Rahul)" className="w-full rounded-xl border border-violet-200 bg-white px-3 py-2.5 text-sm" />
               <input value={promoForm.intern_id} onChange={(e) => setPromoForm({ ...promoForm, intern_id: e.target.value })} placeholder="Intern ID (e.g. INTERN-A)" className="w-full rounded-xl border border-violet-200 bg-white px-3 py-2.5 text-sm" />
               <input value={promoForm.intern_email} onChange={(e) => setPromoForm({ ...promoForm, intern_email: e.target.value })} placeholder="Intern email (optional)" className="w-full rounded-xl border border-violet-200 bg-white px-3 py-2.5 text-sm" />
@@ -302,7 +307,8 @@ export default function AdminSubscriptionManager() {
                   <div className="flex items-center gap-2">
                     <span className="rounded-lg bg-slate-950 px-2.5 py-1 font-mono text-sm font-black text-white">{promo.code}</span>
                     <span className={`rounded-full px-2.5 py-1 text-xs font-bold ${promo.active ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-500"}`}>{promo.active ? "Active" : "Disabled"}</span>
-                    {promo.intern_name && <span className="rounded-full bg-violet-50 px-2.5 py-1 text-xs font-bold text-violet-700">{promo.intern_name}</span>}
+                    {promo.is_intern && <span className="rounded-full bg-amber-50 px-2.5 py-1 text-xs font-bold text-amber-700">Intern (hidden)</span>}
+                    {promo.intern_name && !promo.is_intern && <span className="rounded-full bg-violet-50 px-2.5 py-1 text-xs font-bold text-violet-700">{promo.intern_name}</span>}
                   </div>
                   <p className="mt-2 font-bold text-slate-950">{promo.label}</p>
                   <p className="mt-1 text-xs text-slate-500">{promo.discount_value}{promo.discount_type === "percentage" ? "%" : " fixed"} off · {promo.billing_scope} · {promo.applies_to.join(", ")}</p>
