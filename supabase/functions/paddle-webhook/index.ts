@@ -1,6 +1,87 @@
 import { createClient } from "@supabase/supabase-js";
+import { Affitor } from "@affitor/sdk/server";
 
 const encoder = new TextEncoder();
+
+let affitorClient: Affitor | null | undefined;
+function getAffitor(): Affitor | null {
+  // Lazily initialised once per isolate. Returns null when the program API
+  // key is not configured -- affiliate tracking silently becomes a no-op and
+  // the Paddle flow is never affected.
+  if (affitorClient === undefined) {
+    const apiKey = Deno.env.get("AFFITOR_API_KEY") || "";
+    affitorClient = apiKey ? new Affitor({ apiKey }) : null;
+    if (!affitorClient) log("affitor tracking disabled: AFFITOR_API_KEY not set");
+  }
+  return affitorClient;
+}
+
+async function trackAffitorSale(
+  affitor: Affitor,
+  userId: string,
+  data: Record<string, any>,
+  plan: string,
+  billingCycle: string | null,
+  environment: string,
+) {
+  // Affitor attribution resolves by customerExternalId (bound at signup via
+  // the browser-side signup event), so no click id is needed here. amount is
+  // integer cents exactly as Paddle reports it; invoiceId (Paddle transaction
+  // id) keeps retries idempotent and renewals tracked as separate recurring
+  // sales. Sandbox traffic is never reported to the live affiliate program.
+  if (environment === "sandbox") {
+    log("affitor sale skipped (sandbox)", { userId, transactionId: data.id });
+    return;
+  }
+  const amountCents = Number(data.details?.totals?.grand_total || 0);
+  if (!Number.isFinite(amountCents) || amountCents <= 0) {
+    log("affitor sale skipped (no amount)", { userId, transactionId: data.id });
+    return;
+  }
+  try {
+    const response = await affitor.trackSale({
+      customerExternalId: userId,
+      amount: amountCents,
+      currency: data.currency_code || undefined,
+      invoiceId: String(data.id || ""),
+      saleType: data.subscription_id ? "subscription" : "payment",
+      isRecurring: Boolean(data.subscription_id),
+      subscriptionId: data.subscription_id || undefined,
+      subscriptionInterval: billingCycle === "yearly" ? "annual" : "monthly",
+      eventName: plan === "pro" || plan === "business" ? `subscription_${plan}` : "payment",
+    });
+    if (response.ok) {
+      log("affitor sale tracked", { userId, transactionId: data.id, amountCents });
+    } else {
+      logError("affitor sale tracking rejected", { userId, transactionId: data.id, status: response.status, error: response.error });
+    }
+  } catch (error) {
+    logError("affitor sale tracking failed", { userId, transactionId: data.id, message: error instanceof Error ? error.message : String(error) });
+  }
+}
+
+async function trackAffitorRefund(affitor: Affitor, transactionId: string, action: string, totals: Record<string, any> | undefined, reason: string | undefined) {
+  // Refunds/chargebacks only reverse commissions for sales Affitor actually
+  // recorded (idempotent by the same invoiceId used in trackSale). Full
+  // chargeback = omit the amount so the commission is fully reversed; refund
+  // passes the refunded cents (partial refunds stay proportional).
+  try {
+    const isChargeback = action === "chargeback";
+    const refundedCents = isChargeback ? 0 : Number(totals?.total || 0);
+    const response = await affitor.trackRefund({
+      invoiceId: transactionId,
+      refundAmountCents: refundedCents > 0 ? refundedCents : undefined,
+      refundReason: reason || action,
+    });
+    if (response.ok) {
+      log("affitor refund tracked", { transactionId, action, refundedCents });
+    } else {
+      logError("affitor refund tracking rejected", { transactionId, action, status: response.status, error: response.error });
+    }
+  } catch (error) {
+    logError("affitor refund tracking failed", { transactionId, action, message: error instanceof Error ? error.message : String(error) });
+  }
+}
 
 function hex(bytes: ArrayBuffer) {
   return Array.from(new Uint8Array(bytes)).map((byte) => byte.toString(16).padStart(2, "0")).join("");
@@ -284,6 +365,45 @@ Deno.serve(async (req) => {
         }
         if (validPlan) {
           await admin.from("profiles").update({ has_ever_subscribed: true }).or(`user_id.eq.${userId},id.eq.${userId}`);
+        }
+
+        // Affiliate attribution: report the confirmed payment to Affitor.
+        // Runs after all billing/activation work so a tracking failure can
+        // never delay or break the Paddle webhook response.
+        const affitor = getAffitor();
+        if (affitor) {
+          await trackAffitorSale(affitor, userId, data, plan, billingCycle, environment);
+        }
+      }
+    }
+
+    // Refunds / chargebacks (Paddle adjustment events): reverse the
+    // commission Affitor recorded for the original transaction. Purely
+    // additive -- the existing webhook previously ignored these events and
+    // still does everything it did before.
+    if (eventType.startsWith("adjustment.") && ["refund", "chargeback"].includes(String(data.action))) {
+      const affitor = getAffitor();
+      const refundTransactionId = String(data.transaction_id || "");
+      if (affitor && refundTransactionId && environment !== "sandbox") {
+        // Only report when we actually recorded a completed sale for this
+        // transaction, so untracked/sandbox-era transactions never error out.
+        const { data: trackedSale } = await admin
+          .from("billing_events")
+          .select("id")
+          .eq("order_id", refundTransactionId)
+          .eq("event_name", "transaction.completed")
+          .eq("provider_environment", environment)
+          .maybeSingle();
+        if (trackedSale) {
+          await trackAffitorRefund(
+            affitor,
+            refundTransactionId,
+            String(data.action),
+            data.totals as Record<string, any> | undefined,
+            typeof data.reason === "string" ? data.reason : undefined,
+          );
+        } else {
+          log("affitor refund skipped (no tracked sale)", { refundTransactionId, action: data.action });
         }
       }
     }
