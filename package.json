@@ -12,6 +12,7 @@
     "build:sandbox": "tsc -b && vite build --mode sandbox"
   },
   "dependencies": {
+    "@affitor/sdk": "^2.1.0",
     "@paddle/paddle-js": "^1.6.4",
     "@supabase/supabase-js": "^2.45.4",
     "firebase": "^11.0.0",
