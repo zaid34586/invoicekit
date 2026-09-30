@@ -6,6 +6,7 @@ import {
   type ReactNode,
 } from "react";
 import type { Session, User } from "@supabase/supabase-js";
+import { loadAffitor } from "@affitor/sdk";
 import { supabase } from "../lib/supabase";
 import { ADMIN_EMAIL } from "../lib/constants";
 import type { Profile } from "../lib/types";
@@ -507,6 +508,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
 
     localStorage.setItem(VERIFICATION_PENDING_KEY, String(Date.now()));
+
+    // Affiliate attribution (Affitor). Fire-and-forget: a tracking failure
+    // must never block or fail a successful signup.
+    if (signUpData.user?.id) {
+      loadAffitor("1156")
+        .then((affitor) => affitor?.signup(signUpData.user!.id, cleanEmail))
+        .catch((err) => console.warn("Affitor signup tracking failed:", err));
+    }
+
     return { error: null };
   };
 
