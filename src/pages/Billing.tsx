@@ -266,7 +266,15 @@ export default function Billing() {
         // Divide here so that round-trip recovers the admin's actual total
         // instead of multiplying it by 12 again (1800 -> was showing 21600).
         yearlyMonthlyPrice: Number(override.yearly_price) / 12,
-        invoiceLimit: override.invoice_limit === null ? "unlimited" : override.invoice_limit,
+        // Free-plan enforcement (NewInvoice/Dashboard) uses FREE_PLAN_LIMIT;
+        // the DB seed still carries the old launch value (3), so never let a
+        // stale free-plan row advertise a lower limit than the app enforces.
+        invoiceLimit:
+          key === "free"
+            ? FREE_PLAN_LIMIT
+            : override.invoice_limit === null
+              ? "unlimited"
+              : override.invoice_limit,
         clientLimit: override.client_limit === null ? "unlimited" : override.client_limit,
         teamMembers: override.team_limit === null ? "unlimited" : override.team_limit,
       };

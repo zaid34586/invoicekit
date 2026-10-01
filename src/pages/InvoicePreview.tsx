@@ -80,24 +80,23 @@ export default function InvoicePreview() {
     if (data) {
       setInvoice(data as Invoice);
       deliverPendingWebhooks();
+      invalidate(`dash:${workspaceOwnerId || user.id}`);
     }
   }
 
   async function handleShare() {
     if (!invoice) return;
 
-    let token = invoice.share_token;
-
-    if (!token) {
+    // The button reads "Unshare" while a token exists — actually revoke the
+    // public link instead of re-sharing it.
+    if (invoice.share_token) {
       if (!user) return;
 
       setUpdating(true);
 
-      const newToken = crypto.randomUUID();
-
       const { data, error } = await supabase
         .from("invoices")
-        .update({ share_token: newToken })
+        .update({ share_token: null })
         .eq("id", invoice.id)
         .select("*")
         .single();
@@ -107,11 +106,30 @@ export default function InvoicePreview() {
       if (error || !data) return;
 
       setInvoice(data as Invoice);
-
-      token = newToken;
+      alert("Share link revoked — the public link no longer works.");
+      return;
     }
 
-    const url = `${window.location.origin}/share/${token}`;
+    if (!user) return;
+
+    setUpdating(true);
+
+    const newToken = crypto.randomUUID();
+
+    const { data, error } = await supabase
+      .from("invoices")
+      .update({ share_token: newToken })
+      .eq("id", invoice.id)
+      .select("*")
+      .single();
+
+    setUpdating(false);
+
+    if (error || !data) return;
+
+    setInvoice(data as Invoice);
+
+    const url = `${window.location.origin}/share/${newToken}`;
 
     if (navigator.share) {
       await navigator.share({
@@ -164,6 +182,7 @@ export default function InvoicePreview() {
       exchangeRateDate: invoice.exchange_rate_date,
       isForeignCurrency,
       displaySubtotal,
+      displayDiscountAmount,
       displayCgst,
       displaySgst,
       displayIgst,

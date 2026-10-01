@@ -253,11 +253,18 @@ export default function ClientPortal() {
                                   View PDF
                                 </a>
                               )}
-                              {(inv.status === "sent" || inv.status === "overdue") && (
-                                <button className="rounded-lg bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700 hover:bg-emerald-100 transition">
-                                  Pay Now
-                                </button>
-                              )}
+                              {inv.status === "sent" || inv.status === "overdue"
+                                ? (inv.share_token ? (
+                                    <a
+                                      href={`/share/${inv.share_token}`}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700 transition"
+                                    >
+                                      Pay Now
+                                    </a>
+                                  ) : null)
+                                : null}
                             </div>
                           </td>
                         </tr>

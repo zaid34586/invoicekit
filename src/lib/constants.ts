@@ -377,7 +377,18 @@ export function formatCurrency(
   );
 }
 export function formatDate(date: string | Date, locale?: string): string {
-  const d = typeof date === "string" ? new Date(date) : date;
+  // Date-only strings ("YYYY-MM-DD") must be parsed as LOCAL dates —
+  // `new Date("2026-09-17")` parses as UTC midnight, which renders the
+  // previous day for users in negative UTC offsets (Americas).
+  const d =
+    typeof date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(date)
+      ? (() => {
+          const [y, m, day] = date.split("-").map(Number);
+          return new Date(y, m - 1, day);
+        })()
+      : typeof date === "string"
+        ? new Date(date)
+        : date;
   return d.toLocaleDateString(locale ?? (navigator.language || "en-IN"), {
     day: "2-digit",
     month: "short",
@@ -386,11 +397,12 @@ export function formatDate(date: string | Date, locale?: string): string {
 }
 
 export function todayISO(): string {
-  return new Date().toISOString().split("T")[0];
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
 export function addDaysISO(days: number): string {
   const d = new Date();
   d.setDate(d.getDate() + days);
-  return d.toISOString().split("T")[0];
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }

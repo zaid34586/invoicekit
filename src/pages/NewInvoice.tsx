@@ -76,9 +76,6 @@ export default function NewInvoice() {
   const isDuplicateMode = Boolean(duplicateId);
   const businessState = profile?.state ?? null;
 
-  // Base currency comes from the business profile (defaults to INR)
-  const baseCurrency = profile?.currency ?? "INR";
-
   const [invoiceNumber, setInvoiceNumber] = useState("");
   const [invoiceDate, setInvoiceDate] = useState(todayISO());
   const [dueDate, setDueDate] = useState(addDaysISO(15));
@@ -90,6 +87,10 @@ export default function NewInvoice() {
   const [clientCountryCode, setClientCountryCode] = useState(
   profile?.country_code ?? ""
 );
+
+  // Base currency comes from the business profile; before setup completes,
+  // derive from the business country (never silently force INR/USD).
+  const baseCurrency = profile?.currency ?? getCurrencyForCountry(profile?.country ?? clientCountry);
   const [clientPhone, setClientPhone] = useState("");
   const [clientEmail, setClientEmail] = useState("");
   const [clientAddress, setClientAddress] = useState("");
@@ -208,7 +209,7 @@ export default function NewInvoice() {
       setInvoiceNumber(`INV-${String(next).padStart(3, "0")}`);
     }
     loadNextNumber();
-  }, [user, isEditMode]);
+  }, [user, isEditMode, workspaceOwnerId]);
 
   useEffect(() => {
     async function loadSourceInvoice() {
@@ -455,6 +456,19 @@ export default function NewInvoice() {
       return;
     }
 
+    // Never persist a foreign-currency invoice while the live exchange rate
+    // is still loading (or after the auto-fetch failed and no real manual
+    // rate was entered) — saving with the default rate of 1 would corrupt
+    // every base-currency amount.
+    if (isForeignCurrency && (rateLoading || (!rateManualOverride && exchangeRate === 1))) {
+      setError(
+        rateLoading
+          ? "Waiting for the live exchange rate — try again in a moment."
+          : "The exchange rate couldn't be fetched. Enter the rate manually before saving."
+      );
+      return;
+    }
+
     if (!isEditMode && !profile?.is_pro) {
       const monthStart = new Date();
       monthStart.setDate(1);
@@ -464,7 +478,10 @@ export default function NewInvoice() {
         .select("*", { count: "exact", head: true })
         .eq("user_id", workspaceOwnerId || user.id)
         .gte("created_at", monthStart.toISOString());
-      if ((count ?? 0) >= FREE_PLAN_LIMIT) {
+      // Admin-granted invoice credits extend the free limit — a user who paid
+      // for extra balance must never be blocked at the base limit.
+      const creditBalance = Math.max(0, Number(profile?.credits ?? 0));
+      if ((count ?? 0) >= FREE_PLAN_LIMIT + creditBalance) {
         openUpgrade();
         return;
       }

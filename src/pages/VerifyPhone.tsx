@@ -118,13 +118,23 @@ const fullPhone = countryCode + phone;
 
       // Firebase only verifies the phone number — Supabase profile stays
       // the single source of truth for the app, so we write the result there.
-      await supabase
+      // A failed write must NOT be reported as success, otherwise the user
+      // bounces back to /verify-phone on the next login with no explanation.
+      const { error: profileError } = await supabase
         .from("profiles")
         .update({
           phone: fullPhone,
           phone_verified: true,
         })
         .eq("user_id", user?.id);
+
+      if (profileError) {
+        setStage("otp");
+        setError(
+          "Your phone was verified, but we couldn't save it to your profile. Please try again."
+        );
+        return;
+      }
 
       await refreshProfile();
 

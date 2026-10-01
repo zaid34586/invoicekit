@@ -25,6 +25,7 @@ export interface InvoicePDFExtras {
   exchangeRateDate: string | null;
   isForeignCurrency: boolean;
   displaySubtotal: number;
+  displayDiscountAmount: number;
   displayCgst: number;
   displaySgst: number;
   displayIgst: number;
@@ -300,25 +301,38 @@ export async function generateInvoicePDF(
   const colQty = tableW * 0.1;
   const colRate = tableW * 0.16;
 
-  doc.setFillColor(...primary);
-  doc.rect(tableX, y, tableW, 24, "F");
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(9);
-  doc.setTextColor(255, 255, 255);
-  doc.text("Description", tableX + 8, y + 16);
-  doc.text(extras.isIndiaLineItemLabels ? "HSN/SAC" : "Tax Code", tableX + colDesc + 8, y + 16);
-  doc.text("Qty", tableX + colDesc + colHsn + 8, y + 16);
-  doc.text("Rate", tableX + colDesc + colHsn + colQty + 8, y + 16);
-  doc.text(extras.isIndiaLineItemLabels ? "GST" : "Tax %", tableX + colDesc + colHsn + colQty + colRate + 8, y + 16);
-  doc.text("Amount", tableX + tableW - 8, y + 16, { align: "right" });
-  y += 24;
+  function drawTableHeader() {
+    doc.setFillColor(...primary);
+    doc.rect(tableX, y, tableW, 24, "F");
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(9);
+    doc.setTextColor(255, 255, 255);
+    doc.text("Description", tableX + 8, y + 16);
+    doc.text(extras.isIndiaLineItemLabels ? "HSN/SAC" : "Tax Code", tableX + colDesc + 8, y + 16);
+    doc.text("Qty", tableX + colDesc + colHsn + 8, y + 16);
+    doc.text("Rate", tableX + colDesc + colHsn + colQty + 8, y + 16);
+    doc.text(extras.isIndiaLineItemLabels ? "GST" : "Tax %", tableX + colDesc + colHsn + colQty + colRate + 8, y + 16);
+    doc.text("Amount", tableX + tableW - 8, y + 16, { align: "right" });
+    y += 24;
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(9);
+    doc.setTextColor(...dark);
+  }
 
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(9);
-  doc.setTextColor(...dark);
+  drawTableHeader();
+
   let rowIdx = 0;
   for (const item of invoice.items) {
     const rowH = 22;
+    // Page-break: continue the items table on a fresh page instead of
+    // overflowing past the page bottom (which previously pushed the totals
+    // block off-page for invoices with many line items).
+    if (y + rowH > pageHeight - 60) {
+      doc.addPage();
+      y = 20;
+      rowIdx = 0;
+      drawTableHeader();
+    }
     if (rowIdx % 2 === 1) {
       doc.setFillColor(...lightGray);
       doc.rect(tableX, y, tableW, rowH, "F");
@@ -348,6 +362,13 @@ export async function generateInvoicePDF(
   doc.line(tableX, y, tableX + tableW, y);
   y += 16;
 
+  // Keep the totals block (rows + grand total + notes) on the same page —
+  // start a fresh page if the item table nearly filled this one.
+  if (y > pageHeight - 260) {
+    doc.addPage();
+    y = 20;
+  }
+
   const totalsX = tableX + tableW * 0.55;
   const labelX = totalsX;
   const valueX = tableX + tableW;
@@ -363,6 +384,12 @@ export async function generateInvoicePDF(
   }
 
   totalRow("Subtotal", pdfMoney(extras.displaySubtotal, extras.invoiceCurrency));
+
+  // Show the discount explicitly so Subtotal − Discount + Tax = Grand Total
+  // is verifiable on the PDF itself.
+  if (extras.displayDiscountAmount > 0) {
+    totalRow("Discount", "-" + pdfMoney(extras.displayDiscountAmount, extras.invoiceCurrency));
+  }
 
   if (extras.isInterState) {
     totalRow(extras.taxLabel, pdfMoney(extras.displayIgst, extras.invoiceCurrency));

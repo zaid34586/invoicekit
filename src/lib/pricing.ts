@@ -72,7 +72,6 @@ export const INDIA_PLANS: Record<Plan, PricingPlan> = {
       "Email & WhatsApp sharing",
       "Multi-currency invoicing with live FX",
       "Automatic payment reminders",
-      "Custom PDF templates (7 themes)",
       "Partial payment tracking",
       "Recurring invoices (weekly/monthly/quarterly/yearly)",
       "Client portal — clients view invoices & pay online",

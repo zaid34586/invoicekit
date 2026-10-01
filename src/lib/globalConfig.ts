@@ -1,4 +1,5 @@
 import { COUNTRIES, COUNTRY_SETTINGS } from "./constants";
+import { getCatalogCountry } from "./countryCatalog";
 
 // Previously this file had its own separate, stale 7-country list (US, UK,
 // Australia, Japan, Singapore, UAE, Canada only — not even India!) and fell
@@ -10,15 +11,19 @@ import { COUNTRIES, COUNTRY_SETTINGS } from "./constants";
 export const GLOBAL_COUNTRIES = Object.fromEntries(
   COUNTRIES.map((c) => {
     const s = COUNTRY_SETTINGS[c.name];
+    // Countries without an explicit COUNTRY_SETTINGS entry fall back to the
+    // full country catalog (per-country currency/timezone) instead of a
+    // blanket USD/UTC that silently mislabels international users.
+    const catalog = s ? undefined : getCatalogCountry(c.name);
     return [
       c.name,
       {
-        currency: s?.currency ?? "USD",
-        symbol: s?.symbol ?? "$",
+        currency: s?.currency ?? catalog?.currency ?? "USD",
+        symbol: s?.symbol ?? catalog?.symbol ?? "$",
         phoneCode: c.code,
         taxLabel: s?.taxLabel ?? "Tax ID",
-        timezone: s?.timezone ?? "UTC",
-        dateFormat: s?.dateFormat ?? "DD/MM/YYYY",
+        timezone: s?.timezone ?? catalog?.timezone ?? "UTC",
+        dateFormat: s?.dateFormat ?? catalog?.dateFormat ?? "DD/MM/YYYY",
         states: c.states,
       },
     ];

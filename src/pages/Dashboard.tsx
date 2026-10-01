@@ -276,14 +276,23 @@ export default function Dashboard() {
           .eq("user_id", workspaceOwnerId || user.id)
           .order("created_at", { ascending: false })
           .limit(500)
-          .then((r) => r.data as Invoice[] | null)
+          .then((r) => {
+            // Throw on failure so a transient Supabase/network error is never
+            // cached as an empty result (previously failures rendered as
+            // "revenue 0 / 0 clients" and stayed cached for 30s).
+            if (r.error) throw new Error(r.error.message);
+            return (r.data as Invoice[]) ?? null;
+          })
       ),
       cachedQuery<Client[] | null>(cacheKey + ":clients", 30_000, () =>
         supabase
           .from("clients")
           .select("id")
           .eq("user_id", workspaceOwnerId || user.id)
-          .then((r) => r.data as Client[] | null)
+          .then((r) => {
+            if (r.error) throw new Error(r.error.message);
+            return (r.data as Client[]) ?? null;
+          })
       ),
     ]);
 
@@ -293,7 +302,7 @@ export default function Dashboard() {
     setLoading(false);
   }
 
-  load();
+  load().catch((err) => console.error("Dashboard load failed:", err));
 }, [user, workspaceOwnerId]);
 
   // Calculate statistics

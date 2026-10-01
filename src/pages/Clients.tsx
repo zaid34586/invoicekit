@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { supabase } from "../lib/supabase";
 import { deliverPendingWebhooks } from "../lib/webhooks";
+import { invalidate } from "../lib/queryCache";
 import { useAuth } from "../context/AuthContext";
 import type { Client, Invoice } from "../lib/types";
 import { INDIAN_STATES, formatDate, COUNTRIES as ALL_COUNTRIES } from "../lib/constants";
@@ -338,6 +339,7 @@ export default function Clients() {
       setClients((prev) =>
         prev.map((c) => (c.id === editingId ? (data as Client) : c))
       );
+      invalidate(`dash:${workspaceOwnerId || user.id}`);
       deliverPendingWebhooks();
     } else {
       const { data, error } = await supabase
@@ -355,6 +357,7 @@ export default function Clients() {
         return;
       }
       setClients((prev) => [data as Client, ...prev]);
+      invalidate(`dash:${workspaceOwnerId || user.id}`);
       deliverPendingWebhooks();
     }
     setShowForm(false);
@@ -404,6 +407,7 @@ export default function Clients() {
     }
 
     setClients((prev) => prev.filter((c) => c.id !== deleteTarget.id));
+    invalidate(`dash:${workspaceOwnerId || user.id}`);
     setDeleteTarget(null);
   }
 

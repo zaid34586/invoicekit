@@ -396,6 +396,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         Boolean(nextSession?.user?.email_confirmed_at) &&
         window.location.pathname !== "/accept-invitation" &&
         window.location.pathname !== "/login" &&
+        window.location.pathname !== "/reset-password" &&
         (verificationPending || cameFromVerificationLink);
 
       if (isAutoVerificationSession) {
